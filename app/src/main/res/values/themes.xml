@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Tema del sistema solo para la ventana/splash inicial — la UI real la
+         maneja Compose (core:designsystem/theme/Theme.kt), no este XML. -->
+    <style name="Theme.EsseAnalytics" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

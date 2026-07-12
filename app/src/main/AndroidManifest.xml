@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Fase 1: ACCESS_MEDIA_LOCATION / READ_MEDIA_VIDEO para el selector SAF -->
+
+    <application
+        android:name=".EsseAnalyticsApp"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:theme="@style/Theme.EsseAnalytics"
+        android:supportsRtl="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.EsseAnalytics">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Deep link de vuelta del OAuth de YouTube/Instagram/TikTok — ver
+                 Parte A del plan (backend/src/controllers/*-upload.controller.ts,
+                 popupResult con client=android). autoVerify queda en false: no
+                 hay un dominio propio sirviendo un assetlinks.json todavía, así
+                 que por ahora es un deep link común, no un App Link verificado. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="essenalytics" android:host="oauth-callback" />
+            </intent-filter>
+        </activity>
+
+    </application>
+
+</manifest>
