@@ -20,8 +20,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CloudUpload
-import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.outlined.CloudUpload
+import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
@@ -93,7 +93,7 @@ fun UploadScreen(
         PlaceholderScreen(
             title = "Nada para subir todavía",
             note = "Importá un video primero desde la pestaña Videos.",
-            icon = Icons.Filled.CloudUpload,
+            icon = Icons.Outlined.CloudUpload,
             modifier = modifier,
         )
         return
@@ -182,7 +182,7 @@ private fun UploadThumbnail(thumbnailPath: String?) {
             )
         } else {
             Icon(
-                Icons.Filled.VideoLibrary,
+                Icons.Outlined.VideoLibrary,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(18.dp),

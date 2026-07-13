@@ -16,12 +16,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChatBubble
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.QueryStats
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.outlined.ChatBubble
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Favorite
+import androidx.compose.material.icons.outlined.QueryStats
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -96,7 +96,7 @@ fun StatsScreen(modifier: Modifier = Modifier, viewModel: StatsViewModel = hiltV
                 modifier = Modifier.padding(end = 8.dp),
             )
             IconButton(onClick = viewModel::refresh) {
-                Icon(Icons.Filled.Refresh, contentDescription = "Actualizar")
+                Icon(Icons.Outlined.Refresh, contentDescription = "Actualizar")
             }
         }
 
@@ -108,7 +108,7 @@ fun StatsScreen(modifier: Modifier = Modifier, viewModel: StatsViewModel = hiltV
             is StatsUiState.Error -> PlaceholderScreen(
                 title = "No se pudo cargar",
                 note = current.message,
-                icon = Icons.Filled.ErrorOutline,
+                icon = Icons.Outlined.ErrorOutline,
                 iconTint = MaterialTheme.colorScheme.error,
             )
 
@@ -116,7 +116,7 @@ fun StatsScreen(modifier: Modifier = Modifier, viewModel: StatsViewModel = hiltV
                 PlaceholderScreen(
                     title = "Todavía no hay videos matcheados en las 3 redes",
                     note = "Completá los links en Ajustes → Sincronización → \"Emparejar entre plataformas\".",
-                    icon = Icons.Filled.QueryStats,
+                    icon = Icons.Outlined.QueryStats,
                 )
             } else {
                 LazyColumn(
@@ -151,9 +151,9 @@ private fun GroupStatsCard(item: GroupStatsItemDto) {
                         modifier = Modifier.padding(top = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        StatBadge(Icons.Filled.Visibility, formatNum(totalViews))
-                        StatBadge(Icons.Filled.Favorite, formatNum(totalLikes))
-                        StatBadge(Icons.Filled.ChatBubble, formatNum(totalComments))
+                        StatBadge(Icons.Outlined.Visibility, formatNum(totalViews))
+                        StatBadge(Icons.Outlined.Favorite, formatNum(totalLikes))
+                        StatBadge(Icons.Outlined.ChatBubble, formatNum(totalComments))
                     }
                 }
                 ViewsDonut(platforms = item.platforms, modifier = Modifier.padding(start = 8.dp))
@@ -217,9 +217,9 @@ private fun PlatformStatsRow(platform: Platform, slot: GroupStatsSlotDto) {
                 .padding(start = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            StatBadge(Icons.Filled.Visibility, formatNum(slot.views))
-            StatBadge(Icons.Filled.Favorite, formatNum(slot.likes))
-            StatBadge(Icons.Filled.ChatBubble, formatNum(slot.comments))
+            StatBadge(Icons.Outlined.Visibility, formatNum(slot.views))
+            StatBadge(Icons.Outlined.Favorite, formatNum(slot.likes))
+            StatBadge(Icons.Outlined.ChatBubble, formatNum(slot.comments))
         }
         if (slot.platformUrl.isNotBlank()) {
             Text(
@@ -249,7 +249,7 @@ private fun ViewsDonut(platforms: Map<String, GroupStatsSlotDto>, modifier: Modi
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                Icons.Filled.Visibility,
+                Icons.Outlined.Visibility,
                 contentDescription = "Todavía sin vistas",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(18.dp),

@@ -14,13 +14,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.PeopleOutline
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SearchOff
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.PeopleOutline
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.SearchOff
+import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -70,7 +70,7 @@ fun UsersScreen(modifier: Modifier = Modifier, viewModel: UsersViewModel = hiltV
                 value = query,
                 onValueChange = viewModel::onQueryChange,
                 placeholder = { Text("Buscar por usuario o email…") },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
                 singleLine = true,
                 modifier = Modifier.weight(1f),
             )
@@ -103,7 +103,7 @@ fun UsersScreen(modifier: Modifier = Modifier, viewModel: UsersViewModel = hiltV
             is UsersUiState.Error -> PlaceholderScreen(
                 title = "No se pudo cargar",
                 note = current.message,
-                icon = Icons.Filled.ErrorOutline,
+                icon = Icons.Outlined.ErrorOutline,
                 iconTint = MaterialTheme.colorScheme.error,
             )
 
@@ -111,7 +111,7 @@ fun UsersScreen(modifier: Modifier = Modifier, viewModel: UsersViewModel = hiltV
                 PlaceholderScreen(
                     title = if (query.isNotBlank()) "Sin resultados" else "No hay usuarios",
                     note = if (query.isNotBlank()) "Nada para \"$query\"." else "No hay usuarios en este filtro.",
-                    icon = if (query.isNotBlank()) Icons.Filled.SearchOff else Icons.Filled.PeopleOutline,
+                    icon = if (query.isNotBlank()) Icons.Outlined.SearchOff else Icons.Outlined.PeopleOutline,
                 )
             } else {
                 LazyColumn(
@@ -185,7 +185,7 @@ private fun UserCard(
                     Text(user.username, style = MaterialTheme.typography.titleSmall, maxLines = 1)
                     if (isPremium) {
                         Icon(
-                            Icons.Filled.Star,
+                            Icons.Outlined.Star,
                             contentDescription = "Premium",
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier
@@ -196,7 +196,7 @@ private fun UserCard(
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        Icons.Filled.Person,
+                        Icons.Outlined.Person,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(12.dp),
@@ -220,7 +220,7 @@ private fun UserCard(
                     Switch(checked = isPremium, onCheckedChange = { onToggleTier() }, enabled = !toggling)
                     IconButton(onClick = onRequestDeactivate) {
                         Icon(
-                            Icons.Filled.Delete,
+                            Icons.Outlined.Delete,
                             contentDescription = "Dar de baja",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

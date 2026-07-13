@@ -5,11 +5,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.CloudUpload
-import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.CloudUpload
+import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -65,10 +65,10 @@ private object Routes {
 private data class BottomDestination(val route: String, val label: String, val icon: ImageVector)
 
 private val bottomDestinations = listOf(
-    BottomDestination(Routes.LIBRARY, "Videos", Icons.Filled.VideoLibrary),
-    BottomDestination(Routes.CALENDAR, "Calendario", Icons.Filled.CalendarMonth),
-    BottomDestination(Routes.UPLOAD, "Subir", Icons.Filled.CloudUpload),
-    BottomDestination(Routes.MORE, "Más", Icons.Filled.MoreHoriz),
+    BottomDestination(Routes.LIBRARY, "Videos", Icons.Outlined.VideoLibrary),
+    BottomDestination(Routes.CALENDAR, "Calendario", Icons.Outlined.CalendarMonth),
+    BottomDestination(Routes.UPLOAD, "Subir", Icons.Outlined.CloudUpload),
+    BottomDestination(Routes.MORE, "Más", Icons.Outlined.MoreHoriz),
 )
 
 @Composable
@@ -237,7 +237,7 @@ private fun DetailScaffold(title: String, onBack: () -> Unit, content: @Composab
                 title = { Text(title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Volver")
                     }
                 },
             )

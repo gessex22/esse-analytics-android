@@ -15,9 +15,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.FloatingActionButton
@@ -70,7 +70,7 @@ fun LibraryScreen(
         modifier = modifier,
         floatingActionButton = {
             FloatingActionButton(onClick = onImportClick) {
-                Icon(Icons.Filled.Add, contentDescription = "Importar video")
+                Icon(Icons.Outlined.Add, contentDescription = "Importar video")
             }
         },
     ) { padding ->
@@ -78,7 +78,7 @@ fun LibraryScreen(
             PlaceholderScreen(
                 title = "Todavía no hay videos",
                 note = "Tocá + para importar uno, o compartilo desde Galería con \"Compartir → EsseAnalytics\".",
-                icon = Icons.Filled.VideoLibrary,
+                icon = Icons.Outlined.VideoLibrary,
                 modifier = Modifier.padding(padding),
             )
         } else {
@@ -138,7 +138,7 @@ private fun VideoFileCard(file: VideoFile, onClick: () -> Unit, onDeleteClick: (
 
             IconButton(onClick = onDeleteClick) {
                 Icon(
-                    Icons.Filled.Delete,
+                    Icons.Outlined.Delete,
                     contentDescription = "Eliminar video",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -263,7 +263,7 @@ private fun VideoThumbnail(thumbnailPath: String?) {
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    Icons.Filled.VideoLibrary,
+                    Icons.Outlined.VideoLibrary,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(18.dp),

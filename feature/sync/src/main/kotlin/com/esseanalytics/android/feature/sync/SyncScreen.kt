@@ -15,9 +15,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -182,7 +182,7 @@ private fun SectionHeader(title: String, subtitle: String, onRefresh: (() -> Uni
         }
         if (onRefresh != null) {
             IconButton(onClick = onRefresh) {
-                Icon(Icons.Filled.Refresh, contentDescription = "Actualizar")
+                Icon(Icons.Outlined.Refresh, contentDescription = "Actualizar")
             }
         }
     }
@@ -258,7 +258,7 @@ private fun CandidateCard(
             if (candidate.resolved.youtube != null && candidate.resolved.instagram != null && candidate.resolved.tiktok != null) {
                 Row(modifier = Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        Icons.Filled.Check,
+                        Icons.Outlined.Check,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(14.dp),
@@ -294,7 +294,7 @@ private fun PlatformChip(label: String, resolved: CrossMatchResolvedSlotDto?, op
     ) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = contentColor, fontWeight = FontWeight.Bold)
         Icon(
-            if (resolved != null) Icons.Filled.Check else Icons.Filled.Search,
+            if (resolved != null) Icons.Outlined.Check else Icons.Outlined.Search,
             contentDescription = null,
             tint = contentColor,
             modifier = Modifier
