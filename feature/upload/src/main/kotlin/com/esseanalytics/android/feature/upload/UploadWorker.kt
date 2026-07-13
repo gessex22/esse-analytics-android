@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
+import androidx.work.Data
 import androidx.work.ListenableWorker.Result
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
@@ -65,6 +66,7 @@ class UploadWorker @AssistedInject constructor(
             description = inputData.getString(KEY_DESCRIPTION) ?: "",
             privacyStatus = inputData.getString(KEY_PRIVACY) ?: "public",
             thumbnailOffsetMs = inputData.getLong(KEY_THUMBNAIL_OFFSET_MS, -1L).takeIf { it >= 0 },
+            crossPostFacebook = inputData.getBoolean(KEY_CROSS_POST_FACEBOOK, false),
         )
 
         try {
@@ -82,7 +84,35 @@ class UploadWorker @AssistedInject constructor(
                         title = title,
                     )
                     fileRepository.onPlatformPublished(fileId, platform, settingsStore.workflowMode.first())
-                    Result.success(workDataOf(KEY_RESULT_URL to result.platformUrl))
+
+                    // Facebook NO pasa por onPlatformPublished (no está en
+                    // Platform.publishable) -- si le pidiéramos eso también,
+                    // resolveOthersAsDiscarded en modo Simple descartaría
+                    // YouTube/TikTok si seguían pendientes, por un crosspost
+                    // que no tiene nada que ver con ellos. Un addPlatform
+                    // suelto alcanza, igual que desktop (fileRepo.addPlatform
+                    // (fileId, 'facebook') aparte de resolveOthersAsDiscarded).
+                    val fbOutputData = when (val fb = result.facebookCrossPost) {
+                        is FacebookCrossPostResult.Published -> {
+                            platformVideoRepository.upsertPublished(
+                                platform = Platform.FACEBOOK,
+                                platformId = fb.videoId,
+                                platformUrl = fb.url,
+                                linkedFileId = fileId,
+                                title = title,
+                            )
+                            fileRepository.addPlatform(fileId, Platform.FACEBOOK)
+                            workDataOf(KEY_FACEBOOK_URL to fb.url)
+                        }
+                        is FacebookCrossPostResult.Failed -> workDataOf(KEY_FACEBOOK_ERROR to fb.message)
+                        null -> workDataOf()
+                    }
+
+                    val outputData = Data.Builder()
+                        .putAll(workDataOf(KEY_RESULT_URL to result.platformUrl))
+                        .putAll(fbOutputData)
+                        .build()
+                    Result.success(outputData)
                 }
                 is UploadResult.Failure -> {
                     if (result.retryable && runAttemptCount < MAX_RETRIES) {
@@ -129,8 +159,11 @@ class UploadWorker @AssistedInject constructor(
         const val KEY_DESCRIPTION = "description"
         const val KEY_PRIVACY = "privacy"
         const val KEY_THUMBNAIL_OFFSET_MS = "thumbnailOffsetMs"
+        const val KEY_CROSS_POST_FACEBOOK = "crossPostFacebook"
         const val KEY_PROGRESS = "progress"
         const val KEY_RESULT_URL = "resultUrl"
+        const val KEY_FACEBOOK_URL = "facebookUrl"
+        const val KEY_FACEBOOK_ERROR = "facebookError"
         const val KEY_ERROR = "error"
         private const val MAX_RETRIES = 3
 
@@ -143,6 +176,8 @@ class UploadWorker @AssistedInject constructor(
             // -1 = sin elegir (ver doWork, .takeIf { it >= 0 }) -- workDataOf
             // no acepta Long? nullable directo.
             KEY_THUMBNAIL_OFFSET_MS to (metadata.thumbnailOffsetMs ?: -1L),
+            // Solo importa cuando platform == INSTAGRAM, ver UploadMetadata.
+            KEY_CROSS_POST_FACEBOOK to metadata.crossPostFacebook,
         )
     }
 }

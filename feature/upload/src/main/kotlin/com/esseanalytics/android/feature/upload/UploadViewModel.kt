@@ -51,10 +51,16 @@ class UploadViewModel @Inject constructor(
         title: String,
         description: String,
         thumbnailOffsetMs: Long? = null,
+        crossPostFacebook: Boolean = false,
     ) {
         viewModelScope.launch {
             val networkType = if (settingsStore.wifiOnlyUploads.first()) NetworkType.UNMETERED else NetworkType.CONNECTED
-            val metadata = UploadMetadata(title = title, description = description, thumbnailOffsetMs = thumbnailOffsetMs)
+            val metadata = UploadMetadata(
+                title = title,
+                description = description,
+                thumbnailOffsetMs = thumbnailOffsetMs,
+                crossPostFacebook = crossPostFacebook,
+            )
 
             platforms.forEach { platform ->
                 val request = OneTimeWorkRequestBuilder<UploadWorker>()

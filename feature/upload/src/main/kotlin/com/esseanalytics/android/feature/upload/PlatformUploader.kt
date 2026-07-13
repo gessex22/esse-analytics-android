@@ -12,11 +12,28 @@ data class UploadMetadata(
     // frame capturado como imagen aparte (thumbnails.set), Instagram/TikTok
     // solo el timestamp -- cada uploader lo usa distinto, ver el suyo.
     val thumbnailOffsetMs: Long? = null,
+    // Solo lo usa InstagramUploader -- Facebook no es una plataforma publicable
+    // por separado (ver Platform.publishable), es un crosspost del MISMO
+    // archivo que Instagram ya aceptó, igual que desktop (instagram-upload
+    // .controller.ts, checkbox "También publicar en Facebook").
+    val crossPostFacebook: Boolean = false,
 )
 
 sealed interface UploadResult {
-    data class Success(val platformId: String, val platformUrl: String) : UploadResult
+    data class Success(
+        val platformId: String,
+        val platformUrl: String,
+        val facebookCrossPost: FacebookCrossPostResult? = null,
+    ) : UploadResult
     data class Failure(val message: String, val retryable: Boolean) : UploadResult
+}
+
+// No-fatal a propósito: si Facebook falla, Instagram ya se publicó igual --
+// mismo criterio que desktop (facebookUrl/facebookError en la misma respuesta
+// de uploadToInstagram, nunca hace fallar la subida a Instagram por esto).
+sealed interface FacebookCrossPostResult {
+    data class Published(val videoId: String, val url: String) : FacebookCrossPostResult
+    data class Failed(val message: String) : FacebookCrossPostResult
 }
 
 // Implementado por YoutubeUploader / InstagramUploader / TiktokUploader en

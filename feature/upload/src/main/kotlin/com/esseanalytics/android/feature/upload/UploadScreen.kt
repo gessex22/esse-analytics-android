@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -47,6 +46,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.work.Data
 import androidx.work.WorkInfo
 import coil.compose.AsyncImage
 import com.esseanalytics.android.core.designsystem.component.PlaceholderScreen
@@ -204,6 +204,7 @@ private fun PublishForm(file: VideoFile, viewModel: UploadViewModel, onBackToLis
         )
     }
     var thumbnailOffsetSec by remember(file.id) { mutableFloatStateOf(0f) }
+    var crossPostFacebook by remember(file.id) { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -267,6 +268,18 @@ private fun PublishForm(file: VideoFile, viewModel: UploadViewModel, onBackToLis
                 },
                 viewModel = viewModel,
             )
+            // Facebook no es una plataforma publicable aparte (no está en
+            // Platform.publishable) -- es un crosspost del MISMO archivo que
+            // Instagram acepta, vía la Reels Publishing API de la Página
+            // vinculada (ver InstagramUploader.publishReelToFacebookPage).
+            // Solo tiene sentido si Instagram va a subirse en esta tanda.
+            if (platform == Platform.INSTAGRAM) {
+                FacebookCrossPostRow(
+                    checked = crossPostFacebook,
+                    enabled = Platform.INSTAGRAM in selectedPlatforms,
+                    onCheckedChange = { crossPostFacebook = it },
+                )
+            }
         }
 
         Button(
@@ -277,6 +290,7 @@ private fun PublishForm(file: VideoFile, viewModel: UploadViewModel, onBackToLis
                     title,
                     description,
                     thumbnailOffsetMs = (thumbnailOffsetSec * 1000).toLong(),
+                    crossPostFacebook = crossPostFacebook && Platform.INSTAGRAM in selectedPlatforms,
                 )
             },
             enabled = selectedPlatforms.isNotEmpty() && title.isNotBlank(),
@@ -284,6 +298,25 @@ private fun PublishForm(file: VideoFile, viewModel: UploadViewModel, onBackToLis
                 .fillMaxWidth()
                 .padding(top = 24.dp),
         ) { Text("Publicar") }
+    }
+}
+
+@Composable
+private fun FacebookCrossPostRow(checked: Boolean, enabled: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 40.dp, bottom = 4.dp),
+    ) {
+        Checkbox(checked = checked && enabled, enabled = enabled, onCheckedChange = onCheckedChange)
+        Column(modifier = Modifier.padding(top = 12.dp)) {
+            Text("También publicar en Facebook", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "Mismo video, como Reel en la Página vinculada a tu cuenta de Instagram.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -387,6 +420,13 @@ private fun PlatformRow(
         Column(modifier = Modifier.padding(top = 12.dp)) {
             Text(platform.apiValue, style = MaterialTheme.typography.bodyLarge)
             PlatformStatusLabel(alreadyDone = alreadyDone, workInfo = workInfo)
+            // El crosspost a Facebook viaja en el MISMO WorkInfo que Instagram
+            // (ver UploadWorker) -- no es una plataforma con su propio job.
+            if (platform == Platform.INSTAGRAM) {
+                workInfo?.takeIf { it.state == WorkInfo.State.SUCCEEDED }?.let { info ->
+                    FacebookCrossPostStatus(info.outputData)
+                }
+            }
         }
     }
 }
@@ -418,6 +458,29 @@ private fun PlatformStatusLabel(alreadyDone: Boolean, workInfo: WorkInfo?) {
         )
         workInfo?.state == WorkInfo.State.FAILED -> Text(
             workInfo.outputData.getString(UploadWorker.KEY_ERROR) ?: "Falló la subida",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+        else -> Unit
+    }
+}
+
+// No-fatal: si no se pidió crosspost, ninguna de las 2 claves está en el
+// output y no se muestra nada acá -- si se pidió y falló, Instagram arriba
+// igual dice "Subido ✓" (es verdad, se publicó bien) y esto muestra el error
+// real en vez de fingir que Facebook también salió.
+@Composable
+private fun FacebookCrossPostStatus(outputData: Data) {
+    val facebookUrl = outputData.getString(UploadWorker.KEY_FACEBOOK_URL)
+    val facebookError = outputData.getString(UploadWorker.KEY_FACEBOOK_ERROR)
+    when {
+        facebookUrl != null -> Text(
+            "Facebook: publicado ✓",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        facebookError != null -> Text(
+            "Facebook: $facebookError",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.error,
         )
