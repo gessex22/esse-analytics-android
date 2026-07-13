@@ -58,8 +58,8 @@ import java.io.File
 // cuando se toca un video ahí en vez de entrar por la pestaña "Subir".
 @Composable
 fun UploadScreen(
-    initialFileId: Long? = null,
     modifier: Modifier = Modifier,
+    initialFileId: Long? = null,
     viewModel: UploadViewModel = hiltViewModel(),
 ) {
     val files by viewModel.files.collectAsState()

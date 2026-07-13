@@ -220,7 +220,7 @@ private fun PlatformStatsRow(platform: Platform, slot: GroupStatsSlotDto) {
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier
                     .padding(start = 4.dp)
-                    .clickable(onClick = { uriHandler.openUri(slot.platformUrl) }),
+                    .clickable { uriHandler.openUri(slot.platformUrl) },
             )
         }
     }

@@ -50,7 +50,6 @@ import com.esseanalytics.android.feature.upload.UploadScreen
 import com.esseanalytics.android.feature.users.UsersScreen
 
 private object Routes {
-    const val LOGIN = "login"
     const val LIBRARY = "library"
     const val CALENDAR = "calendar"
     const val UPLOAD = "upload"

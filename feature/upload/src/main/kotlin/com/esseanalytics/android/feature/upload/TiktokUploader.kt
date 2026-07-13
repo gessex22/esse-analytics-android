@@ -5,6 +5,7 @@ import com.esseanalytics.android.core.network.di.PlatformOkHttp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -29,7 +30,7 @@ import kotlin.math.ceil
 @Singleton
 class TiktokUploader @Inject constructor(
     private val platformAuthApi: PlatformAuthApi,
-    @PlatformOkHttp private val httpClient: OkHttpClient,
+    @field:PlatformOkHttp private val httpClient: OkHttpClient,
 ) : PlatformUploader {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -118,7 +119,7 @@ class TiktokUploader @Inject constructor(
             for (chunkIndex in 0 until totalChunks) {
                 val start = chunkIndex * chunkSize
                 val end = minOf(start + chunkSize, videoSize) - 1
-                val length = (end - start + 1).toInt()
+                val length = (end - start + 1L).toInt()
                 val buffer = ByteArray(length)
                 raf.seek(start)
                 raf.readFully(buffer)
@@ -140,7 +141,7 @@ class TiktokUploader @Inject constructor(
 
     private suspend fun pollUntilComplete(token: String, publishId: String): TiktokStatusData? {
         repeat(MAX_POLL_ATTEMPTS) {
-            delay(POLL_INTERVAL_MS)
+            delay(POLL_INTERVAL_MS.milliseconds)
             val body = json.encodeToString(TiktokStatusRequest(publishId))
             val request = Request.Builder()
                 .url("https://open.tiktokapis.com/v2/post/publish/status/fetch/")

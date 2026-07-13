@@ -49,14 +49,12 @@ fun SettingsScreen(modifier: Modifier = Modifier, viewModel: SettingsViewModel =
                 label = "Rojo",
                 swatch = Color(0xFFE63946),
                 selected = colorTheme == "rojo",
-                onClick = { viewModel.setColorTheme("rojo") },
-            )
+            ) { viewModel.setColorTheme("rojo") }
             ThemeOptionRow(
                 label = "Ámbar",
                 swatch = Color(0xFFF59E0B),
                 selected = colorTheme == "ambar",
-                onClick = { viewModel.setColorTheme("ambar") },
-            )
+            ) { viewModel.setColorTheme("ambar") }
         }
 
         SettingsSection(title = "Modo de flujo") {
@@ -64,14 +62,12 @@ fun SettingsScreen(modifier: Modifier = Modifier, viewModel: SettingsViewModel =
                 label = "Simple",
                 description = "Publicar en una red descarta automáticamente las otras 2 pendientes.",
                 selected = workflowMode == WorkflowMode.SIMPLE,
-                onClick = { viewModel.setWorkflowMode(WorkflowMode.SIMPLE) },
-            )
+            ) { viewModel.setWorkflowMode(WorkflowMode.SIMPLE) }
             RadioOptionRow(
                 label = "Avanzado",
                 description = "Cada plataforma se controla por separado, sin auto-descarte.",
                 selected = workflowMode == WorkflowMode.AVANZADO,
-                onClick = { viewModel.setWorkflowMode(WorkflowMode.AVANZADO) },
-            )
+            ) { viewModel.setWorkflowMode(WorkflowMode.AVANZADO) }
         }
 
         SettingsSection(title = "Subidas") {
@@ -102,7 +98,7 @@ fun SettingsScreen(modifier: Modifier = Modifier, viewModel: SettingsViewModel =
 
 @Composable
 private fun LogoutRow(onLogout: () -> Unit) {
-    var confirming by remember { mutableStateOf(false) }
+    var confirming by remember { mutableStateOf(value = false) }
 
     if (confirming) {
         Row(

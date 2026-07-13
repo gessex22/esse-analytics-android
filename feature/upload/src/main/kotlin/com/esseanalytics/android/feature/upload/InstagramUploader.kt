@@ -5,6 +5,7 @@ import com.esseanalytics.android.core.network.di.PlatformOkHttp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -31,7 +32,7 @@ import javax.inject.Singleton
 @Singleton
 class InstagramUploader @Inject constructor(
     private val platformAuthApi: PlatformAuthApi,
-    @PlatformOkHttp private val httpClient: OkHttpClient,
+    @field:PlatformOkHttp private val httpClient: OkHttpClient,
 ) : PlatformUploader {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -116,7 +117,7 @@ class InstagramUploader @Inject constructor(
 
     private suspend fun pollUntilFinished(containerId: String, token: String): PollResult {
         repeat(MAX_POLL_ATTEMPTS) {
-            delay(POLL_INTERVAL_MS)
+            delay(POLL_INTERVAL_MS.milliseconds)
             val request = Request.Builder()
                 .url("https://graph.facebook.com/v22.0/$containerId?fields=status_code,status&access_token=$token")
                 .get()

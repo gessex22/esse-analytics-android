@@ -10,6 +10,7 @@ import com.esseanalytics.android.core.network.dto.SetYoutubeThumbnailRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -34,7 +35,7 @@ import javax.inject.Singleton
 class YoutubeUploader @Inject constructor(
     private val platformAuthApi: PlatformAuthApi,
     private val thumbnailGenerator: AndroidFrameThumbnailGenerator,
-    @PlatformOkHttp private val httpClient: OkHttpClient,
+    @field:PlatformOkHttp private val httpClient: OkHttpClient,
 ) : PlatformUploader {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -84,7 +85,7 @@ class YoutubeUploader @Inject constructor(
                 platformAuthApi.setYoutubeThumbnail(videoId, SetYoutubeThumbnailRequest("data:image/jpeg;base64,$base64"))
             }.isSuccess
             if (success) return
-            if (attempt < THUMBNAIL_SET_ATTEMPTS - 1) delay(THUMBNAIL_SET_RETRY_DELAY_MS)
+            if (attempt < THUMBNAIL_SET_ATTEMPTS - 1) delay(THUMBNAIL_SET_RETRY_DELAY_MS.milliseconds)
         }
     }
 
