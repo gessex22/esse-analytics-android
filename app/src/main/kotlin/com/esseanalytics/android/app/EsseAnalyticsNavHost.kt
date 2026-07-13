@@ -41,6 +41,7 @@ import com.esseanalytics.android.feature.calendar.CalendarScreen
 import com.esseanalytics.android.feature.gems.GemsScreen
 import com.esseanalytics.android.feature.ingest.IngestScreen
 import com.esseanalytics.android.feature.library.LibraryScreen
+import com.esseanalytics.android.feature.settings.SettingsScreen
 import com.esseanalytics.android.feature.stats.StatsScreen
 import com.esseanalytics.android.feature.sync.SyncScreen
 import com.esseanalytics.android.feature.upload.UploadScreen
@@ -57,6 +58,7 @@ private object Routes {
     const val USERS = "users"
     const val GEMS = "gems"
     const val INGEST = "ingest"
+    const val SETTINGS = "settings"
 }
 
 private data class BottomDestination(val route: String, val label: String, val icon: ImageVector)
@@ -165,6 +167,9 @@ private fun MainAppScaffold(
             composable(Routes.GEMS) {
                 DetailScaffold("Gemas", onBack = navController::popBackStack) { GemsScreen() }
             }
+            composable(Routes.SETTINGS) {
+                DetailScaffold("Ajustes", onBack = navController::popBackStack) { SettingsScreen() }
+            }
         }
     }
 }
@@ -183,6 +188,7 @@ private fun MoreScreen(navController: NavHostController, isOwner: Boolean) {
             MoreItem("Usuarios") { navController.navigate(Routes.USERS) }
         }
         MoreItem("Gemas") { navController.navigate(Routes.GEMS) }
+        MoreItem("Ajustes") { navController.navigate(Routes.SETTINGS) }
     }
 }
 

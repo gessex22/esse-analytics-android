@@ -9,11 +9,15 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.esseanalytics.android.core.datastore.SettingsStore
+import com.esseanalytics.android.core.designsystem.theme.EsseAnalyticsColorTheme
 import com.esseanalytics.android.core.designsystem.theme.EsseAnalyticsTheme
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 // Single-activity: toda la navegación vive en EsseAnalyticsNavHost (Compose
 // Navigation). El deep link essenalytics://oauth-callback (ver AndroidManifest
@@ -29,6 +33,9 @@ import dagger.hilt.android.AndroidEntryPoint
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
+    @Inject
+    lateinit var settingsStore: SettingsStore
+
     private var pendingImportUris by mutableStateOf<List<Uri>>(emptyList())
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,7 +50,10 @@ class MainActivity : ComponentActivity() {
         )
         handleIncomingIntent(intent)
         setContent {
-            EsseAnalyticsTheme {
+            val colorThemeRaw by settingsStore.colorTheme.collectAsState(initial = "rojo")
+            val colorTheme = if (colorThemeRaw == "ambar") EsseAnalyticsColorTheme.AMBAR else EsseAnalyticsColorTheme.ROJO
+
+            EsseAnalyticsTheme(colorTheme = colorTheme) {
                 EsseAnalyticsNavHost(
                     pendingImportUris = pendingImportUris,
                     onPendingImportUrisConsumed = { pendingImportUris = emptyList() },

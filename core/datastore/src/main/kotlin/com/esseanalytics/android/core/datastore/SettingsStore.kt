@@ -50,6 +50,16 @@ class SettingsStore @Inject constructor(
         context.dataStore.edit { it[KEY_DELETE_ORIGINAL] = enabled }
     }
 
+    // "rojo" | "ambar" -- valor crudo, no el enum de core:designsystem
+    // (EsseAnalyticsColorTheme): core:datastore no depende de designsystem
+    // a propósito (iría en contra del sentido de la dependencia), así que el
+    // mapeo string→enum vive en :app, que ya depende de los dos.
+    val colorTheme: Flow<String> = context.dataStore.data.map { it[KEY_COLOR_THEME] ?: "rojo" }
+
+    suspend fun setColorTheme(value: String) {
+        context.dataStore.edit { it[KEY_COLOR_THEME] = value }
+    }
+
     // UUID persistido una sola vez — ≥16 chars, como pide POST /api/auth/link-install.
     suspend fun getOrCreateInstallId(): String {
         val existing = context.dataStore.data.map { it[KEY_INSTALL_ID] }.first()
@@ -64,5 +74,6 @@ class SettingsStore @Inject constructor(
         val KEY_WIFI_ONLY = booleanPreferencesKey("wifi_only_uploads")
         val KEY_INSTALL_ID = stringPreferencesKey("install_id")
         val KEY_DELETE_ORIGINAL = booleanPreferencesKey("delete_original_after_import")
+        val KEY_COLOR_THEME = stringPreferencesKey("color_theme")
     }
 }

@@ -42,6 +42,7 @@ dependencies {
     implementation(project(":feature:stats"))
     implementation(project(":feature:users"))
     implementation(project(":feature:gems"))
+    implementation(project(":feature:settings"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

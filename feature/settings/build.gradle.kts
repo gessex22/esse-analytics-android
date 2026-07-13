@@ -1,0 +1,11 @@
+plugins {
+    alias(libs.plugins.essenalytics.android.feature)
+}
+
+android {
+    namespace = "com.esseanalytics.android.feature.settings"
+}
+
+dependencies {
+    implementation(project(":core:datastore"))
+}
