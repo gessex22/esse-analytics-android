@@ -3,17 +3,28 @@ package com.esseanalytics.android.app
 import android.net.Uri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CloudUpload
+import androidx.compose.material.icons.outlined.Diamond
 import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.PeopleOutline
+import androidx.compose.material.icons.outlined.QueryStats
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.VideoLibrary
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -25,8 +36,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -203,25 +216,105 @@ private fun MainAppScaffold(
 // Estadísticas, Usuarios y Gemas viven acá, no en la nav principal. Usuarios
 // es owner-only (la central igual 403-earía, pero no tiene sentido mostrar
 // una entrada que va a fallar seguro).
+//
+// Antes era un ListItem con solo el nombre -- una lista de texto plano no se
+// distingue en nada de cualquier otra pantalla genérica de Android. Ahora
+// cada fila tiene ícono + descripción corta + flecha, agrupadas en una sola
+// tarjeta (mismo patrón "settings list" que iOS/Android usan para esto,
+// elevation=0.dp para que coincida con el resto de las Card() de la app).
 @Composable
 private fun MoreScreen(navController: NavHostController, isOwner: Boolean) {
-    Column {
-        MoreItem("Sincronización") { navController.navigate(Routes.SYNC) }
-        MoreItem("Estadísticas") { navController.navigate(Routes.STATS) }
-        if (isOwner) {
-            MoreItem("Usuarios") { navController.navigate(Routes.USERS) }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+    ) {
+        Text(
+            "Más",
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(start = 4.dp, bottom = 12.dp),
+        )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        ) {
+            Column {
+                MoreItem(
+                    icon = Icons.Outlined.Sync,
+                    label = "Sincronización",
+                    description = "Emparejar videos entre plataformas",
+                    onClick = { navController.navigate(Routes.SYNC) },
+                )
+                HorizontalDivider()
+                MoreItem(
+                    icon = Icons.Outlined.QueryStats,
+                    label = "Estadísticas",
+                    description = "Vistas, likes y comentarios por red",
+                    onClick = { navController.navigate(Routes.STATS) },
+                )
+                if (isOwner) {
+                    HorizontalDivider()
+                    MoreItem(
+                        icon = Icons.Outlined.PeopleOutline,
+                        label = "Usuarios",
+                        description = "Administrar cuentas de la app",
+                        onClick = { navController.navigate(Routes.USERS) },
+                    )
+                }
+                HorizontalDivider()
+                MoreItem(
+                    icon = Icons.Outlined.Diamond,
+                    label = "Gemas",
+                    description = "Herramientas auxiliares (solo Windows)",
+                    onClick = { navController.navigate(Routes.GEMS) },
+                )
+                HorizontalDivider()
+                MoreItem(
+                    icon = Icons.Outlined.Settings,
+                    label = "Ajustes",
+                    description = "Tema, flujo de trabajo, cuenta",
+                    onClick = { navController.navigate(Routes.SETTINGS) },
+                )
+            }
         }
-        MoreItem("Gemas") { navController.navigate(Routes.GEMS) }
-        MoreItem("Ajustes") { navController.navigate(Routes.SETTINGS) }
     }
 }
 
 @Composable
-private fun MoreItem(label: String, onClick: () -> Unit) {
-    ListItem(
-        headlineContent = { Text(label) },
-        modifier = Modifier.clickable(onClick = onClick),
-    )
+private fun MoreItem(icon: ImageVector, label: String, description: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(22.dp),
+        )
+        Column(
+            modifier = Modifier
+                .padding(start = 16.dp)
+                .weight(1f),
+        ) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                description,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Icon(
+            Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp),
+        )
+    }
 }
 
 // Las 4 pantallas que cuelgan de "Más" no tienen bottom bar propia para
