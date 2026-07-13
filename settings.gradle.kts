@@ -13,6 +13,17 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
     }
+    // Declarado explícito (no solo por convención de carpeta) — en setups con
+    // includeBuild("build-logic") que declara su propio catálogo "libs", el
+    // catálogo implícito del root a veces no se genera bien para el sync del
+    // IDE. Ver: los alias libs.plugins.* (resueltos a nivel de settings) andaban
+    // bien, pero libs.<libreria> (resuelto a nivel de proyecto) tiraba
+    // "Unresolved reference" — exactamente el síntoma de este bug conocido.
+    versionCatalogs {
+        create("libs") {
+            from(files("gradle/libs.versions.toml"))
+        }
+    }
 }
 
 rootProject.name = "EsseAnalytics"
