@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Tema del sistema solo para la ventana/splash inicial — la UI real la
-         maneja Compose (core:designsystem/theme/Theme.kt), no este XML. -->
-    <style name="Theme.EsseAnalytics" parent="android:Theme.Material.Light.NoActionBar" />
+         maneja Compose (core:designsystem/theme/Theme.kt), no este XML. Dark
+         a propósito: EsseAnalyticsTheme fuerza dark siempre (sin light mode
+         real, ver Color.kt), así que el fondo de arranque tiene que matchear
+         o se ve un flash blanco antes de que Compose termine de dibujar. -->
+    <style name="Theme.EsseAnalytics" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#0D0D0F</item>
+    </style>
 </resources>

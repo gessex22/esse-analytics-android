@@ -11,10 +11,27 @@ val YoutubeRed = Color(0xFFEF4444)
 val InstagramPurple = Color(0xFFA855F7)
 val TiktokPink = Color(0xFFEC4899)
 
-val PrimaryLight = Color(0xFF2A78D6)
-val PrimaryDark = Color(0xFF6FA8E8)
+// Portados 1:1 de frontend/src/styles/theme.css — el frontend web es
+// dark-only (el bloque .dark/:root claro de ahí es boilerplate de shadcn sin
+// usar, nunca se aplica) con dos temas de color conmutables por
+// localStorage['videx-theme']: "rojo" (default) y "ámbar". Se define acá el
+// tema completo "ámbar" también para cuando exista un selector de tema en
+// Ajustes (Fase 2) — hoy solo se usa el de "rojo".
 
-val BackgroundLight = Color(0xFFFCFCFB)
-val BackgroundDark = Color(0xFF0D0D0F)
-val SurfaceLight = Color(0xFFFFFFFF)
-val SurfaceDark = Color(0xFF141417)
+// Tema "rojo" (default) — theme.css:185-206
+val PrimaryRojo = Color(0xFFE63946)
+val BackgroundRojo = Color(0xFF0D0D0F)
+val SurfaceRojo = Color(0xFF141417) // --card
+val OnSurfaceRojo = Color(0xFFF0F0F2) // --foreground / --card-foreground
+val SurfaceVariantRojo = Color(0xFF1A1A20) // --muted
+val OnSurfaceVariantRojo = Color(0xFF6B6B7A) // --muted-foreground
+val OutlineRojo = Color(0x14FFFFFF) // --border: rgba(255,255,255,0.08)
+
+// Tema "ámbar" (alterno) — theme.css:208-229
+val PrimaryAmbar = Color(0xFFF59E0B)
+val BackgroundAmbar = Color(0xFF0A0A0A)
+val SurfaceAmbar = Color(0xFF111111)
+val OnSurfaceAmbar = Color(0xFFF5F0E8)
+val SurfaceVariantAmbar = Color(0xFF161616)
+val OnSurfaceVariantAmbar = Color(0xFF6B6355)
+val OutlineAmbar = Color(0x1FF59E0B) // --border: rgba(245,158,11,0.12)
