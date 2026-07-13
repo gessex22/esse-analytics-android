@@ -53,5 +53,7 @@ interface NormalizeProcessor {
     suspend fun normalize(input: File, output: File): Result<Unit>
 }
 
-// Implementaciones + binding de Hilt: pendientes de Fase 1, una vez resuelto
-// qué motor de ffmpeg se usa — ver el comentario en build.gradle.kts.
+// MediaProber ya tiene implementación real (AndroidMediaProber.kt, sin
+// ffmpeg) y su binding en di/MediaModule.kt. Thumbnail/Trim/Normalize siguen
+// pendientes, una vez resuelto qué motor de ffmpeg se usa — ver el comentario
+// en build.gradle.kts.

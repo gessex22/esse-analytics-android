@@ -1,5 +1,6 @@
 package com.esseanalytics.android.app
 
+import android.net.Uri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -21,6 +22,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -37,6 +39,7 @@ import com.esseanalytics.android.core.datastore.AuthState
 import com.esseanalytics.android.feature.auth.LoginScreen
 import com.esseanalytics.android.feature.calendar.CalendarScreen
 import com.esseanalytics.android.feature.gems.GemsScreen
+import com.esseanalytics.android.feature.ingest.IngestScreen
 import com.esseanalytics.android.feature.library.LibraryScreen
 import com.esseanalytics.android.feature.stats.StatsScreen
 import com.esseanalytics.android.feature.sync.SyncScreen
@@ -53,6 +56,7 @@ private object Routes {
     const val STATS = "stats"
     const val USERS = "users"
     const val GEMS = "gems"
+    const val INGEST = "ingest"
 }
 
 private data class BottomDestination(val route: String, val label: String, val icon: ImageVector)
@@ -65,18 +69,35 @@ private val bottomDestinations = listOf(
 )
 
 @Composable
-fun EsseAnalyticsNavHost(sessionViewModel: SessionViewModel = hiltViewModel()) {
+fun EsseAnalyticsNavHost(
+    pendingImportUris: List<Uri> = emptyList(),
+    onPendingImportUrisConsumed: () -> Unit = {},
+    sessionViewModel: SessionViewModel = hiltViewModel(),
+) {
     val authState by sessionViewModel.authState.collectAsState()
     val navController = rememberNavController()
 
     when (authState) {
         is AuthState.LoggedOut -> LoginScreen(onLoggedIn = { /* authState cambia solo, ver TokenStore */ })
-        is AuthState.LoggedIn -> MainAppScaffold(navController)
+        is AuthState.LoggedIn -> MainAppScaffold(navController, pendingImportUris, onPendingImportUrisConsumed)
     }
 }
 
 @Composable
-private fun MainAppScaffold(navController: NavHostController) {
+private fun MainAppScaffold(
+    navController: NavHostController,
+    pendingImportUris: List<Uri>,
+    onPendingImportUrisConsumed: () -> Unit,
+) {
+    // Un video compartido desde otra app (Galería, Archivos) llega acá vía
+    // MainActivity — si la app estaba en cualquier otra pantalla, la manda a
+    // Importar apenas hay algo pendiente, sin que el usuario tenga que buscarla.
+    LaunchedEffect(pendingImportUris) {
+        if (pendingImportUris.isNotEmpty()) {
+            navController.navigate(Routes.INGEST)
+        }
+    }
+
     Scaffold(
         bottomBar = {
             val backStackEntry by navController.currentBackStackEntryAsState()
@@ -112,10 +133,20 @@ private fun MainAppScaffold(navController: NavHostController) {
             startDestination = Routes.LIBRARY,
             modifier = Modifier.padding(padding),
         ) {
-            composable(Routes.LIBRARY) { LibraryScreen() }
+            composable(Routes.LIBRARY) {
+                LibraryScreen(onImportClick = { navController.navigate(Routes.INGEST) })
+            }
             composable(Routes.CALENDAR) { CalendarScreen() }
             composable(Routes.UPLOAD) { UploadScreen() }
             composable(Routes.MORE) { MoreScreen(navController) }
+            composable(Routes.INGEST) {
+                DetailScaffold("Importar video", onBack = navController::popBackStack) {
+                    IngestScreen(
+                        pendingUris = pendingImportUris,
+                        onPendingUrisConsumed = onPendingImportUrisConsumed,
+                    )
+                }
+            }
             composable(Routes.SYNC) {
                 DetailScaffold("Sincronización", onBack = navController::popBackStack) { SyncScreen() }
             }

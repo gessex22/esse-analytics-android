@@ -3,7 +3,9 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- Fase 1: ACCESS_MEDIA_LOCATION / READ_MEDIA_VIDEO para el selector SAF -->
+    <!-- NO hace falta READ_MEDIA_VIDEO: tanto el Share Sheet como
+         OpenMultipleDocuments (SAF) entregan un Uri con permiso de lectura
+         de ese archivo puntual sin pedir un permiso de storage aparte. -->
 
     <application
         android:name=".EsseAnalyticsApp"
@@ -33,6 +35,20 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="essenalytics" android:host="oauth-callback" />
+            </intent-filter>
+
+            <!-- Share Sheet: "Compartir → EsseAnalytics" desde Galería/Archivos
+                 — camino principal de ingesta (ver plan, sección "Ingesta de
+                 videos"). MainActivity los recibe en onCreate/onNewIntent. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="video/*" />
             </intent-filter>
         </activity>
 
