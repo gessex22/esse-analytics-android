@@ -1,12 +1,15 @@
 package com.esseanalytics.android.app
 
 import android.net.Uri
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
@@ -14,11 +17,14 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Diamond
 import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.PeopleOutline
 import androidx.compose.material.icons.outlined.QueryStats
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.VideoLibrary
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,6 +38,8 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -39,6 +47,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -100,16 +111,19 @@ fun EsseAnalyticsNavHost(
             pendingImportUris,
             onPendingImportUrisConsumed,
             isOwner = current.user.isOwner,
+            username = current.user.username,
         )
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MainAppScaffold(
     navController: NavHostController,
     pendingImportUris: List<Uri>,
     onPendingImportUrisConsumed: () -> Unit,
     isOwner: Boolean,
+    username: String,
 ) {
     // Un video compartido desde otra app (Galería, Archivos) llega acá vía
     // MainActivity — si la app estaba en cualquier otra pantalla, la manda a
@@ -120,7 +134,24 @@ private fun MainAppScaffold(
         }
     }
 
+    // enterAlwaysScrollBehavior: la barra entera se oculta apenas empezás a
+    // bajar y reaparece apenas subís un poco (estilo apps de redes), a
+    // diferencia de exitUntilCollapsed que la reduce pero nunca la esconde
+    // del todo. El nestedScroll va en el Scaffold de acá afuera -- así
+    // cualquier lista scrolleable de cualquier pantalla del bottom nav
+    // (Biblioteca, Calendario, Subir) hace que colapse, sin repetir el cable
+    // en cada una.
+    val topBarScrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+
     Scaffold(
+        modifier = Modifier.nestedScroll(topBarScrollBehavior.nestedScrollConnection),
+        topBar = {
+            AppTopBar(
+                username = username,
+                scrollBehavior = topBarScrollBehavior,
+                onAvatarClick = { navController.navigate(Routes.SETTINGS) },
+            )
+        },
         bottomBar = {
             val backStackEntry by navController.currentBackStackEntryAsState()
             val currentDestination = backStackEntry?.destination
@@ -208,6 +239,69 @@ private fun MainAppScaffold(
                 DetailScaffold("Ajustes", onBack = navController::popBackStack) { SettingsScreen() }
             }
         }
+    }
+}
+
+// Barra compartida por las 4 pestañas del bottom nav (Videos/Calendario/
+// Subir/Más) -- un solo topBar en el Scaffold de MainAppScaffold, no uno por
+// pantalla. Logo + nombre a la izquierda (mismo ícono que el launcher real,
+// ver AndroidManifest/res/drawable-xxxhdpi), campana de notificaciones
+// (TODAVÍA sin datos reales -- ver la nota de arriba, la app no tiene
+// sistema de notificaciones, esto es el gancho visual para cuando exista) y
+// avatar del usuario a la derecha, que lleva a Ajustes (ahí vive logout).
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AppTopBar(
+    username: String,
+    scrollBehavior: TopAppBarScrollBehavior,
+    onAvatarClick: () -> Unit,
+) {
+    TopAppBar(
+        scrollBehavior = scrollBehavior,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    painterResource(R.drawable.ic_launcher_foreground),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(26.dp),
+                )
+                Text(
+                    "EsseAnalytics",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(start = 10.dp),
+                )
+            }
+        },
+        actions = {
+            IconButton(onClick = { /* sin sistema de notificaciones todavía */ }) {
+                BadgedBox(badge = { Badge() }) {
+                    Icon(Icons.Outlined.Notifications, contentDescription = "Notificaciones")
+                }
+            }
+            UserAvatar(username = username, onClick = onAvatarClick)
+        },
+    )
+}
+
+@Composable
+private fun UserAvatar(username: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .padding(end = 12.dp)
+            .size(32.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            username.take(1).uppercase(),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold,
+        )
     }
 }
 
