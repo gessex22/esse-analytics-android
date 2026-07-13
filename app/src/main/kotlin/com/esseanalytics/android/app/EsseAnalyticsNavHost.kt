@@ -261,17 +261,23 @@ private fun AppTopBar(
         scrollBehavior = scrollBehavior,
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // ic_launcher_foreground.png tiene el padding de "safe zone"
+                // de ícono adaptativo (el dibujo real ocupa ~60% del lienzo,
+                // pensado para que el SO lo recorte con una máscara) -- acá
+                // se muestra tal cual, sin ese recorte, así que hace falta
+                // un tamaño bastante más grande que el de un ícono normal
+                // para que el trazo se lea a simple vista.
                 Icon(
                     painterResource(R.drawable.ic_launcher_foreground),
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(26.dp),
+                    modifier = Modifier.size(40.dp),
                 )
                 Text(
                     "EsseAnalytics",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(start = 10.dp),
+                    modifier = Modifier.padding(start = 8.dp),
                 )
             }
         },
