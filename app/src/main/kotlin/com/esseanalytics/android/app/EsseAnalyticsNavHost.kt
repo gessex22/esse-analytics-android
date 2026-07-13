@@ -4,11 +4,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -16,6 +19,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -112,10 +116,18 @@ private fun MainAppScaffold(navController: NavHostController) {
             composable(Routes.CALENDAR) { CalendarScreen() }
             composable(Routes.UPLOAD) { UploadScreen() }
             composable(Routes.MORE) { MoreScreen(navController) }
-            composable(Routes.SYNC) { SyncScreen() }
-            composable(Routes.STATS) { StatsScreen() }
-            composable(Routes.USERS) { UsersScreen() }
-            composable(Routes.GEMS) { GemsScreen() }
+            composable(Routes.SYNC) {
+                DetailScaffold("Sincronización", onBack = navController::popBackStack) { SyncScreen() }
+            }
+            composable(Routes.STATS) {
+                DetailScaffold("Estadísticas", onBack = navController::popBackStack) { StatsScreen() }
+            }
+            composable(Routes.USERS) {
+                DetailScaffold("Usuarios", onBack = navController::popBackStack) { UsersScreen() }
+            }
+            composable(Routes.GEMS) {
+                DetailScaffold("Gemas", onBack = navController::popBackStack) { GemsScreen() }
+            }
         }
     }
 }
@@ -139,4 +151,29 @@ private fun MoreItem(label: String, onClick: () -> Unit) {
         headlineContent = { Text(label) },
         modifier = Modifier.clickable(onClick = onClick),
     )
+}
+
+// Las 4 pantallas que cuelgan de "Más" no tienen bottom bar propia para
+// volver — sin esto, la única forma de salir era el back del sistema
+// (gesto/botón), nada dentro de la app. Un TopAppBar con flecha de volver es
+// el patrón estándar de Android para una pantalla de "detalle" así.
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DetailScaffold(title: String, onBack: () -> Unit, content: @Composable () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(title) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        Column(modifier = Modifier.padding(padding)) {
+            content()
+        }
+    }
 }
