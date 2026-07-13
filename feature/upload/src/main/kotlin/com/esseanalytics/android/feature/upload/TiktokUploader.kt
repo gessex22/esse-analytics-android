@@ -2,7 +2,9 @@ package com.esseanalytics.android.feature.upload
 
 import com.esseanalytics.android.core.network.api.PlatformAuthApi
 import com.esseanalytics.android.core.network.di.PlatformOkHttp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -38,10 +40,13 @@ class TiktokUploader @Inject constructor(
             val tokenInfo = platformAuthApi.tiktokToken()
             val token = tokenInfo.access_token
 
-            val init = initUpload(token, file, metadata)
-                ?: return UploadResult.Failure("TikTok no devolvió una sesión de subida.", retryable = true)
+            val init = withContext(Dispatchers.IO) {
+                initUpload(token, file, metadata)
+            } ?: return UploadResult.Failure("TikTok no devolvió una sesión de subida.", retryable = true)
 
-            val uploaded = uploadChunks(init.uploadUrl, file, onProgress)
+            val uploaded = withContext(Dispatchers.IO) {
+                uploadChunks(init.uploadUrl, file, onProgress)
+            }
             if (!uploaded) {
                 return UploadResult.Failure("TikTok rechazó la subida de uno de los chunks.", retryable = true)
             }
@@ -70,18 +75,18 @@ class TiktokUploader @Inject constructor(
         }
     }
 
-    private fun initUpload(token: String, file: File, metadata: UploadMetadata): InitResponseData? {
+    private fun initUpload(token: String, file: File, metadata: UploadMetadata): TiktokInitResponseData? {
         val videoSize = file.length()
         val chunkSize = minOf(CHUNK_SIZE_BYTES, videoSize)
         val totalChunks = ceil(videoSize.toDouble() / chunkSize).toInt().coerceAtLeast(1)
 
         val body = json.encodeToString(
-            InitRequest(
-                postInfo = InitRequest.PostInfo(
+            TiktokInitRequest(
+                postInfo = TiktokInitRequest.PostInfo(
                     title = metadata.title,
                     privacyLevel = mapPrivacyLevel(metadata.privacyStatus),
                 ),
-                sourceInfo = InitRequest.SourceInfo(
+                sourceInfo = TiktokInitRequest.SourceInfo(
                     videoSize = videoSize,
                     chunkSize = chunkSize,
                     totalChunkCount = totalChunks,
@@ -95,10 +100,10 @@ class TiktokUploader @Inject constructor(
             .post(body.toRequestBody("application/json; charset=UTF-8".toMediaType()))
             .build()
 
-        httpClient.newCall(request).execute().use { response ->
+        return httpClient.newCall(request).execute().use { response ->
             val bodyText = response.body?.string().orEmpty()
             if (!response.isSuccessful) return null
-            return runCatching { json.decodeFromString<InitResponse>(bodyText) }.getOrNull()?.data
+            runCatching { json.decodeFromString<TiktokInitResponse>(bodyText) }.getOrNull()?.data
         }
     }
 
@@ -123,31 +128,32 @@ class TiktokUploader @Inject constructor(
                     .put(buffer.toRequestBody("video/mp4".toMediaType()))
                     .build()
 
-                httpClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) return false
-                }
+                val chunkSuccess = httpClient.newCall(request).execute().use { response -> response.isSuccessful }
+                if (!chunkSuccess) return false
                 onProgress((chunkIndex + 1).toFloat() / totalChunks)
             }
         }
         return true
     }
 
-    private suspend fun pollUntilComplete(token: String, publishId: String): StatusData? {
+    private suspend fun pollUntilComplete(token: String, publishId: String): TiktokStatusData? {
         repeat(MAX_POLL_ATTEMPTS) {
             delay(POLL_INTERVAL_MS)
-            val body = json.encodeToString(StatusRequest(publishId))
+            val body = json.encodeToString(TiktokStatusRequest(publishId))
             val request = Request.Builder()
                 .url("https://open.tiktokapis.com/v2/post/publish/status/fetch/")
                 .addHeader("Authorization", "Bearer $token")
                 .post(body.toRequestBody("application/json; charset=UTF-8".toMediaType()))
                 .build()
 
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@use
-                val bodyText = response.body?.string().orEmpty()
-                val status = runCatching { json.decodeFromString<StatusResponse>(bodyText) }.getOrNull()?.data
-                if (status?.status == "PUBLISH_COMPLETE" || status?.status == "FAILED") return status
+            val status = withContext(Dispatchers.IO) {
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use null
+                    val bodyText = response.body?.string().orEmpty()
+                    runCatching { json.decodeFromString<TiktokStatusResponse>(bodyText) }.getOrNull()?.data
+                }
             }
+            if (status?.status == "PUBLISH_COMPLETE" || status?.status == "FAILED") return status
         }
         return null
     }
@@ -163,7 +169,7 @@ class TiktokUploader @Inject constructor(
 }
 
 @Serializable
-private data class InitRequest(
+private data class TiktokInitRequest(
     @SerialName("post_info") val postInfo: PostInfo,
     @SerialName("source_info") val sourceInfo: SourceInfo,
 ) {
@@ -183,22 +189,22 @@ private data class InitRequest(
 }
 
 @Serializable
-private data class InitResponse(val data: InitResponseData? = null)
+private data class TiktokInitResponse(val data: TiktokInitResponseData? = null)
 
 @Serializable
-private data class InitResponseData(
+private data class TiktokInitResponseData(
     @SerialName("publish_id") val publishId: String,
     @SerialName("upload_url") val uploadUrl: String,
 )
 
 @Serializable
-private data class StatusRequest(@SerialName("publish_id") val publishId: String)
+private data class TiktokStatusRequest(@SerialName("publish_id") val publishId: String)
 
 @Serializable
-private data class StatusResponse(val data: StatusData? = null)
+private data class TiktokStatusResponse(val data: TiktokStatusData? = null)
 
 @Serializable
-private data class StatusData(
+private data class TiktokStatusData(
     val status: String? = null,
     @SerialName("fail_reason") val failReason: String? = null,
 )

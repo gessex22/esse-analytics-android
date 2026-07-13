@@ -17,7 +17,7 @@
         android:supportsRtl="true">
 
         <!-- Desactiva el auto-init default de WorkManager (vía androidx
-             startup) -- EsseAnalyticsApp ya provee su propia Configuration
+             startup) : EsseAnalyticsApp ya provee su propia Configuration
              con HiltWorkerFactory (Configuration.Provider), y tener los dos
              a la vez tira un IllegalStateException al arrancar. -->
         <provider

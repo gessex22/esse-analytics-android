@@ -2,7 +2,9 @@ package com.esseanalytics.android.feature.upload
 
 import com.esseanalytics.android.core.network.api.PlatformAuthApi
 import com.esseanalytics.android.core.network.di.PlatformOkHttp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
@@ -40,33 +42,41 @@ class InstagramUploader @Inject constructor(
             val token = tokenInfo.access_token
             val igUserId = tokenInfo.instagram_user_id
 
-            val container = createContainer(igUserId, token, metadata)
-                ?: return UploadResult.Failure("Instagram no devolvió un contenedor de subida.", retryable = true)
+            val container = withContext(Dispatchers.IO) {
+                createContainer(igUserId, token, metadata)
+            } ?: return UploadResult.Failure("Instagram no devolvió un contenedor de subida.", retryable = true)
 
-            val uploaded = uploadFileToContainer(container.uri, token, file, onProgress)
+            val uploaded = withContext(Dispatchers.IO) {
+                uploadFileToContainer(container.uri, token, file, onProgress)
+            }
             if (!uploaded) {
                 return UploadResult.Failure("Instagram rechazó la subida del archivo.", retryable = true)
             }
 
-            val finished = pollUntilFinished(container.id, token)
-            if (!finished) {
+            val pollResult = pollUntilFinished(container.id, token)
+            if (pollResult is PollResult.Timeout) {
                 return UploadResult.Failure(
                     "Instagram sigue procesando el video después de varios minutos.",
                     retryable = true,
                 )
+            } else if (pollResult is PollResult.Error) {
+                return UploadResult.Failure("Instagram reportó un error al procesar el video.", retryable = false)
             }
 
-            val mediaId = publish(igUserId, container.id, token)
-                ?: return UploadResult.Failure("Instagram no confirmó la publicación.", retryable = true)
+            val mediaId = withContext(Dispatchers.IO) {
+                publish(igUserId, container.id, token)
+            } ?: return UploadResult.Failure("Instagram no confirmó la publicación.", retryable = true)
 
-            val permalink = fetchPermalink(mediaId, token) ?: ""
+            val permalink = withContext(Dispatchers.IO) {
+                fetchPermalink(mediaId, token) ?: ""
+            }
             UploadResult.Success(platformId = mediaId, platformUrl = permalink)
         } catch (e: IOException) {
             UploadResult.Failure(e.message ?: "Error de red al subir a Instagram.", retryable = true)
         }
     }
 
-    private fun createContainer(igUserId: String, token: String, metadata: UploadMetadata): ContainerResponse? {
+    private fun createContainer(igUserId: String, token: String, metadata: UploadMetadata): IgContainerResponse? {
         val form = FormBody.Builder()
             .add("media_type", "REELS")
             .add("upload_type", "resumable")
@@ -80,10 +90,10 @@ class InstagramUploader @Inject constructor(
             .post(form)
             .build()
 
-        httpClient.newCall(request).execute().use { response ->
+        return httpClient.newCall(request).execute().use { response ->
             val bodyText = response.body?.string().orEmpty()
             if (!response.isSuccessful) return null
-            return runCatching { json.decodeFromString<ContainerResponse>(bodyText) }.getOrNull()
+            runCatching { json.decodeFromString<IgContainerResponse>(bodyText) }.getOrNull()
         }
     }
 
@@ -96,10 +106,10 @@ class InstagramUploader @Inject constructor(
             .post(requestBody)
             .build()
 
-        httpClient.newCall(request).execute().use { response -> return response.isSuccessful }
+        return httpClient.newCall(request).execute().use { response -> response.isSuccessful }
     }
 
-    private suspend fun pollUntilFinished(containerId: String, token: String): Boolean {
+    private suspend fun pollUntilFinished(containerId: String, token: String): PollResult {
         repeat(MAX_POLL_ATTEMPTS) {
             delay(POLL_INTERVAL_MS)
             val request = Request.Builder()
@@ -107,18 +117,21 @@ class InstagramUploader @Inject constructor(
                 .get()
                 .build()
 
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@use
-                val bodyText = response.body?.string().orEmpty()
-                val status = runCatching { json.decodeFromString<StatusResponse>(bodyText) }.getOrNull()
-                when (status?.status_code) {
-                    "FINISHED" -> return true
-                    "ERROR" -> return false
-                    else -> Unit // IN_PROGRESS / PUBLISHED (todavía no) -- seguir esperando
+            val status = withContext(Dispatchers.IO) {
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use null
+                    val bodyText = response.body?.string().orEmpty()
+                    runCatching { json.decodeFromString<IgStatusResponse>(bodyText) }.getOrNull()
                 }
             }
+
+            when (status?.status_code) {
+                "FINISHED" -> return PollResult.Finished
+                "ERROR" -> return PollResult.Error
+                else -> Unit // IN_PROGRESS / PUBLISHED (todavía no) -- seguir esperando
+            }
         }
-        return false
+        return PollResult.Timeout
     }
 
     private fun publish(igUserId: String, containerId: String, token: String): String? {
@@ -132,10 +145,10 @@ class InstagramUploader @Inject constructor(
             .post(form)
             .build()
 
-        httpClient.newCall(request).execute().use { response ->
+        return httpClient.newCall(request).execute().use { response ->
             val bodyText = response.body?.string().orEmpty()
             if (!response.isSuccessful) return null
-            return runCatching { json.decodeFromString<PublishResponse>(bodyText) }.getOrNull()?.id
+            runCatching { json.decodeFromString<IgPublishResponse>(bodyText) }.getOrNull()?.id
         }
     }
 
@@ -145,11 +158,17 @@ class InstagramUploader @Inject constructor(
             .get()
             .build()
 
-        httpClient.newCall(request).execute().use { response ->
+        return httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) return null
             val bodyText = response.body?.string().orEmpty()
-            return runCatching { json.decodeFromString<PermalinkResponse>(bodyText) }.getOrNull()?.permalink
+            runCatching { json.decodeFromString<IgPermalinkResponse>(bodyText) }.getOrNull()?.permalink
         }
+    }
+
+    private sealed interface PollResult {
+        data object Finished : PollResult
+        data object Error : PollResult
+        data object Timeout : PollResult
     }
 
     private companion object {
@@ -159,13 +178,13 @@ class InstagramUploader @Inject constructor(
 }
 
 @Serializable
-private data class ContainerResponse(val id: String, val uri: String)
+private data class IgContainerResponse(val id: String, val uri: String)
 
 @Serializable
-private data class StatusResponse(val status_code: String? = null, val status: String? = null)
+private data class IgStatusResponse(val status_code: String? = null, val status: String? = null)
 
 @Serializable
-private data class PublishResponse(val id: String)
+private data class IgPublishResponse(val id: String)
 
 @Serializable
-private data class PermalinkResponse(val permalink: String? = null)
+private data class IgPermalinkResponse(val permalink: String? = null)
