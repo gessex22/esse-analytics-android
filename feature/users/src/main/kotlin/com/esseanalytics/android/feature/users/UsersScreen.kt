@@ -15,8 +15,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.PeopleOutline
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -97,12 +100,18 @@ fun UsersScreen(modifier: Modifier = Modifier, viewModel: UsersViewModel = hiltV
                 contentAlignment = Alignment.TopCenter,
             ) { CircularProgressIndicator() }
 
-            is UsersUiState.Error -> PlaceholderScreen(title = "No se pudo cargar", note = current.message)
+            is UsersUiState.Error -> PlaceholderScreen(
+                title = "No se pudo cargar",
+                note = current.message,
+                icon = Icons.Filled.ErrorOutline,
+                iconTint = MaterialTheme.colorScheme.error,
+            )
 
             is UsersUiState.Success -> if (current.users.isEmpty()) {
                 PlaceholderScreen(
                     title = if (query.isNotBlank()) "Sin resultados" else "No hay usuarios",
                     note = if (query.isNotBlank()) "Nada para \"$query\"." else "No hay usuarios en este filtro.",
+                    icon = if (query.isNotBlank()) Icons.Filled.SearchOff else Icons.Filled.PeopleOutline,
                 )
             } else {
                 LazyColumn(

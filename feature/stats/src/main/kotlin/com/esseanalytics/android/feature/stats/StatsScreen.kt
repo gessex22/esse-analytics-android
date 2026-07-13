@@ -17,7 +17,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChatBubble
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.QueryStats
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Card
@@ -103,12 +105,18 @@ fun StatsScreen(modifier: Modifier = Modifier, viewModel: StatsViewModel = hiltV
                 CircularProgressIndicator()
             }
 
-            is StatsUiState.Error -> PlaceholderScreen(title = "No se pudo cargar", note = current.message)
+            is StatsUiState.Error -> PlaceholderScreen(
+                title = "No se pudo cargar",
+                note = current.message,
+                icon = Icons.Filled.ErrorOutline,
+                iconTint = MaterialTheme.colorScheme.error,
+            )
 
             is StatsUiState.Success -> if (current.items.isEmpty()) {
                 PlaceholderScreen(
                     title = "Todavía no hay videos matcheados en las 3 redes",
                     note = "Completá los links en Ajustes → Sincronización → \"Emparejar entre plataformas\".",
+                    icon = Icons.Filled.QueryStats,
                 )
             } else {
                 LazyColumn(

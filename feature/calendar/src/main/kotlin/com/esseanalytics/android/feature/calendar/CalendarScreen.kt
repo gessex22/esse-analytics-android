@@ -8,6 +8,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +43,8 @@ fun CalendarScreen(modifier: Modifier = Modifier, viewModel: CalendarViewModel =
         is CalendarUiState.Error -> PlaceholderScreen(
             title = "No se pudo cargar",
             note = current.message,
+            icon = Icons.Filled.ErrorOutline,
+            iconTint = MaterialTheme.colorScheme.error,
             modifier = modifier,
         )
 
@@ -47,6 +52,7 @@ fun CalendarScreen(modifier: Modifier = Modifier, viewModel: CalendarViewModel =
             PlaceholderScreen(
                 title = "Todavía no hay nada programado",
                 note = "Publicá al menos un video en cada plataforma para que arranque la cadencia.",
+                icon = Icons.Filled.CalendarMonth,
                 modifier = modifier,
             )
         } else {

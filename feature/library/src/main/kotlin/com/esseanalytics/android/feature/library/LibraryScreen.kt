@@ -78,6 +78,7 @@ fun LibraryScreen(
             PlaceholderScreen(
                 title = "Todavía no hay videos",
                 note = "Tocá + para importar uno, o compartilo desde Galería con \"Compartir → EsseAnalytics\".",
+                icon = Icons.Filled.VideoLibrary,
                 modifier = Modifier.padding(padding),
             )
         } else {
