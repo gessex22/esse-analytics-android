@@ -31,10 +31,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.esseanalytics.android.core.datastore.AuthState
 import com.esseanalytics.android.feature.auth.LoginScreen
 import com.esseanalytics.android.feature.calendar.CalendarScreen
@@ -112,7 +114,12 @@ private fun MainAppScaffold(
             val currentDestination = backStackEntry?.destination
             NavigationBar {
                 bottomDestinations.forEach { dest ->
-                    val selected = currentDestination?.hierarchy?.any { it.route == dest.route } == true
+                    // startsWith, no == : Subir ahora es una ruta con
+                    // argumento opcional ("upload?fileId={fileId}"), no el
+                    // literal "upload" -- ver la ruta de Routes.UPLOAD más
+                    // abajo. Ninguna otra ruta de la app es prefijo de otra,
+                    // así que esto no genera falsos positivos.
+                    val selected = currentDestination?.hierarchy?.any { it.route?.startsWith(dest.route) == true } == true
                     NavigationBarItem(
                         selected = selected,
                         onClick = {
@@ -142,10 +149,19 @@ private fun MainAppScaffold(
             modifier = Modifier.padding(padding),
         ) {
             composable(Routes.LIBRARY) {
-                LibraryScreen(onImportClick = { navController.navigate(Routes.INGEST) })
+                LibraryScreen(
+                    onImportClick = { navController.navigate(Routes.INGEST) },
+                    onVideoClick = { file -> navController.navigate("${Routes.UPLOAD}?fileId=${file.id}") },
+                )
             }
             composable(Routes.CALENDAR) { CalendarScreen() }
-            composable(Routes.UPLOAD) { UploadScreen() }
+            composable(
+                route = "${Routes.UPLOAD}?fileId={fileId}",
+                arguments = listOf(navArgument("fileId") { type = NavType.LongType; defaultValue = -1L }),
+            ) { backStackEntry ->
+                val fileId = backStackEntry.arguments?.getLong("fileId")?.takeIf { it >= 0 }
+                UploadScreen(initialFileId = fileId)
+            }
             composable(Routes.MORE) { MoreScreen(navController, isOwner) }
             composable(Routes.INGEST) {
                 DetailScaffold("Importar video", onBack = navController::popBackStack) {

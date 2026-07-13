@@ -51,13 +51,24 @@ import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
 import java.io.File
 
-// Fase 1: elegir un video ya importado, tildar a qué plataformas publicarlo,
-// completar título/descripción, y encolar un UploadWorker por plataforma.
-// Ver el plan, sección "Subidas directas".
+// Elegir un video ya importado, tildar a qué plataformas publicarlo,
+// completar título/descripción/portada, y encolar un UploadWorker por
+// plataforma. initialFileId llega desde Biblioteca (ver EsseAnalyticsNavHost)
+// cuando se toca un video ahí en vez de entrar por la pestaña "Subir".
 @Composable
-fun UploadScreen(modifier: Modifier = Modifier, viewModel: UploadViewModel = hiltViewModel()) {
+fun UploadScreen(
+    initialFileId: Long? = null,
+    modifier: Modifier = Modifier,
+    viewModel: UploadViewModel = hiltViewModel(),
+) {
     val files by viewModel.files.collectAsState()
     var selectedFile by remember { mutableStateOf<VideoFile?>(null) }
+
+    LaunchedEffect(initialFileId, files) {
+        if (selectedFile == null && initialFileId != null) {
+            selectedFile = files.find { it.id == initialFileId }
+        }
+    }
 
     if (files.isEmpty()) {
         PlaceholderScreen(
