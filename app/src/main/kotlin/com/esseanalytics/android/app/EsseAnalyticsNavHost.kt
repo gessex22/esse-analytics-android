@@ -151,7 +151,16 @@ private fun MainAppScaffold(
             composable(Routes.LIBRARY) {
                 LibraryScreen(
                     onImportClick = { navController.navigate(Routes.INGEST) },
-                    onVideoClick = { file -> navController.navigate("${Routes.UPLOAD}?fileId=${file.id}") },
+                    // Ya tiene alguna plataforma publicada -> Estadísticas (a
+                    // eso fue, a ver cómo le fue); todavía nada publicado ->
+                    // Subir, con ese archivo ya elegido.
+                    onVideoClick = { file ->
+                        if (file.platforms.isNotEmpty()) {
+                            navController.navigate(Routes.STATS)
+                        } else {
+                            navController.navigate("${Routes.UPLOAD}?fileId=${file.id}")
+                        }
+                    },
                 )
             }
             composable(Routes.CALENDAR) { CalendarScreen() }

@@ -45,9 +45,10 @@ import java.io.File
 
 // Historial de todo lo importado -- no solo una lista, cada tarjeta muestra
 // el estado real por plataforma (publicado/descartado/pendiente, ver
-// VideoFile.platforms/platformsDiscarded) y tocarla lleva directo a Subir
-// con ese archivo ya elegido (ver EsseAnalyticsNavHost, ruta upload con
-// fileId). Miniatura real (AndroidFrameThumbnailGenerator, ver core:media).
+// VideoFile.platforms/platformsDiscarded). Tocarla decide adónde ir según
+// ese estado (ver EsseAnalyticsNavHost): sin nada publicado todavía, a Subir
+// con ese archivo ya elegido; con algo ya publicado, a Estadísticas.
+// Miniatura real (AndroidFrameThumbnailGenerator, ver core:media).
 @Composable
 fun LibraryScreen(
     onImportClick: () -> Unit = {},
