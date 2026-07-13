@@ -8,5 +8,6 @@ android {
 
 dependencies {
     implementation(project(":core:database"))
+    implementation(project(":core:media"))
     implementation(libs.coil.compose)
 }

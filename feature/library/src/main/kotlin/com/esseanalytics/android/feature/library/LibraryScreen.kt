@@ -16,16 +16,23 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,6 +64,7 @@ fun LibraryScreen(
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
     val files by viewModel.files.collectAsState()
+    var deleteTarget by remember { mutableStateOf<VideoFile?>(null) }
 
     Scaffold(
         modifier = modifier,
@@ -80,14 +88,31 @@ fun LibraryScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(files, key = { it.id }) { file -> VideoFileCard(file, onClick = { onVideoClick(file) }) }
+                items(files, key = { it.id }) { file ->
+                    VideoFileCard(
+                        file,
+                        onClick = { onVideoClick(file) },
+                        onDeleteClick = { deleteTarget = file },
+                    )
+                }
             }
         }
+    }
+
+    deleteTarget?.let { target ->
+        DeleteVideoDialog(
+            file = target,
+            onConfirm = {
+                viewModel.delete(target)
+                deleteTarget = null
+            },
+            onDismiss = { deleteTarget = null },
+        )
     }
 }
 
 @Composable
-private fun VideoFileCard(file: VideoFile, onClick: () -> Unit) {
+private fun VideoFileCard(file: VideoFile, onClick: () -> Unit, onDeleteClick: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth(), onClick = onClick) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -95,7 +120,11 @@ private fun VideoFileCard(file: VideoFile, onClick: () -> Unit) {
         ) {
             VideoThumbnail(file.thumbnailPath)
 
-            Column(modifier = Modifier.padding(start = 12.dp)) {
+            Column(
+                modifier = Modifier
+                    .padding(start = 12.dp)
+                    .weight(1f),
+            ) {
                 Text(file.fileName, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                 val durationLabel = file.duracionSegundos?.let { "${it}s" } ?: "—"
                 Text(
@@ -105,8 +134,46 @@ private fun VideoFileCard(file: VideoFile, onClick: () -> Unit) {
                 )
                 PlatformBadgeRow(file)
             }
+
+            IconButton(onClick = onDeleteClick) {
+                Icon(
+                    Icons.Filled.Delete,
+                    contentDescription = "Eliminar video",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
+}
+
+// El texto cambia según si hay algo que de verdad se borra del teléfono
+// (copia propia, filesDir/videos) o si el archivo nunca se copió (referencia
+// persistida vía SAF, ver DeleteVideoUseCase/ImportUseCase) -- ahí solo se
+// suelta la referencia, el video del usuario no se toca.
+@Composable
+private fun DeleteVideoDialog(file: VideoFile, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    val isReferenceOnly = file.filePath.startsWith("content://")
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("¿Eliminar \"${file.fileName}\"?") },
+        text = {
+            Text(
+                if (isReferenceOnly) {
+                    "EsseAnalytics solo tenía una referencia a este video -- se quita de la app, pero el archivo original sigue donde estaba (Galería/Archivos)."
+                } else {
+                    "Esto borra el archivo del almacenamiento del teléfono. No se puede deshacer."
+                },
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("Eliminar", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        },
+    )
 }
 
 // Verde/color de marca = publicado, tachado y apagado = descartado (modo
