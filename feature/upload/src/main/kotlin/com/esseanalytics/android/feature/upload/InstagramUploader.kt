@@ -1,7 +1,10 @@
 package com.esseanalytics.android.feature.upload
 
+import android.content.Context
+import com.esseanalytics.android.core.media.TrimProcessor
 import com.esseanalytics.android.core.network.api.PlatformAuthApi
 import com.esseanalytics.android.core.network.di.PlatformOkHttp
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -32,37 +35,47 @@ import javax.inject.Singleton
 // este entorno, conviene confirmarlo con una subida de prueba real.
 @Singleton
 class InstagramUploader @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val platformAuthApi: PlatformAuthApi,
+    private val trimProcessor: TrimProcessor,
     @field:PlatformOkHttp private val httpClient: OkHttpClient,
 ) : PlatformUploader {
 
     private val json = Json { ignoreUnknownKeys = true }
 
     override suspend fun upload(file: File, metadata: UploadMetadata, onProgress: (Float) -> Unit): UploadResult {
+        var tempTrimmed: File? = null
         return try {
             val tokenInfo = platformAuthApi.instagramToken()
             val token = tokenInfo.access_token
             val igUserId = tokenInfo.instagram_user_id
 
-            val container = withContext(Dispatchers.IO) {
-                createContainer(igUserId, token, metadata)
-            } ?: return UploadResult.Failure("Instagram no devolvió un contenedor de subida.", retryable = true)
+            // Meta rechaza (ProcessingFailedError genérico, sin decir la causa
+            // real) algunos videos sin explicar por qué -- confirmado en
+            // desktop que la causa más común es la DURACIÓN: cuentas sin el
+            // rollout de Reels extendido quedan topeadas a 60s vía la API, sin
+            // importar el encoding. En vez de adivinar de antemano, se intenta
+            // el original y, si falla, se recorta a 60s (sin recodificar,
+            // AndroidTrimProcessor) y se reintenta UNA vez -- mismo criterio
+            // que desktop, pero 2 etapas y no 3 (sin Normalize: hubiera hecho
+            // falta libx264, que es GPL, y esta es una app comercial cerrada).
+            var container = attemptContainer(igUserId, token, metadata, file, onProgress)
+            var uploadedFile = file
 
-            val uploaded = withContext(Dispatchers.IO) {
-                uploadFileToContainer(container.uri, token, file, onProgress)
-            }
-            if (!uploaded) {
-                return UploadResult.Failure("Instagram rechazó la subida del archivo.", retryable = true)
+            if (container == null) {
+                val trimmed = File(context.cacheDir, "ig_trim_${System.currentTimeMillis()}.mp4")
+                if (trimProcessor.trim(file, trimmed).isSuccess) {
+                    tempTrimmed = trimmed
+                    uploadedFile = trimmed
+                    container = attemptContainer(igUserId, token, metadata, trimmed, onProgress)
+                }
             }
 
-            val pollResult = pollUntilFinished(container.id, token)
-            if (pollResult is PollResult.Timeout) {
+            if (container == null) {
                 return UploadResult.Failure(
-                    "Instagram sigue procesando el video después de varios minutos.",
-                    retryable = true,
+                    "Instagram rechazó la subida (se probó el original y un recorte a 60s).",
+                    retryable = false,
                 )
-            } else if (pollResult is PollResult.Error) {
-                return UploadResult.Failure("Instagram reportó un error al procesar el video.", retryable = false)
             }
 
             val mediaId = withContext(Dispatchers.IO) {
@@ -75,6 +88,8 @@ class InstagramUploader @Inject constructor(
 
             // Crosspost NO-FATAL: si falla, Instagram ya está publicado --
             // mismo criterio que desktop (instagram-upload.controller.ts).
+            // Usa uploadedFile (el que IG de verdad aceptó, original o
+            // recortado), no siempre "file" -- igual que "usedPath" en desktop.
             val facebookResult = if (metadata.crossPostFacebook) {
                 val pageId = tokenInfo.page_id
                 if (pageId == null) {
@@ -82,7 +97,7 @@ class InstagramUploader @Inject constructor(
                         "La conexión no tiene una Página de Facebook asociada -- reconectá Instagram desde Ajustes.",
                     )
                 } else {
-                    publishReelToFacebookPage(file, pageId, token, buildCaption(metadata))
+                    publishReelToFacebookPage(uploadedFile, pageId, token, buildCaption(metadata))
                 }
             } else {
                 null
@@ -91,7 +106,36 @@ class InstagramUploader @Inject constructor(
             UploadResult.Success(platformId = mediaId, platformUrl = permalink, facebookCrossPost = facebookResult)
         } catch (e: IOException) {
             UploadResult.Failure(e.message ?: "Error de red al subir a Instagram.", retryable = true)
+        } finally {
+            tempTrimmed?.delete()
         }
+    }
+
+    // Crear contenedor -> subir bytes -> poll hasta FINISHED, como una sola
+    // unidad que devuelve null si cualquier paso lo rechaza -- así upload()
+    // puede reintentar con un archivo distinto (el recorte) sin duplicar la
+    // secuencia de 3 llamadas. Un IOException de red NO se atrapa acá a
+    // propósito: debe llegar sin filtrar hasta el catch de upload(), que
+    // marca retryable=true (WorkManager reintenta solo) -- muy distinto de
+    // un rechazo de contenido, donde reintentar el mismo archivo no cambia nada.
+    private suspend fun attemptContainer(
+        igUserId: String,
+        token: String,
+        metadata: UploadMetadata,
+        file: File,
+        onProgress: (Float) -> Unit,
+    ): IgContainerResponse? {
+        val container = withContext(Dispatchers.IO) {
+            createContainer(igUserId, token, metadata)
+        } ?: return null
+
+        val uploaded = withContext(Dispatchers.IO) {
+            uploadFileToContainer(container.uri, token, file, onProgress)
+        }
+        if (!uploaded) return null
+
+        val pollResult = pollUntilFinished(container.id, token)
+        return if (pollResult is PollResult.Finished) container else null
     }
 
     private fun buildCaption(metadata: UploadMetadata): String =
