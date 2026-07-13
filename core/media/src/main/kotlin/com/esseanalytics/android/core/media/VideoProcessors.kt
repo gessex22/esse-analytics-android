@@ -1,5 +1,6 @@
 package com.esseanalytics.android.core.media
 
+import android.net.Uri
 import java.io.File
 
 // Interfaces puras — no dependen de qué motor de ffmpeg se termine usando.
@@ -7,10 +8,28 @@ import java.io.File
 // producción en desktop) están documentados en el KDoc de cada uno; portados
 // de local-backend/src/services/thumbnail.service.ts y video-normalize.service.ts.
 
+// Un video que se importa por el selector SAF puede quedarse como Uri
+// persistente (ContentUri) en vez de copiarse a storage privado (ver
+// ImportUseCase) -- Share Sheet no soporta permisos persistentes, ahí SIEMPRE
+// hay LocalFile. MediaProber/ThumbnailGenerator necesitan poder leer los dos
+// sin que el resto de la app sepa la diferencia.
+sealed interface MediaSource {
+    data class LocalFile(val file: File) : MediaSource
+    data class ContentUri(val uri: Uri) : MediaSource
+
+    companion object {
+        // VideoFile.filePath (core:database) guarda uno de los dos formatos
+        // como un solo String -- este es el único lugar que necesita saber
+        // distinguirlos por prefijo, todo lo demás ya trabaja con MediaSource.
+        fun fromStoredPath(path: String): MediaSource =
+            if (path.startsWith("content://")) ContentUri(Uri.parse(path)) else LocalFile(File(path))
+    }
+}
+
 data class MediaInfo(val durationSeconds: Double?, val width: Int?, val height: Int?)
 
 interface MediaProber {
-    suspend fun probe(input: File): MediaInfo
+    suspend fun probe(source: MediaSource): MediaInfo
 }
 
 /**

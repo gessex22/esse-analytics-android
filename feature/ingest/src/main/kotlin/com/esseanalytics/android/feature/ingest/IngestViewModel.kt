@@ -37,7 +37,11 @@ class IngestViewModel @Inject constructor(
         viewModelScope.launch { settingsStore.setDeleteOriginalAfterImport(enabled) }
     }
 
-    fun importUris(uris: List<Uri>) {
+    // canPersist=true SOLO para el selector SAF (OpenMultipleDocuments) --
+    // ahí Android permite pedir permiso de lectura persistente, así que
+    // ImportUseCase puede evitar copiar el archivo. Share Sheet nunca lo
+    // soporta (ver ImportUseCase), siempre copia.
+    fun importUris(uris: List<Uri>, canPersist: Boolean = false) {
         if (uris.isEmpty()) return
         viewModelScope.launch {
             _uiState.value = IngestUiState.Importing
@@ -46,7 +50,7 @@ class IngestViewModel @Inject constructor(
             // archivo queda para cuando la biblioteca tenga esa UI (Fase 2).
             var lastState: IngestUiState = IngestUiState.Idle
             uris.forEach { uri ->
-                lastState = when (val result = importUseCase.import(uri)) {
+                lastState = when (val result = importUseCase.import(uri, canPersist)) {
                     is ImportResult.Success -> IngestUiState.Success(result.file)
                     is ImportResult.Duplicate -> IngestUiState.Duplicate(result.existing)
                     is ImportResult.Error -> IngestUiState.Error(result.message)

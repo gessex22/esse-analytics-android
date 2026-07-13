@@ -1,9 +1,10 @@
 package com.esseanalytics.android.core.media
 
+import android.content.Context
 import android.media.MediaMetadataRetriever
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -12,11 +13,16 @@ import javax.inject.Singleton
 // blur/recorte/normalización, que sí necesitan un ffmpeg de verdad, ver
 // VideoProcessors.kt y el comentario en build.gradle.kts).
 @Singleton
-class AndroidMediaProber @Inject constructor() : MediaProber {
-    override suspend fun probe(input: File): MediaInfo = withContext(Dispatchers.IO) {
+class AndroidMediaProber @Inject constructor(
+    @ApplicationContext private val context: Context,
+) : MediaProber {
+    override suspend fun probe(source: MediaSource): MediaInfo = withContext(Dispatchers.IO) {
         val retriever = MediaMetadataRetriever()
         try {
-            retriever.setDataSource(input.absolutePath)
+            when (source) {
+                is MediaSource.LocalFile -> retriever.setDataSource(source.file.absolutePath)
+                is MediaSource.ContentUri -> retriever.setDataSource(context, source.uri)
+            }
             val durationMs = retriever
                 .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull()

@@ -14,6 +14,7 @@ import androidx.work.WorkManager
 import com.esseanalytics.android.core.database.FileRepository
 import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.media.AndroidFrameThumbnailGenerator
+import com.esseanalytics.android.core.media.MediaSource
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -25,7 +26,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.io.File
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
@@ -80,7 +80,7 @@ class UploadViewModel @Inject constructor(
     // recortada a un tamaño fijo): acá se quiere el frame tal cual, tamaño
     // real, para que el usuario vea exactamente lo que va a elegir.
     suspend fun captureThumbnailPreview(filePath: String, atMs: Long): Bitmap? =
-        thumbnailGenerator.captureFrame(File(filePath), atMs)
+        thumbnailGenerator.captureFrame(MediaSource.fromStoredPath(filePath), atMs)
 
     private fun uniqueWorkName(fileId: Long, platform: Platform) = "upload_${fileId}_${platform.apiValue}"
 }

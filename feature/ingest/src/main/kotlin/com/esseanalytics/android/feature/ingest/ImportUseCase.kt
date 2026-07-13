@@ -1,12 +1,14 @@
 package com.esseanalytics.android.feature.ingest
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
 import com.esseanalytics.android.core.database.FileRepository
 import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.media.AndroidFrameThumbnailGenerator
 import com.esseanalytics.android.core.media.MediaProber
+import com.esseanalytics.android.core.media.MediaSource
 import com.esseanalytics.android.core.model.ContentStatus
 import com.esseanalytics.android.core.model.FileStatus
 import com.esseanalytics.android.core.model.VideoFile
@@ -28,9 +30,14 @@ sealed interface ImportResult {
 
 // Camino único para las dos formas de ingesta (Share Sheet + selector SAF,
 // ver el plan) — ambas terminan pasando por acá con un Uri de content://.
-// El archivo SIEMPRE se copia al storage privado de la app (filesDir/videos),
-// nunca se referencia solo por el Uri de origen: mismo modelo mental que
-// desktop, "la app es dueña de un archivo en disco" (ver el plan).
+//
+// Share Sheet NO soporta permiso persistente sobre el Uri (muere apenas
+// termina esa Activity) -- ahí SIEMPRE hay que copiar a storage privado, no
+// hay otra opción confiable si el archivo se va a subir más adelante. El
+// selector SAF (OpenMultipleDocuments) SÍ lo soporta: si canPersist=true y
+// takePersistableUriPermission funciona, no se copia nada -- el Uri en sí
+// queda guardado como filePath y se lee directo de ahí (metadata, miniatura,
+// y al momento de subir, UploadWorker copia a un temporal recién ahí).
 @Singleton
 class ImportUseCase @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -39,24 +46,31 @@ class ImportUseCase @Inject constructor(
     private val thumbnailGenerator: AndroidFrameThumbnailGenerator,
     private val settingsStore: SettingsStore,
 ) {
-    suspend fun import(uri: Uri): ImportResult = withContext(Dispatchers.IO) {
+    suspend fun import(uri: Uri, canPersist: Boolean = false): ImportResult = withContext(Dispatchers.IO) {
+        var copiedFile: File? = null
         try {
             val displayName = queryDisplayName(uri) ?: "video_${System.currentTimeMillis()}.mp4"
             val extension = displayName.substringAfterLast('.', "mp4")
 
-            val videosDir = File(context.filesDir, "videos").apply { mkdirs() }
-            val destination = File(videosDir, "${UUID.randomUUID()}.$extension")
+            val persisted = canPersist && tryPersistPermission(uri)
 
-            val copied = context.contentResolver.openInputStream(uri)?.use { input ->
-                destination.outputStream().use { output -> input.copyTo(output) }
-                true
-            } ?: false
-
-            if (!copied) {
-                return@withContext ImportResult.Error("No se pudo leer el archivo seleccionado.")
+            val (mediaSource, filePathForStorage) = if (persisted) {
+                MediaSource.ContentUri(uri) to uri.toString()
+            } else {
+                val videosDir = File(context.filesDir, "videos").apply { mkdirs() }
+                val destination = File(videosDir, "${UUID.randomUUID()}.$extension")
+                val copied = context.contentResolver.openInputStream(uri)?.use { input ->
+                    destination.outputStream().use { output -> input.copyTo(output) }
+                    true
+                } ?: false
+                if (!copied) {
+                    return@withContext ImportResult.Error("No se pudo leer el archivo seleccionado.")
+                }
+                copiedFile = destination
+                MediaSource.LocalFile(destination) to destination.absolutePath
             }
 
-            val info = mediaProber.probe(destination)
+            val info = mediaProber.probe(mediaSource)
             val durationSeconds = info.durationSeconds?.toInt()
 
             // Dedup por (fileName, duración, formato) de lo ya importado, NO
@@ -64,17 +78,18 @@ class ImportUseCase @Inject constructor(
             // plan, sección "Ingesta de videos".
             val existing = fileRepository.findByName(displayName)
             if (existing != null && existing.duracionSegundos == durationSeconds && existing.formato == extension) {
-                destination.delete()
+                copiedFile?.delete()
+                if (persisted) releasePersistedPermissionBestEffort(uri)
                 return@withContext ImportResult.Duplicate(existing)
             }
 
             val thumbnailsDir = File(context.filesDir, "thumbnails").apply { mkdirs() }
-            val thumbnailFile = File(thumbnailsDir, "${destination.nameWithoutExtension}.jpg")
-            val hasThumbnail = thumbnailGenerator.generate(destination, thumbnailFile)
+            val thumbnailFile = File(thumbnailsDir, "${UUID.randomUUID()}.jpg")
+            val hasThumbnail = thumbnailGenerator.generate(mediaSource, thumbnailFile)
 
             val videoFile = VideoFile(
                 fileName = displayName,
-                filePath = destination.absolutePath,
+                filePath = filePathForStorage,
                 status = FileStatus.PENDIENTE,
                 contentStatus = ContentStatus.BORRADOR,
                 duracionSegundos = durationSeconds,
@@ -85,7 +100,9 @@ class ImportUseCase @Inject constructor(
             )
             val id = fileRepository.insert(videoFile)
 
-            if (settingsStore.deleteOriginalAfterImport.first()) {
+            // Sin sentido si no se copió nada -- "eliminar original" borraría
+            // la ÚNICA copia que existe (ver persisted arriba).
+            if (!persisted && settingsStore.deleteOriginalAfterImport.first()) {
                 deleteOriginalBestEffort(uri)
             }
 
@@ -94,8 +111,21 @@ class ImportUseCase @Inject constructor(
             // Boundary real: Uri externo (Share Sheet/SAF) puede fallar de
             // formas que no controlamos -- permiso revocado, archivo borrado
             // entre que se eligió y se leyó, IO error, etc.
+            copiedFile?.delete()
             ImportResult.Error(e.message ?: "Error al importar el video.")
         }
+    }
+
+    // Solo funciona para Uris de SAF (ACTION_OPEN_DOCUMENT/OpenMultipleDocuments)
+    // -- Share Sheet no otorga FLAG_GRANT_PERSISTABLE_URI_PERMISSION, esto
+    // tira SecurityException ahí y cae al camino de copiar como siempre.
+    private fun tryPersistPermission(uri: Uri): Boolean = runCatching {
+        context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        true
+    }.getOrDefault(false)
+
+    private fun releasePersistedPermissionBestEffort(uri: Uri) {
+        runCatching { context.contentResolver.releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
     }
 
     // Mejor esfuerzo, a propósito: en Android 10+ borrar un archivo que la

@@ -43,9 +43,12 @@ fun IngestScreen(
         }
     }
 
+    // canPersist=true: el selector SAF sí soporta permiso persistente sobre
+    // el Uri (a diferencia de Share Sheet, arriba) -- ImportUseCase evita
+    // copiar el archivo cuando esto funciona.
     val pickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments(),
-    ) { uris -> viewModel.importUris(uris) }
+    ) { uris -> viewModel.importUris(uris, canPersist = true) }
 
     Column(
         modifier = modifier
@@ -68,12 +71,10 @@ fun IngestScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Elegir video") }
 
-                // El video SIEMPRE se copia al storage de la app (no se
-                // referencia solo por Uri, ver ImportUseCase) — este switch
-                // es lo único que evita que quede duplicado ocupando espacio
-                // en Galería/Archivos también. Default apagado: es
-                // mejor-esfuerzo, no siempre puede borrar el original (ver
-                // ImportUseCase.deleteOriginalBestEffort).
+                // Solo aplica a lo que llega por Compartir (siempre se copia,
+                // ver ImportUseCase) — lo elegido por el selector de archivos
+                // de acá arriba normalmente NO duplica nada, así que este
+                // switch no tiene nada que hacer ahí.
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -81,7 +82,7 @@ fun IngestScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Column(modifier = Modifier.padding(end = 8.dp)) {
-                        Text("Eliminar original al importar", style = MaterialTheme.typography.bodyMedium)
+                        Text("Eliminar original al compartir", style = MaterialTheme.typography.bodyMedium)
                         Text(
                             "Libera espacio — no siempre se puede borrar según el permiso.",
                             style = MaterialTheme.typography.labelSmall,

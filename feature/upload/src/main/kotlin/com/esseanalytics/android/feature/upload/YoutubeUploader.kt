@@ -3,6 +3,7 @@ package com.esseanalytics.android.feature.upload
 import android.graphics.Bitmap
 import android.util.Base64
 import com.esseanalytics.android.core.media.AndroidFrameThumbnailGenerator
+import com.esseanalytics.android.core.media.MediaSource
 import com.esseanalytics.android.core.network.api.PlatformAuthApi
 import com.esseanalytics.android.core.network.di.PlatformOkHttp
 import com.esseanalytics.android.core.network.dto.SetYoutubeThumbnailRequest
@@ -69,7 +70,7 @@ class YoutubeUploader @Inject constructor(
     // subido el video, por eso los reintentos con espera (mismos 3 intentos /
     // 2.5s que ya usa desktop).
     private suspend fun setCustomThumbnail(file: File, offsetMs: Long, videoId: String, token: String) {
-        val frame = thumbnailGenerator.captureFrame(file, offsetMs) ?: return
+        val frame = thumbnailGenerator.captureFrame(MediaSource.LocalFile(file), offsetMs) ?: return
         val base64 = withContext(Dispatchers.IO) {
             ByteArrayOutputStream().use { out ->
                 frame.compress(Bitmap.CompressFormat.JPEG, 85, out)

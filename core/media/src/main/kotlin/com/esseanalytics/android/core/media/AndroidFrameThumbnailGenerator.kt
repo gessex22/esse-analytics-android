@@ -1,7 +1,9 @@
 package com.esseanalytics.android.core.media
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -19,17 +21,19 @@ import javax.inject.Singleton
 // tome, ImportUseCase puede pasar a usar el ThumbnailGenerator real y esta
 // clase queda solo como fallback.
 @Singleton
-class AndroidFrameThumbnailGenerator @Inject constructor() {
+class AndroidFrameThumbnailGenerator @Inject constructor(
+    @ApplicationContext private val context: Context,
+) {
 
     // Frame en un instante puntual, SIN recortar/escalar -- para la portada
     // que el usuario elige a mano al publicar (mismo criterio que desktop:
     // frontend/src/components/YoutubeUploadView.tsx, ThumbnailScrubber, un
     // <video>+<canvas> capturando el frame en el que quedó el scrubber; acá
     // MediaMetadataRetriever hace lo mismo sin necesitar ffmpeg ni un player).
-    suspend fun captureFrame(input: File, atMs: Long): Bitmap? = withContext(Dispatchers.IO) {
+    suspend fun captureFrame(source: MediaSource, atMs: Long): Bitmap? = withContext(Dispatchers.IO) {
         val retriever = MediaMetadataRetriever()
         try {
-            retriever.setDataSource(input.absolutePath)
+            setDataSource(retriever, source)
             retriever.getFrameAtTime(atMs * 1000, MediaMetadataRetriever.OPTION_CLOSEST)
         } catch (e: Exception) {
             null
@@ -38,11 +42,11 @@ class AndroidFrameThumbnailGenerator @Inject constructor() {
         }
     }
 
-    suspend fun generate(input: File, output: File, targetWidth: Int = 320, targetHeight: Int = 180): Boolean =
+    suspend fun generate(source: MediaSource, output: File, targetWidth: Int = 320, targetHeight: Int = 180): Boolean =
         withContext(Dispatchers.IO) {
             val retriever = MediaMetadataRetriever()
             try {
-                retriever.setDataSource(input.absolutePath)
+                setDataSource(retriever, source)
 
                 val durationMs = retriever
                     .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
@@ -70,6 +74,13 @@ class AndroidFrameThumbnailGenerator @Inject constructor() {
                 retriever.release()
             }
         }
+
+    private fun setDataSource(retriever: MediaMetadataRetriever, source: MediaSource) {
+        when (source) {
+            is MediaSource.LocalFile -> retriever.setDataSource(source.file.absolutePath)
+            is MediaSource.ContentUri -> retriever.setDataSource(context, source.uri)
+        }
+    }
 
     // Llena el aspect ratio pedido recortando el sobrante (sin barras de
     // letterbox, sin deformar) -- versión simple de lo que hace desktop con

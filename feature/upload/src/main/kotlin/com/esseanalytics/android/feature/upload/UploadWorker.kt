@@ -1,6 +1,7 @@
 package com.esseanalytics.android.feature.upload
 
 import android.content.Context
+import android.net.Uri
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.ListenableWorker.Result
@@ -12,8 +13,11 @@ import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.model.Platform
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.UUID
 
 // Un worker por (archivo, plataforma) -- UploadScreen encola uno por cada
 // plataforma elegida. Resuelve qué PlatformUploader real usar y, si sale
@@ -52,10 +56,9 @@ class UploadWorker @AssistedInject constructor(
             Platform.FACEBOOK -> return Result.failure(workDataOf(KEY_ERROR to "Facebook no es una subida directa."))
         }
 
-        val localFile = File(fileRepository.findById(fileId)?.filePath ?: return Result.failure())
-        if (!localFile.exists()) {
-            return Result.failure(workDataOf(KEY_ERROR to "El archivo local ya no existe."))
-        }
+        val storedPath = fileRepository.findById(fileId)?.filePath ?: return Result.failure()
+        val resolved = resolveUploadFile(storedPath)
+            ?: return Result.failure(workDataOf(KEY_ERROR to "El archivo local ya no existe."))
 
         val metadata = UploadMetadata(
             title = title,
@@ -64,31 +67,60 @@ class UploadWorker @AssistedInject constructor(
             thumbnailOffsetMs = inputData.getLong(KEY_THUMBNAIL_OFFSET_MS, -1L).takeIf { it >= 0 },
         )
 
-        val result = uploader.upload(localFile, metadata) { progress ->
-            setProgressAsync(workDataOf(KEY_PROGRESS to progress))
-        }
-
-        return when (result) {
-            is UploadResult.Success -> {
-                platformVideoRepository.upsertPublished(
-                    platform = platform,
-                    platformId = result.platformId,
-                    platformUrl = result.platformUrl.ifBlank { null },
-                    linkedFileId = fileId,
-                    title = title,
-                )
-                fileRepository.onPlatformPublished(fileId, platform, settingsStore.workflowMode.first())
-                Result.success(workDataOf(KEY_RESULT_URL to result.platformUrl))
+        try {
+            val result = uploader.upload(resolved.file, metadata) { progress ->
+                setProgressAsync(workDataOf(KEY_PROGRESS to progress))
             }
-            is UploadResult.Failure -> {
-                if (result.retryable && runAttemptCount < MAX_RETRIES) {
-                    Result.retry()
-                } else {
-                    Result.failure(workDataOf(KEY_ERROR to result.message))
+
+            return when (result) {
+                is UploadResult.Success -> {
+                    platformVideoRepository.upsertPublished(
+                        platform = platform,
+                        platformId = result.platformId,
+                        platformUrl = result.platformUrl.ifBlank { null },
+                        linkedFileId = fileId,
+                        title = title,
+                    )
+                    fileRepository.onPlatformPublished(fileId, platform, settingsStore.workflowMode.first())
+                    Result.success(workDataOf(KEY_RESULT_URL to result.platformUrl))
+                }
+                is UploadResult.Failure -> {
+                    if (result.retryable && runAttemptCount < MAX_RETRIES) {
+                        Result.retry()
+                    } else {
+                        Result.failure(workDataOf(KEY_ERROR to result.message))
+                    }
                 }
             }
+        } finally {
+            if (resolved.isTemp) resolved.file.delete()
         }
     }
+
+    // videoFile.filePath puede ser un path local (Share Sheet, o SAF sin
+    // permiso persistente, ver ImportUseCase) o un Uri content:// guardado
+    // tal cual (SAF con permiso persistente -- nunca se copió nada al
+    // importar). Para ESTE caso, y solo acá, se copia a un temporal en
+    // cacheDir recién al momento de subir -- PlatformUploader sigue
+    // trabajando con un File real, y el temporal se borra apenas termina.
+    private suspend fun resolveUploadFile(storedPath: String): ResolvedFile? {
+        if (!storedPath.startsWith("content://")) {
+            val file = File(storedPath)
+            return file.takeIf { it.exists() }?.let { ResolvedFile(it, isTemp = false) }
+        }
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val tempDir = File(applicationContext.cacheDir, "uploads").apply { mkdirs() }
+                val tempFile = File(tempDir, "${UUID.randomUUID()}.mp4")
+                applicationContext.contentResolver.openInputStream(Uri.parse(storedPath))?.use { input ->
+                    tempFile.outputStream().use { output -> input.copyTo(output) }
+                } ?: return@runCatching null
+                ResolvedFile(tempFile, isTemp = true)
+            }.getOrNull()
+        }
+    }
+
+    private data class ResolvedFile(val file: File, val isTemp: Boolean)
 
     companion object {
         const val KEY_FILE_ID = "fileId"
