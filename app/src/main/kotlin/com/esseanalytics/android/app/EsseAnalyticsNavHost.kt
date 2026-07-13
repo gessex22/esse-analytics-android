@@ -77,9 +77,14 @@ fun EsseAnalyticsNavHost(
     val authState by sessionViewModel.authState.collectAsState()
     val navController = rememberNavController()
 
-    when (authState) {
+    when (val current = authState) {
         is AuthState.LoggedOut -> LoginScreen(onLoggedIn = { /* authState cambia solo, ver TokenStore */ })
-        is AuthState.LoggedIn -> MainAppScaffold(navController, pendingImportUris, onPendingImportUrisConsumed)
+        is AuthState.LoggedIn -> MainAppScaffold(
+            navController,
+            pendingImportUris,
+            onPendingImportUrisConsumed,
+            isOwner = current.user.isOwner,
+        )
     }
 }
 
@@ -88,6 +93,7 @@ private fun MainAppScaffold(
     navController: NavHostController,
     pendingImportUris: List<Uri>,
     onPendingImportUrisConsumed: () -> Unit,
+    isOwner: Boolean,
 ) {
     // Un video compartido desde otra app (Galería, Archivos) llega acá vía
     // MainActivity — si la app estaba en cualquier otra pantalla, la manda a
@@ -138,7 +144,7 @@ private fun MainAppScaffold(
             }
             composable(Routes.CALENDAR) { CalendarScreen() }
             composable(Routes.UPLOAD) { UploadScreen() }
-            composable(Routes.MORE) { MoreScreen(navController) }
+            composable(Routes.MORE) { MoreScreen(navController, isOwner) }
             composable(Routes.INGEST) {
                 DetailScaffold("Importar video", onBack = navController::popBackStack) {
                     IngestScreen(
@@ -165,13 +171,17 @@ private fun MainAppScaffold(
 
 // Agrupa las pantallas que no entran en la barra inferior — mismo criterio que
 // el acordeón de Ajustes del frontend web (SettingsView.tsx): Sincronización,
-// Estadísticas, Usuarios y Gemas viven acá, no en la nav principal.
+// Estadísticas, Usuarios y Gemas viven acá, no en la nav principal. Usuarios
+// es owner-only (la central igual 403-earía, pero no tiene sentido mostrar
+// una entrada que va a fallar seguro).
 @Composable
-private fun MoreScreen(navController: NavHostController) {
+private fun MoreScreen(navController: NavHostController, isOwner: Boolean) {
     Column {
         MoreItem("Sincronización") { navController.navigate(Routes.SYNC) }
         MoreItem("Estadísticas") { navController.navigate(Routes.STATS) }
-        MoreItem("Usuarios") { navController.navigate(Routes.USERS) }
+        if (isOwner) {
+            MoreItem("Usuarios") { navController.navigate(Routes.USERS) }
+        }
         MoreItem("Gemas") { navController.navigate(Routes.GEMS) }
     }
 }
