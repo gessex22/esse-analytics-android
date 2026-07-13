@@ -31,7 +31,7 @@ import javax.inject.Singleton
 @Singleton
 class InstagramUploader @Inject constructor(
     private val platformAuthApi: PlatformAuthApi,
-    @PlatformOkHttp private val httpClient: OkHttpClient,
+    @field:PlatformOkHttp private val httpClient: OkHttpClient,
 ) : PlatformUploader {
 
     private val json = Json { ignoreUnknownKeys = true }

@@ -2,6 +2,8 @@ package com.esseanalytics.android.feature.upload
 
 import com.esseanalytics.android.core.network.api.PlatformAuthApi
 import com.esseanalytics.android.core.network.di.PlatformOkHttp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -25,7 +27,7 @@ import javax.inject.Singleton
 @Singleton
 class YoutubeUploader @Inject constructor(
     private val platformAuthApi: PlatformAuthApi,
-    @PlatformOkHttp private val httpClient: OkHttpClient,
+    @field:PlatformOkHttp private val httpClient: OkHttpClient,
 ) : PlatformUploader {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -34,11 +36,13 @@ class YoutubeUploader @Inject constructor(
         return try {
             val token = platformAuthApi.youtubeToken().access_token
 
-            val sessionUrl = startResumableSession(token, file, metadata)
-                ?: return UploadResult.Failure("YouTube no devolvió una sesión de subida.", retryable = true)
+            val sessionUrl = withContext(Dispatchers.IO) {
+                startResumableSession(token, file, metadata)
+            } ?: return UploadResult.Failure("YouTube no devolvió una sesión de subida.", retryable = true)
 
-            val videoId = uploadFileToSession(sessionUrl, file, onProgress)
-                ?: return UploadResult.Failure("YouTube no confirmó la subida.", retryable = true)
+            val videoId = withContext(Dispatchers.IO) {
+                uploadFileToSession(sessionUrl, file, onProgress)
+            } ?: return UploadResult.Failure("YouTube no confirmó la subida.", retryable = true)
 
             UploadResult.Success(platformId = videoId, platformUrl = "https://youtube.com/shorts/$videoId")
         } catch (e: IOException) {
@@ -66,9 +70,9 @@ class YoutubeUploader @Inject constructor(
             .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
 
-        httpClient.newCall(request).execute().use { response ->
+        return httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) return null
-            return response.header("Location")
+            response.header("Location")
         }
     }
 
@@ -79,10 +83,10 @@ class YoutubeUploader @Inject constructor(
             .put(requestBody)
             .build()
 
-        httpClient.newCall(request).execute().use { response ->
+        return httpClient.newCall(request).execute().use { response ->
             val bodyText = response.body?.string().orEmpty()
             if (!response.isSuccessful) return null
-            return runCatching { json.decodeFromString<YoutubeUploadResponse>(bodyText) }.getOrNull()?.id
+            runCatching { json.decodeFromString<YoutubeUploadResponse>(bodyText) }.getOrNull()?.id
         }
     }
 }

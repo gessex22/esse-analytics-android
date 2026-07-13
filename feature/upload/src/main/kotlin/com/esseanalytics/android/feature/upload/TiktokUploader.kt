@@ -30,7 +30,7 @@ import kotlin.math.ceil
 @Singleton
 class TiktokUploader @Inject constructor(
     private val platformAuthApi: PlatformAuthApi,
-    @PlatformOkHttp private val httpClient: OkHttpClient,
+    @field:PlatformOkHttp private val httpClient: OkHttpClient,
 ) : PlatformUploader {
 
     private val json = Json { ignoreUnknownKeys = true }
