@@ -3,6 +3,7 @@ package com.esseanalytics.android.feature.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.esseanalytics.android.core.datastore.SettingsStore
+import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.model.WorkflowMode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -13,10 +14,14 @@ import javax.inject.Inject
 
 // Junta acá los settings que ya existían sueltos (workflowMode y
 // wifiOnlyUploads venían de Fase 0/1 sin pantalla propia) más el nuevo
-// selector de tema — todo lee/escribe directo a SettingsStore.
+// selector de tema — todo lee/escribe directo a SettingsStore. Logout usa
+// TokenStore directo (no AuthRepository de feature:auth) para no crear una
+// dependencia feature-a-feature -- ningún otro módulo de la app lo hace,
+// y TokenStore.clear() es exactamente lo mismo que hace AuthRepository.logout().
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settingsStore: SettingsStore,
+    private val tokenStore: TokenStore,
 ) : ViewModel() {
 
     val colorTheme: StateFlow<String> = settingsStore.colorTheme
@@ -38,5 +43,11 @@ class SettingsViewModel @Inject constructor(
 
     fun setWifiOnlyUploads(enabled: Boolean) {
         viewModelScope.launch { settingsStore.setWifiOnlyUploads(enabled) }
+    }
+
+    // AuthState.LoggedOut dispara solo (TokenStore.authState) -- EsseAnalyticsNavHost
+    // ya reacciona mostrando LoginScreen, no hace falta navegar a mano.
+    fun logout() {
+        tokenStore.clear()
     }
 }
