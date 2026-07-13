@@ -13,7 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedButtonDefaults
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -111,7 +111,7 @@ private fun LogoutRow(onLogout: () -> Unit) {
         ) {
             OutlinedButton(
                 onClick = onLogout,
-                colors = OutlinedButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                 modifier = Modifier.weight(1f),
             ) { Text("Confirmar salida") }
             TextButton(onClick = { confirming = false }, modifier = Modifier.weight(1f)) { Text("Cancelar") }
@@ -119,7 +119,7 @@ private fun LogoutRow(onLogout: () -> Unit) {
     } else {
         OutlinedButton(
             onClick = { confirming = true },
-            colors = OutlinedButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Cerrar sesión") }
     }
