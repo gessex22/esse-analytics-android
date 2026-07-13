@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -97,7 +98,16 @@ private fun CalendarSlotCard(slot: CalendarSlot) {
     val platform = Platform.fromApiValue(slot.platform)
     val color = platform?.let(::platformColor) ?: MaterialTheme.colorScheme.primary
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    // elevation = 0.dp a propósito: la elevación por defecto de Card mezcla
+    // un poco del color primario (rojo/ámbar) sobre la superficie -- se ve
+    // como una tarjeta más clara y tibia de lo que pide el tema (--card
+    // plano en theme.css, sin ese tinte). Mismo fix en todas las Card() de
+    // la app (Biblioteca, Estadísticas, Sync, Usuarios, Subir).
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(

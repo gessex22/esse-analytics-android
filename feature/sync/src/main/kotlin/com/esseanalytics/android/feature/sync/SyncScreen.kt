@@ -20,6 +20,7 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -236,7 +237,11 @@ private fun CandidateCard(
     onUseSlot: (PlatformRecentItemDto) -> Unit,
     onLoadMoreSlots: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
         Column(Modifier.padding(12.dp)) {
             Text(candidate.fileName, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
 
@@ -359,7 +364,11 @@ private fun SlotPickerPanel(
 
 @Composable
 private fun StatsBar(stats: SyncStatsDto, syncing: Boolean, onSync: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
         Column(Modifier.padding(12.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -413,7 +422,11 @@ private fun ReviewCard(
     onOrphan: () -> Unit,
 ) {
     val busyThisItem = busy == item._id
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
         Column(Modifier.padding(12.dp)) {
             Text(item.title, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
             Text(

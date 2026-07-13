@@ -18,12 +18,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -43,14 +45,24 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.work.Data
 import androidx.work.WorkInfo
 import coil.compose.AsyncImage
 import com.esseanalytics.android.core.designsystem.component.PlaceholderScreen
+import com.esseanalytics.android.core.designsystem.icon.InstagramLogo
+import com.esseanalytics.android.core.designsystem.icon.PlatformIcons
+import com.esseanalytics.android.core.designsystem.icon.TiktokLogo
+import com.esseanalytics.android.core.designsystem.icon.YoutubeLogo
+import com.esseanalytics.android.core.designsystem.theme.InstagramPurple
+import com.esseanalytics.android.core.designsystem.theme.TiktokPink
+import com.esseanalytics.android.core.designsystem.theme.YoutubeRed
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
 import java.io.File
@@ -144,7 +156,12 @@ private fun FileList(files: List<VideoFile>, onSelect: (VideoFile) -> Unit, modi
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(files, key = { it.id }) { file ->
-            Card(modifier = Modifier.fillMaxWidth(), onClick = { onSelect(file) }) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { onSelect(file) },
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            ) {
                 Row(
                     modifier = Modifier.padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -308,7 +325,7 @@ private fun FacebookCrossPostRow(checked: Boolean, enabled: Boolean, onCheckedCh
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 40.dp, bottom = 4.dp),
+            .padding(start = 46.dp, bottom = 4.dp),
     ) {
         Checkbox(checked = checked && enabled, enabled = enabled, onCheckedChange = onCheckedChange)
         Column(modifier = Modifier.padding(top = 12.dp)) {
@@ -400,6 +417,11 @@ private fun formatSecondsLabel(seconds: Float): String {
     return "%d:%02d".format(totalSec / 60, totalSec % 60)
 }
 
+// Fila entera clickeable (no solo el Checkbox), con el logo real de la
+// plataforma en un badge circular que se ilumina con el color de marca al
+// elegirla -- mismo lenguaje visual que los badges de Biblioteca/
+// Estadísticas/Calendario, pero acá además es la forma de seleccionar qué
+// publicar, no solo un indicador de estado.
 @Composable
 private fun PlatformRow(
     platform: Platform,
@@ -412,15 +434,46 @@ private fun PlatformRow(
 ) {
     val workInfoFlow = remember(fileId, platform) { viewModel.observeWork(fileId, platform) }
     val workInfo by workInfoFlow.collectAsState(initial = null)
+    val color = platformColor(platform)
+    val selected = checked || alreadyDone
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .padding(vertical = 3.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (selected) color.copy(alpha = 0.1f) else Color.Transparent)
+            .clickable(enabled = enabled) { onCheckedChange(!checked) }
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Checkbox(checked = checked || alreadyDone, enabled = enabled, onCheckedChange = onCheckedChange)
-        Column(modifier = Modifier.padding(top = 12.dp)) {
-            Text(platform.apiValue, style = MaterialTheme.typography.bodyLarge)
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(color.copy(alpha = if (selected) 0.18f else 0.08f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            val icon = platformIcon(platform)
+            if (icon != null) {
+                Icon(
+                    icon,
+                    contentDescription = platformFullLabel(platform),
+                    tint = if (selected) color else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+        Column(
+            modifier = Modifier
+                .padding(start = 12.dp)
+                .weight(1f),
+        ) {
+            Text(
+                platformFullLabel(platform),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            )
             PlatformStatusLabel(alreadyDone = alreadyDone, workInfo = workInfo)
             // El crosspost a Facebook viaja en el MISMO WorkInfo que Instagram
             // (ver UploadWorker) -- no es una plataforma con su propio job.
@@ -430,7 +483,29 @@ private fun PlatformRow(
                 }
             }
         }
+        Checkbox(checked = selected, enabled = enabled, onCheckedChange = onCheckedChange)
     }
+}
+
+private fun platformColor(platform: Platform): Color = when (platform) {
+    Platform.YOUTUBE -> YoutubeRed
+    Platform.INSTAGRAM -> InstagramPurple
+    Platform.TIKTOK -> TiktokPink
+    Platform.FACEBOOK -> Color.Gray
+}
+
+private fun platformFullLabel(platform: Platform): String = when (platform) {
+    Platform.YOUTUBE -> "YouTube"
+    Platform.INSTAGRAM -> "Instagram"
+    Platform.TIKTOK -> "TikTok"
+    Platform.FACEBOOK -> "Facebook"
+}
+
+private fun platformIcon(platform: Platform): ImageVector? = when (platform) {
+    Platform.YOUTUBE -> PlatformIcons.YoutubeLogo
+    Platform.INSTAGRAM -> PlatformIcons.InstagramLogo
+    Platform.TIKTOK -> PlatformIcons.TiktokLogo
+    Platform.FACEBOOK -> null
 }
 
 @Composable
