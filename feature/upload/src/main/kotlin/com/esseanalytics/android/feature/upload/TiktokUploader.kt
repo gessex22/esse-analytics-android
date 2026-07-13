@@ -7,7 +7,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
@@ -30,7 +29,7 @@ import kotlin.math.ceil
 @Singleton
 class TiktokUploader @Inject constructor(
     private val platformAuthApi: PlatformAuthApi,
-    @field:PlatformOkHttp private val httpClient: OkHttpClient,
+    @PlatformOkHttp private val httpClient: OkHttpClient,
 ) : PlatformUploader {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -85,6 +84,9 @@ class TiktokUploader @Inject constructor(
                 postInfo = TiktokInitRequest.PostInfo(
                     title = metadata.title,
                     privacyLevel = mapPrivacyLevel(metadata.privacyStatus),
+                    // Default 1000ms si no se eligió portada, igual que desktop
+                    // (tiktok-upload.controller.ts).
+                    videoCoverTimestampMs = metadata.thumbnailOffsetMs ?: 1000L,
                 ),
                 sourceInfo = TiktokInitRequest.SourceInfo(
                     videoSize = videoSize,
@@ -177,6 +179,7 @@ private data class TiktokInitRequest(
     data class PostInfo(
         val title: String,
         @SerialName("privacy_level") val privacyLevel: String,
+        @SerialName("video_cover_timestamp_ms") val videoCoverTimestampMs: Long,
     )
 
     @Serializable

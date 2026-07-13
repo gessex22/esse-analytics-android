@@ -13,7 +13,7 @@ import com.esseanalytics.android.core.database.entity.PlatformVideoEntity
 // acá los usuarios sí van a tener datos locales entre actualizaciones de la app.
 @Database(
     entities = [FileEntity::class, PlatformVideoEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class EsseAnalyticsDatabase : RoomDatabase() {

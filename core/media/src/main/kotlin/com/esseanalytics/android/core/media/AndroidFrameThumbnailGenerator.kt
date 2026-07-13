@@ -21,6 +21,23 @@ import javax.inject.Singleton
 @Singleton
 class AndroidFrameThumbnailGenerator @Inject constructor() {
 
+    // Frame en un instante puntual, SIN recortar/escalar -- para la portada
+    // que el usuario elige a mano al publicar (mismo criterio que desktop:
+    // frontend/src/components/YoutubeUploadView.tsx, ThumbnailScrubber, un
+    // <video>+<canvas> capturando el frame en el que quedó el scrubber; acá
+    // MediaMetadataRetriever hace lo mismo sin necesitar ffmpeg ni un player).
+    suspend fun captureFrame(input: File, atMs: Long): Bitmap? = withContext(Dispatchers.IO) {
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(input.absolutePath)
+            retriever.getFrameAtTime(atMs * 1000, MediaMetadataRetriever.OPTION_CLOSEST)
+        } catch (e: Exception) {
+            null
+        } finally {
+            retriever.release()
+        }
+    }
+
     suspend fun generate(input: File, output: File, targetWidth: Int = 320, targetHeight: Int = 180): Boolean =
         withContext(Dispatchers.IO) {
             val retriever = MediaMetadataRetriever()

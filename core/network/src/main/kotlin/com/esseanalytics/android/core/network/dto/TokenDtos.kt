@@ -16,3 +16,6 @@ data class YoutubeTokenResponse(val access_token: String)
 
 @Serializable
 data class AuthUrlResponse(val url: String)
+
+@Serializable
+data class SetYoutubeThumbnailRequest(val imageBase64: String)

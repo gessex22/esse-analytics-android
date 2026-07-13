@@ -6,7 +6,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import okhttp3.FormBody
 import okhttp3.MediaType.Companion.toMediaType
@@ -31,7 +30,7 @@ import javax.inject.Singleton
 @Singleton
 class InstagramUploader @Inject constructor(
     private val platformAuthApi: PlatformAuthApi,
-    @field:PlatformOkHttp private val httpClient: OkHttpClient,
+    @PlatformOkHttp private val httpClient: OkHttpClient,
 ) : PlatformUploader {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -77,13 +76,18 @@ class InstagramUploader @Inject constructor(
     }
 
     private fun createContainer(igUserId: String, token: String, metadata: UploadMetadata): IgContainerResponse? {
-        val form = FormBody.Builder()
+        val formBuilder = FormBody.Builder()
             .add("media_type", "REELS")
             .add("upload_type", "resumable")
             .add("caption", metadata.title + if (metadata.description.isNotBlank()) "\n\n${metadata.description}" else "")
             .add("share_to_feed", "true")
             .add("access_token", token)
-            .build()
+
+        // thumb_offset ya está en ms -- mismo campo que usa desktop
+        // (instagram-upload.controller.ts), Meta saca el frame server-side.
+        metadata.thumbnailOffsetMs?.let { formBuilder.add("thumb_offset", it.toString()) }
+
+        val form = formBuilder.build()
 
         val request = Request.Builder()
             .url("https://graph.facebook.com/v22.0/$igUserId/media")

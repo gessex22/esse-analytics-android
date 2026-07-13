@@ -61,6 +61,7 @@ class UploadWorker @AssistedInject constructor(
             title = title,
             description = inputData.getString(KEY_DESCRIPTION) ?: "",
             privacyStatus = inputData.getString(KEY_PRIVACY) ?: "public",
+            thumbnailOffsetMs = inputData.getLong(KEY_THUMBNAIL_OFFSET_MS, -1L).takeIf { it >= 0 },
         )
 
         val result = uploader.upload(localFile, metadata) { progress ->
@@ -95,6 +96,7 @@ class UploadWorker @AssistedInject constructor(
         const val KEY_TITLE = "title"
         const val KEY_DESCRIPTION = "description"
         const val KEY_PRIVACY = "privacy"
+        const val KEY_THUMBNAIL_OFFSET_MS = "thumbnailOffsetMs"
         const val KEY_PROGRESS = "progress"
         const val KEY_RESULT_URL = "resultUrl"
         const val KEY_ERROR = "error"
@@ -106,6 +108,9 @@ class UploadWorker @AssistedInject constructor(
             KEY_TITLE to metadata.title,
             KEY_DESCRIPTION to metadata.description,
             KEY_PRIVACY to metadata.privacyStatus,
+            // -1 = sin elegir (ver doWork, .takeIf { it >= 0 }) -- workDataOf
+            // no acepta Long? nullable directo.
+            KEY_THUMBNAIL_OFFSET_MS to (metadata.thumbnailOffsetMs ?: -1L),
         )
     }
 }

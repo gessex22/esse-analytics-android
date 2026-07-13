@@ -19,6 +19,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): EsseAnalyticsDatabase =
         Room.databaseBuilder(context, EsseAnalyticsDatabase::class.java, "essenalytics.db")
+            .fallbackToDestructiveMigration()
             .build()
 
     @Provides

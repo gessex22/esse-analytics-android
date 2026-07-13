@@ -1,5 +1,7 @@
 package com.esseanalytics.android.feature.upload
 
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,20 +22,25 @@ import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -142,6 +150,7 @@ private fun PublishForm(file: VideoFile, viewModel: UploadViewModel, onBackToLis
             Platform.publishable.filter { it !in file.platforms && it !in file.platformsDiscarded }.toSet(),
         )
     }
+    var thumbnailOffsetSec by remember(file.id) { mutableFloatStateOf(0f) }
 
     Column(
         modifier = Modifier
@@ -175,6 +184,17 @@ private fun PublishForm(file: VideoFile, viewModel: UploadViewModel, onBackToLis
                 .padding(top = 8.dp),
         )
 
+        val durationSec = file.duracionSegundos
+        if (durationSec != null && durationSec > 0) {
+            ThumbnailPicker(
+                filePath = file.filePath,
+                durationSec = durationSec,
+                offsetSec = thumbnailOffsetSec,
+                onOffsetChange = { thumbnailOffsetSec = it },
+                viewModel = viewModel,
+            )
+        }
+
         Text(
             "Plataformas",
             style = MaterialTheme.typography.titleMedium,
@@ -196,13 +216,99 @@ private fun PublishForm(file: VideoFile, viewModel: UploadViewModel, onBackToLis
         }
 
         Button(
-            onClick = { viewModel.publish(file, selectedPlatforms, title, description) },
+            onClick = {
+                viewModel.publish(
+                    file,
+                    selectedPlatforms,
+                    title,
+                    description,
+                    thumbnailOffsetMs = (thumbnailOffsetSec * 1000).toLong(),
+                )
+            },
             enabled = selectedPlatforms.isNotEmpty() && title.isNotBlank(),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 24.dp),
         ) { Text("Publicar") }
     }
+}
+
+// Elegir portada -- mismo criterio que desktop (YoutubeUploadView.tsx,
+// ThumbnailScrubber/ThumbOffsetPicker): un slider sobre la duración del
+// video, con preview del frame elegido. YouTube recibe el frame capturado
+// como imagen (ver YoutubeUploader.setCustomThumbnail); Instagram/TikTok
+// solo el offset en ms, cada red saca el frame de su lado.
+@Composable
+private fun ThumbnailPicker(
+    filePath: String,
+    durationSec: Int,
+    offsetSec: Float,
+    onOffsetChange: (Float) -> Unit,
+    viewModel: UploadViewModel,
+) {
+    var preview by remember(filePath) { mutableStateOf<Bitmap?>(null) }
+    var loading by remember(filePath) { mutableStateOf(true) }
+    // Solo se recaptura al SOLTAR el slider (onValueChangeFinished), no en
+    // cada tick de arrastre -- MediaMetadataRetriever no es tan barato como
+    // el seek de un <video> real, capturar en cada pixel arrastrado
+    // saturaría de trabajo de fondo sin que se note (solo el último importa).
+    var committedOffsetSec by remember(filePath) { mutableFloatStateOf(offsetSec) }
+
+    LaunchedEffect(filePath, committedOffsetSec) {
+        loading = true
+        preview = viewModel.captureThumbnailPreview(filePath, (committedOffsetSec * 1000).toLong())
+        loading = false
+    }
+
+    Column(modifier = Modifier.padding(top = 20.dp)) {
+        Text("Portada", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Elegí el frame que se va a usar de miniatura.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(160.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            val currentPreview = preview
+            if (currentPreview != null) {
+                Image(
+                    bitmap = currentPreview.asImageBitmap(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            if (loading) {
+                CircularProgressIndicator()
+            }
+        }
+
+        Slider(
+            value = offsetSec,
+            onValueChange = onOffsetChange,
+            onValueChangeFinished = { committedOffsetSec = offsetSec },
+            valueRange = 0f..durationSec.toFloat(),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            formatSecondsLabel(offsetSec),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+private fun formatSecondsLabel(seconds: Float): String {
+    val totalSec = seconds.toInt()
+    return "%d:%02d".format(totalSec / 60, totalSec % 60)
 }
 
 @Composable

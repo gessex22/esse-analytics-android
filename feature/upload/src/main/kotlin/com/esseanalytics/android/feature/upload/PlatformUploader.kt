@@ -7,6 +7,11 @@ data class UploadMetadata(
     val description: String = "",
     val tags: List<String> = emptyList(),
     val privacyStatus: String = "public",
+    // Portada elegida a mano por el usuario (offset dentro del video, en ms) --
+    // mismo criterio que desktop (YoutubeUploadView.tsx): YouTube recibe un
+    // frame capturado como imagen aparte (thumbnails.set), Instagram/TikTok
+    // solo el timestamp -- cada uploader lo usa distinto, ver el suyo.
+    val thumbnailOffsetMs: Long? = null,
 )
 
 sealed interface UploadResult {

@@ -2,9 +2,13 @@ package com.esseanalytics.android.core.network.api
 
 import com.esseanalytics.android.core.network.dto.AuthUrlResponse
 import com.esseanalytics.android.core.network.dto.InstagramTokenResponse
+import com.esseanalytics.android.core.network.dto.SetYoutubeThumbnailRequest
 import com.esseanalytics.android.core.network.dto.TiktokTokenResponse
 import com.esseanalytics.android.core.network.dto.YoutubeTokenResponse
+import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.POST
+import retrofit2.http.Path
 import retrofit2.http.Query
 
 // Endpoints "de token": la central los devuelve para que la app suba DIRECTO
@@ -30,4 +34,12 @@ interface PlatformAuthApi {
 
     @GET("api/youtube/auth/url")
     suspend fun youtubeAuthUrl(@Query("client") client: String = "android"): AuthUrlResponse
+
+    // Mismo endpoint que ya usa frontend/src/components/YoutubeUploadView.tsx
+    // (ThumbnailScrubber) tras un upload exitoso -- youtube.thumbnails.set vive
+    // en la CENTRAL (backend/), no en local-backend, a diferencia de las subidas
+    // en sí. YouTube tarda unos segundos en aceptarla después de recién subido
+    // el video -- YoutubeUploader reintenta con backoff, ver ese archivo.
+    @POST("api/youtube/thumbnail/{videoId}")
+    suspend fun setYoutubeThumbnail(@Path("videoId") videoId: String, @Body body: SetYoutubeThumbnailRequest)
 }
