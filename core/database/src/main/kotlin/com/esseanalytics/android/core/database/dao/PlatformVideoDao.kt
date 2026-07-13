@@ -21,4 +21,16 @@ interface PlatformVideoDao {
 
     @Update
     suspend fun update(entity: PlatformVideoEntity)
+
+    // El índice único (platform, platformId) NO evita que dos filas de la
+    // MISMA plataforma apunten al MISMO linkedFileId (ej: re-publicar el
+    // mismo video a la misma red genera un platformId nuevo) -- mismo bug
+    // que se encontró y arregló del lado de desktop (resolveCrossMatchSlot,
+    // backend/src/controllers/sync.controller.ts). Se llama ANTES del upsert
+    // en PlatformVideoRepository.upsertPublished para no repetirlo acá.
+    @Query(
+        "UPDATE platform_videos SET linkedFileId = NULL, matchStatus = 'sin_match' " +
+            "WHERE platform = :platform AND linkedFileId = :fileId",
+    )
+    suspend fun unlinkOthersForFile(platform: String, fileId: Long)
 }

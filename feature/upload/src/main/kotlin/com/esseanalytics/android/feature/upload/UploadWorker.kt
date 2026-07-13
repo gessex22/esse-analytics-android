@@ -1,0 +1,111 @@
+package com.esseanalytics.android.feature.upload
+
+import android.content.Context
+import androidx.hilt.work.HiltWorker
+import androidx.work.CoroutineWorker
+import androidx.work.ListenableWorker.Result
+import androidx.work.WorkerParameters
+import androidx.work.workDataOf
+import com.esseanalytics.android.core.database.FileRepository
+import com.esseanalytics.android.core.database.PlatformVideoRepository
+import com.esseanalytics.android.core.datastore.SettingsStore
+import com.esseanalytics.android.core.model.Platform
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedInject
+import kotlinx.coroutines.flow.first
+import java.io.File
+
+// Un worker por (archivo, plataforma) -- UploadScreen encola uno por cada
+// plataforma elegida. Resuelve qué PlatformUploader real usar y, si sale
+// bien, deja todo consistente en Room: el link en platform_videos (con el
+// fix de unlinkOthersForFile, ver PlatformVideoRepository) y
+// FileRepository.onPlatformPublished, que es el MISMO punto de entrada que
+// usan las 3 pantallas de subida en desktop (addPlatform +
+// resolveOthersAsDiscarded si el modo es Simple).
+@HiltWorker
+class UploadWorker @AssistedInject constructor(
+    @Assisted context: Context,
+    @Assisted params: WorkerParameters,
+    private val fileRepository: FileRepository,
+    private val platformVideoRepository: PlatformVideoRepository,
+    private val settingsStore: SettingsStore,
+    private val youtubeUploader: YoutubeUploader,
+    private val instagramUploader: InstagramUploader,
+    private val tiktokUploader: TiktokUploader,
+) : CoroutineWorker(context, params) {
+
+    override suspend fun doWork(): Result {
+        val fileId = inputData.getLong(KEY_FILE_ID, -1L)
+        val platform = inputData.getString(KEY_PLATFORM)?.let { Platform.fromApiValue(it) }
+        val title = inputData.getString(KEY_TITLE)
+
+        if (fileId < 0 || platform == null || title.isNullOrBlank()) {
+            return Result.failure(workDataOf(KEY_ERROR to "Datos de subida incompletos."))
+        }
+
+        // Facebook es crossposting (Fase 3, ver el plan), no un uploader
+        // directo -- no debería llegar acá nunca, pero se cubre el caso.
+        val uploader = when (platform) {
+            Platform.YOUTUBE -> youtubeUploader
+            Platform.INSTAGRAM -> instagramUploader
+            Platform.TIKTOK -> tiktokUploader
+            Platform.FACEBOOK -> return Result.failure(workDataOf(KEY_ERROR to "Facebook no es una subida directa."))
+        }
+
+        val localFile = File(fileRepository.findById(fileId)?.filePath ?: return Result.failure())
+        if (!localFile.exists()) {
+            return Result.failure(workDataOf(KEY_ERROR to "El archivo local ya no existe."))
+        }
+
+        val metadata = UploadMetadata(
+            title = title,
+            description = inputData.getString(KEY_DESCRIPTION) ?: "",
+            privacyStatus = inputData.getString(KEY_PRIVACY) ?: "public",
+        )
+
+        val result = uploader.upload(localFile, metadata) { progress ->
+            setProgressAsync(workDataOf(KEY_PROGRESS to progress))
+        }
+
+        return when (result) {
+            is UploadResult.Success -> {
+                platformVideoRepository.upsertPublished(
+                    platform = platform,
+                    platformId = result.platformId,
+                    platformUrl = result.platformUrl.ifBlank { null },
+                    linkedFileId = fileId,
+                    title = title,
+                )
+                fileRepository.onPlatformPublished(fileId, platform, settingsStore.workflowMode.first())
+                Result.success(workDataOf(KEY_RESULT_URL to result.platformUrl))
+            }
+            is UploadResult.Failure -> {
+                if (result.retryable && runAttemptCount < MAX_RETRIES) {
+                    Result.retry()
+                } else {
+                    Result.failure(workDataOf(KEY_ERROR to result.message))
+                }
+            }
+        }
+    }
+
+    companion object {
+        const val KEY_FILE_ID = "fileId"
+        const val KEY_PLATFORM = "platform"
+        const val KEY_TITLE = "title"
+        const val KEY_DESCRIPTION = "description"
+        const val KEY_PRIVACY = "privacy"
+        const val KEY_PROGRESS = "progress"
+        const val KEY_RESULT_URL = "resultUrl"
+        const val KEY_ERROR = "error"
+        private const val MAX_RETRIES = 3
+
+        fun buildInputData(fileId: Long, platform: Platform, metadata: UploadMetadata) = workDataOf(
+            KEY_FILE_ID to fileId,
+            KEY_PLATFORM to platform.apiValue,
+            KEY_TITLE to metadata.title,
+            KEY_DESCRIPTION to metadata.description,
+            KEY_PRIVACY to metadata.privacyStatus,
+        )
+    }
+}

@@ -27,6 +27,17 @@ private const val CENTRAL_BASE_URL = "https://api.esse-analytics.com/"
 @Retention(AnnotationRetention.BINARY)
 annotation class CentralRetrofit
 
+// Cliente crudo, SIN AuthInterceptor/AuthAuthenticator de la central — las 3
+// subidas directas (feature:upload) le pegan a graph.facebook.com /
+// open.tiktokapis.com / googleapis.com con su PROPIO access_token por
+// request (el que devuelve GET /api/{platform}/token), nunca con el JWT de
+// la central. Usar el cliente de arriba ahí sería un bug: le pondría el
+// Bearer equivocado, y peor, AuthAuthenticator interpretaría cualquier 401
+// de Google/Meta/TikTok como si fuera de la central y borraría la sesión.
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class PlatformOkHttp
+
 @Module
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
@@ -43,6 +54,18 @@ object NetworkModule {
     ): OkHttpClient = OkHttpClient.Builder()
         .addInterceptor(authInterceptor)
         .authenticator(authAuthenticator)
+        .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
+        .build()
+
+    @Provides
+    @Singleton
+    @PlatformOkHttp
+    fun providePlatformOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
+        // Timeouts largos: subir un video de varios MB/minutos por 3G/4G
+        // puede tardar bastante más que el default de 10s de OkHttp.
+        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(5, java.util.concurrent.TimeUnit.MINUTES)
+        .readTimeout(2, java.util.concurrent.TimeUnit.MINUTES)
         .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
         .build()
 

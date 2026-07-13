@@ -54,6 +54,12 @@ dependencies {
     implementation(libs.hilt.navigation.compose)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
+    // Solo para el wiring de Configuration.Provider en EsseAnalyticsApp (deja
+    // que Hilt sepa crear los @HiltWorker de feature:upload) -- la lógica de
+    // los workers en sí vive en feature:upload, que ya los declara.
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.hilt.work)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
