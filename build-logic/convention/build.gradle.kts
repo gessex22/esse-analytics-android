@@ -13,6 +13,7 @@ dependencies {
     compileOnly(libs.android.gradlePlugin)
     compileOnly(libs.kotlin.gradlePlugin)
     compileOnly(libs.ksp.gradlePlugin)
+    compileOnly(libs.hilt.android.gradlePlugin)
 }
 
 // Registra cada convention plugin bajo el id que se usa en libs.versions.toml
