@@ -252,7 +252,7 @@ class InstagramUploader @Inject constructor(
             val start = startFacebookReel(pageId, pageToken)
             val videoId = start?.videoId
             val uploadUrl = start?.uploadUrl
-            if (videoId == null || uploadUrl == null) {
+            if (videoId == null || (uploadUrl == null)) {
                 return@withContext FacebookCrossPostResult.Failed(
                     start?.error?.message ?: "No se pudo iniciar la subida a Facebook.",
                 )

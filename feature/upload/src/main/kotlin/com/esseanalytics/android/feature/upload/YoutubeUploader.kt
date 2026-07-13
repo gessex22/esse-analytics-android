@@ -57,7 +57,7 @@ class YoutubeUploader @Inject constructor(
             // subida entera por una miniatura -- solo se pierde la portada
             // elegida a mano (queda la que YouTube generó sola).
             metadata.thumbnailOffsetMs?.let { offsetMs ->
-                setCustomThumbnail(file, offsetMs, videoId, token)
+                setCustomThumbnail(file, offsetMs, videoId)
             }
 
             UploadResult.Success(platformId = videoId, platformUrl = "https://youtube.com/shorts/$videoId")
@@ -70,7 +70,7 @@ class YoutubeUploader @Inject constructor(
     // directa -- YouTube tarda unos segundos en aceptar una miniatura recién
     // subido el video, por eso los reintentos con espera (mismos 3 intentos /
     // 2.5s que ya usa desktop).
-    private suspend fun setCustomThumbnail(file: File, offsetMs: Long, videoId: String, token: String) {
+    private suspend fun setCustomThumbnail(file: File, offsetMs: Long, videoId: String) {
         val frame = thumbnailGenerator.captureFrame(MediaSource.LocalFile(file), offsetMs) ?: return
         val base64 = withContext(Dispatchers.IO) {
             ByteArrayOutputStream().use { out ->
@@ -85,7 +85,7 @@ class YoutubeUploader @Inject constructor(
                 platformAuthApi.setYoutubeThumbnail(videoId, SetYoutubeThumbnailRequest("data:image/jpeg;base64,$base64"))
             }.isSuccess
             if (success) return
-            if (attempt < THUMBNAIL_SET_ATTEMPTS - 1) delay(THUMBNAIL_SET_RETRY_DELAY_MS.milliseconds)
+            if (attempt < (THUMBNAIL_SET_ATTEMPTS - 1)) delay(THUMBNAIL_SET_RETRY_DELAY_MS.milliseconds)
         }
     }
 
