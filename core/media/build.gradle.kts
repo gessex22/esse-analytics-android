@@ -10,14 +10,13 @@ android {
 dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
-    // NO hay dependencia de FFmpeg acá todavía — a propósito. MediaProber
-    // (AndroidMediaProber.kt) ya tiene implementación real, sin ffmpeg: usa
-    // android.media.MediaMetadataRetriever, parte del SDK. Los otros 3
-    // (ThumbnailGenerator/TrimProcessor/NormalizeProcessor, ver el KDoc de
-    // VideoProcessors.kt) SÍ necesitan ffmpeg de verdad para el filtro/los
-    // flags exactos que ya corren en desktop, y siguen bloqueados: FFmpegKit
-    // (arthenica) está retirado desde abril 2025, binarios sacados de Maven
-    // Central, repo archivado, sin sucesor claro. Hay que decidir entre un
-    // fork mantenido, compilar los binarios de ffmpeg propios via NDK, u otra
-    // librería, ANTES de escribir esas 3 implementaciones.
+    // NO hay dependencia de FFmpeg acá, y no la va a haber -- decisión tomada
+    // con el usuario (no solo "qué fork" sino un problema de licencia real:
+    // libx264, el codec que hubiera hecho falta para Normalize, es GPL, y
+    // esta es una app comercial de código cerrado). MediaProber
+    // (AndroidMediaProber.kt) y TrimProcessor (AndroidTrimProcessor.kt) ya
+    // tienen implementación real 100% SDK (MediaMetadataRetriever /
+    // MediaExtractor+MediaMuxer). ThumbnailGenerator (con blur de fondo) y
+    // NormalizeProcessor siguen sin implementar -- ver el comentario al
+    // final de VideoProcessors.kt para el motivo real de cada uno.
 }
