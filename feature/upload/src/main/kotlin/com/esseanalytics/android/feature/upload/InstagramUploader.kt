@@ -5,6 +5,7 @@ import com.esseanalytics.android.core.network.di.PlatformOkHttp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.FormBody
@@ -129,7 +130,7 @@ class InstagramUploader @Inject constructor(
                 }
             }
 
-            when (status?.status_code) {
+            when (status?.statusCode) {
                 "FINISHED" -> return PollResult.Finished
                 "ERROR" -> return PollResult.Error
                 else -> Unit // IN_PROGRESS / PUBLISHED (todavía no) -- seguir esperando
@@ -185,7 +186,10 @@ class InstagramUploader @Inject constructor(
 private data class IgContainerResponse(val id: String, val uri: String)
 
 @Serializable
-private data class IgStatusResponse(val status_code: String? = null, val status: String? = null)
+private data class IgStatusResponse(
+    @SerialName("status_code") val statusCode: String? = null,
+    val status: String? = null,
+)
 
 @Serializable
 private data class IgPublishResponse(val id: String)
