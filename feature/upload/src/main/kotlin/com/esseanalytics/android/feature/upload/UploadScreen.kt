@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -82,7 +83,20 @@ fun UploadScreen(
     Column(modifier = modifier.fillMaxSize()) {
         val current = selectedFile
         if (current == null) {
-            FileList(files = files, onSelect = { selectedFile = it })
+            // Encabezado propio para este paso -- sin esto, esta lista es
+            // visualmente indistinguible de Biblioteca (misma tarjeta:
+            // miniatura + título + subtítulo), y quedaba ambiguo si estabas
+            // en Videos o en el primer paso del formulario de Subir.
+            Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
+                Text("Subir", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    "Elegí qué video querés publicar.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            FileList(files = files, onSelect = { selectedFile = it }, modifier = Modifier.weight(1f))
         } else {
             PublishForm(
                 file = current,
@@ -94,9 +108,10 @@ fun UploadScreen(
 }
 
 @Composable
-private fun FileList(files: List<VideoFile>, onSelect: (VideoFile) -> Unit) {
+private fun FileList(files: List<VideoFile>, onSelect: (VideoFile) -> Unit, modifier: Modifier = Modifier) {
     LazyColumn(
-        contentPadding = PaddingValues(16.dp),
+        modifier = modifier,
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(files, key = { it.id }) { file ->
