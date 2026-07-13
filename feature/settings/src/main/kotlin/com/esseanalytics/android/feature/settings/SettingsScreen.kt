@@ -9,7 +9,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -40,8 +42,14 @@ fun SettingsScreen(modifier: Modifier = Modifier, viewModel: SettingsViewModel =
     val workflowMode by viewModel.workflowMode.collectAsState()
     val wifiOnly by viewModel.wifiOnlyUploads.collectAsState()
 
+    // Sin scroll acá, la sección "Cuenta" (con el botón de cerrar sesión) al
+    // final de 3 secciones + un divisor quedaba cortada fuera de la pantalla
+    // en cualquier equipo donde el contenido no entrara entero -- sin forma
+    // de llegar a ella.
     Column(
-        modifier = modifier.padding(16.dp),
+        modifier = modifier
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
         SettingsSection(title = "Tema") {

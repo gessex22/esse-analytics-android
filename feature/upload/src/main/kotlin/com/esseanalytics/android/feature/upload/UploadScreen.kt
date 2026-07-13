@@ -64,10 +64,25 @@ fun UploadScreen(
 ) {
     val files by viewModel.files.collectAsState()
     var selectedFile by remember { mutableStateOf<VideoFile?>(null) }
+    // Distingue "todavía no autoseleccionó nada" de "el usuario tocó Elegir
+    // otro video a propósito" -- sin esto, un simple cambio en la lista (se
+    // importa/publica/borra algo mientras el usuario está mirando la lista a
+    // mano) dispara el LaunchedEffect de abajo de nuevo y lo saca de la
+    // lista empujándolo de vuelta al formulario sin que él lo pidiera.
+    var browsingList by remember { mutableStateOf(false) }
 
+    // Entrar a Subir abre el formulario DE UNA, no una lista para elegir
+    // primero: con fileId puntual (viene de Biblioteca) usa ese archivo: si
+    // no, el pendiente más nuevo (findAll ya ordena por fecha desc), que es
+    // el caso común de "el próximo que falta subir". "Elegir otro video"
+    // dentro del formulario es la única forma de volver a la lista completa.
     LaunchedEffect(initialFileId, files) {
-        if (selectedFile == null && initialFileId != null) {
-            selectedFile = files.find { it.id == initialFileId }
+        if (selectedFile == null && !browsingList) {
+            selectedFile = if (initialFileId != null) {
+                files.find { it.id == initialFileId }
+            } else {
+                files.firstOrNull()
+            }
         }
     }
 
@@ -96,12 +111,22 @@ fun UploadScreen(
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
-            FileList(files = files, onSelect = { selectedFile = it }, modifier = Modifier.weight(1f))
+            FileList(
+                files = files,
+                onSelect = {
+                    selectedFile = it
+                    browsingList = false
+                },
+                modifier = Modifier.weight(1f),
+            )
         } else {
             PublishForm(
                 file = current,
                 viewModel = viewModel,
-                onBackToList = { selectedFile = null },
+                onBackToList = {
+                    selectedFile = null
+                    browsingList = true
+                },
             )
         }
     }
