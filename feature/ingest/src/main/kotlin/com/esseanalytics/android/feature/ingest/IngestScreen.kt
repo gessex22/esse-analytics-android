@@ -5,12 +5,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,6 +34,7 @@ fun IngestScreen(
     viewModel: IngestViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val deleteOriginal by viewModel.deleteOriginalAfterImport.collectAsState()
 
     LaunchedEffect(pendingUris) {
         if (pendingUris.isNotEmpty()) {
@@ -64,6 +67,29 @@ fun IngestScreen(
                     onClick = { pickerLauncher.launch(arrayOf("video/*")) },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Elegir video") }
+
+                // El video SIEMPRE se copia al storage de la app (no se
+                // referencia solo por Uri, ver ImportUseCase) — este switch
+                // es lo único que evita que quede duplicado ocupando espacio
+                // en Galería/Archivos también. Default apagado: es
+                // mejor-esfuerzo, no siempre puede borrar el original (ver
+                // ImportUseCase.deleteOriginalBestEffort).
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 20.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(modifier = Modifier.padding(end = 8.dp)) {
+                        Text("Eliminar original al importar", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "Libera espacio — no siempre se puede borrar según el permiso.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = deleteOriginal, onCheckedChange = viewModel::setDeleteOriginalAfterImport)
+                }
             }
 
             is IngestUiState.Importing -> CircularProgressIndicator()

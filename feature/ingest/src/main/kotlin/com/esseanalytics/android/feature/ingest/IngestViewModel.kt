@@ -3,11 +3,14 @@ package com.esseanalytics.android.feature.ingest
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.model.VideoFile
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -22,9 +25,17 @@ sealed interface IngestUiState {
 @HiltViewModel
 class IngestViewModel @Inject constructor(
     private val importUseCase: ImportUseCase,
+    private val settingsStore: SettingsStore,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<IngestUiState>(IngestUiState.Idle)
     val uiState: StateFlow<IngestUiState> = _uiState.asStateFlow()
+
+    val deleteOriginalAfterImport: StateFlow<Boolean> = settingsStore.deleteOriginalAfterImport
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    fun setDeleteOriginalAfterImport(enabled: Boolean) {
+        viewModelScope.launch { settingsStore.setDeleteOriginalAfterImport(enabled) }
+    }
 
     fun importUris(uris: List<Uri>) {
         if (uris.isEmpty()) return

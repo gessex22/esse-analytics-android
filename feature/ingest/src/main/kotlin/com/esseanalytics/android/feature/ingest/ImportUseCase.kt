@@ -4,12 +4,14 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import com.esseanalytics.android.core.database.FileRepository
+import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.media.MediaProber
 import com.esseanalytics.android.core.model.ContentStatus
 import com.esseanalytics.android.core.model.FileStatus
 import com.esseanalytics.android.core.model.VideoFile
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.Instant
@@ -33,6 +35,7 @@ class ImportUseCase @Inject constructor(
     @ApplicationContext private val context: Context,
     private val fileRepository: FileRepository,
     private val mediaProber: MediaProber,
+    private val settingsStore: SettingsStore,
 ) {
     suspend fun import(uri: Uri): ImportResult = withContext(Dispatchers.IO) {
         try {
@@ -74,6 +77,11 @@ class ImportUseCase @Inject constructor(
                 fechaCreacion = Instant.now(),
             )
             val id = fileRepository.insert(videoFile)
+
+            if (settingsStore.deleteOriginalAfterImport.first()) {
+                deleteOriginalBestEffort(uri)
+            }
+
             ImportResult.Success(videoFile.copy(id = id))
         } catch (e: Exception) {
             // Boundary real: Uri externo (Share Sheet/SAF) puede fallar de
@@ -81,6 +89,17 @@ class ImportUseCase @Inject constructor(
             // entre que se eligió y se leyó, IO error, etc.
             ImportResult.Error(e.message ?: "Error al importar el video.")
         }
+    }
+
+    // Mejor esfuerzo, a propósito: en Android 10+ borrar un archivo que la
+    // app no es dueña (el caso típico de Share Sheet, que solo suele otorgar
+    // permiso de LECTURA) requiere un flujo de confirmación del sistema
+    // (MediaStore.createDeleteRequest, con IntentSender) que no vale la pena
+    // acá -- ya tenemos la copia guardada, así que si esto falla se ignora en
+    // silencio en vez de mostrarle un error al usuario por algo que no rompió
+    // la importación en sí.
+    private fun deleteOriginalBestEffort(uri: Uri) {
+        runCatching { context.contentResolver.delete(uri, null, null) }
     }
 
     private fun queryDisplayName(uri: Uri): String? =

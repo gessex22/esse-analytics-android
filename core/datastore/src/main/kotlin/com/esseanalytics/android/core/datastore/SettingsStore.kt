@@ -37,6 +37,19 @@ class SettingsStore @Inject constructor(
         context.dataStore.edit { it[KEY_WIFI_ONLY] = enabled }
     }
 
+    // Importar SIEMPRE copia el archivo a storage privado (ver ImportUseCase
+    // y el plan, sección "Ingesta de videos") -- el original en Galería/
+    // Archivos queda intacto a menos que el usuario prenda esto. Default
+    // false a propósito: borrar el original es mejor-esfuerzo (puede fallar
+    // sin permiso en Android 10+) y es una decisión de espacio-en-disco del
+    // usuario, no algo que la app deba asumir sola.
+    val deleteOriginalAfterImport: Flow<Boolean> =
+        context.dataStore.data.map { it[KEY_DELETE_ORIGINAL] ?: false }
+
+    suspend fun setDeleteOriginalAfterImport(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_DELETE_ORIGINAL] = enabled }
+    }
+
     // UUID persistido una sola vez — ≥16 chars, como pide POST /api/auth/link-install.
     suspend fun getOrCreateInstallId(): String {
         val existing = context.dataStore.data.map { it[KEY_INSTALL_ID] }.first()
@@ -50,5 +63,6 @@ class SettingsStore @Inject constructor(
         val KEY_WORKFLOW_MODE = stringPreferencesKey("workflow_mode")
         val KEY_WIFI_ONLY = booleanPreferencesKey("wifi_only_uploads")
         val KEY_INSTALL_ID = stringPreferencesKey("install_id")
+        val KEY_DELETE_ORIGINAL = booleanPreferencesKey("delete_original_after_import")
     }
 }
