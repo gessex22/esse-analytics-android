@@ -44,6 +44,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.esseanalytics.android.core.designsystem.component.PlaceholderScreen
+import com.esseanalytics.android.core.designsystem.icon.InstagramLogo
+import com.esseanalytics.android.core.designsystem.icon.PlatformIcons
+import com.esseanalytics.android.core.designsystem.icon.TiktokLogo
+import com.esseanalytics.android.core.designsystem.icon.YoutubeLogo
 import com.esseanalytics.android.core.designsystem.theme.InstagramPurple
 import com.esseanalytics.android.core.designsystem.theme.TiktokPink
 import com.esseanalytics.android.core.designsystem.theme.YoutubeRed
@@ -75,6 +79,13 @@ private fun platformShortLabel(platform: Platform): String = when (platform) {
     Platform.INSTAGRAM -> "IG"
     Platform.TIKTOK -> "TT"
     Platform.FACEBOOK -> "FB"
+}
+
+private fun platformIcon(platform: Platform): ImageVector? = when (platform) {
+    Platform.YOUTUBE -> PlatformIcons.YoutubeLogo
+    Platform.INSTAGRAM -> PlatformIcons.InstagramLogo
+    Platform.TIKTOK -> PlatformIcons.TiktokLogo
+    Platform.FACEBOOK -> null
 }
 
 @Composable
@@ -209,7 +220,12 @@ private fun PlatformStatsRow(platform: Platform, slot: GroupStatsSlotDto) {
                 .background(color.copy(alpha = 0.15f)),
             contentAlignment = Alignment.Center,
         ) {
-            Text(platformShortLabel(platform), style = MaterialTheme.typography.labelSmall, color = color, fontWeight = FontWeight.Bold)
+            val icon = platformIcon(platform)
+            if (icon != null) {
+                Icon(icon, contentDescription = platformShortLabel(platform), tint = color, modifier = Modifier.size(13.dp))
+            } else {
+                Text(platformShortLabel(platform), style = MaterialTheme.typography.labelSmall, color = color, fontWeight = FontWeight.Bold)
+            }
         }
         Row(
             modifier = Modifier
@@ -297,12 +313,17 @@ private fun ViewsDonut(platforms: Map<String, GroupStatsSlotDto>, modifier: Modi
             }
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                platformShortLabel(leader.first),
-                style = MaterialTheme.typography.labelSmall,
-                color = leaderColor,
-                fontWeight = FontWeight.Bold,
-            )
+            val icon = platformIcon(leader.first)
+            if (icon != null) {
+                Icon(icon, contentDescription = platformShortLabel(leader.first), tint = leaderColor, modifier = Modifier.size(14.dp))
+            } else {
+                Text(
+                    platformShortLabel(leader.first),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = leaderColor,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
             Text("$leaderPct%", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
         }
     }

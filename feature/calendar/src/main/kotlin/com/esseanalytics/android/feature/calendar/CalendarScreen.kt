@@ -19,6 +19,7 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,10 +29,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.esseanalytics.android.core.designsystem.component.PlaceholderScreen
+import com.esseanalytics.android.core.designsystem.icon.InstagramLogo
+import com.esseanalytics.android.core.designsystem.icon.PlatformIcons
+import com.esseanalytics.android.core.designsystem.icon.TiktokLogo
+import com.esseanalytics.android.core.designsystem.icon.YoutubeLogo
 import com.esseanalytics.android.core.designsystem.theme.InstagramPurple
 import com.esseanalytics.android.core.designsystem.theme.TiktokPink
 import com.esseanalytics.android.core.designsystem.theme.YoutubeRed
@@ -101,12 +107,22 @@ private fun CalendarSlotCard(slot: CalendarSlot) {
                         .background(color.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        platform?.let(::platformShortLabel) ?: "?",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = color,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    val icon = platform?.let(::platformIcon)
+                    if (icon != null) {
+                        Icon(
+                            icon,
+                            contentDescription = platformShortLabel(platform),
+                            tint = color,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    } else {
+                        Text(
+                            platform?.let(::platformShortLabel) ?: "?",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = color,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
                 }
                 Column(
                     modifier = Modifier
@@ -189,4 +205,11 @@ private fun platformFullLabel(platform: Platform): String = when (platform) {
     Platform.INSTAGRAM -> "Instagram"
     Platform.TIKTOK -> "TikTok"
     Platform.FACEBOOK -> "Facebook"
+}
+
+private fun platformIcon(platform: Platform): ImageVector? = when (platform) {
+    Platform.YOUTUBE -> PlatformIcons.YoutubeLogo
+    Platform.INSTAGRAM -> PlatformIcons.InstagramLogo
+    Platform.TIKTOK -> PlatformIcons.TiktokLogo
+    Platform.FACEBOOK -> null
 }

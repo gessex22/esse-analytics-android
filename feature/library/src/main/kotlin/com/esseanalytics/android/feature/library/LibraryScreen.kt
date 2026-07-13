@@ -37,12 +37,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.esseanalytics.android.core.designsystem.component.PlaceholderScreen
+import com.esseanalytics.android.core.designsystem.icon.InstagramLogo
+import com.esseanalytics.android.core.designsystem.icon.PlatformIcons
+import com.esseanalytics.android.core.designsystem.icon.TiktokLogo
+import com.esseanalytics.android.core.designsystem.icon.YoutubeLogo
 import com.esseanalytics.android.core.designsystem.theme.InstagramPurple
 import com.esseanalytics.android.core.designsystem.theme.TiktokPink
 import com.esseanalytics.android.core.designsystem.theme.YoutubeRed
@@ -213,6 +218,17 @@ private fun platformShortLabel(platform: Platform): String = when (platform) {
     Platform.FACEBOOK -> "FB"
 }
 
+// Logo real (mismo SVG que frontend/src/components/icons/PlatformLogos.tsx)
+// en vez de iniciales de texto -- Facebook no tiene logo propio ahí tampoco
+// (es crosspost, no una plataforma publicable directa), se queda con el
+// fallback de texto.
+private fun platformIcon(platform: Platform): ImageVector? = when (platform) {
+    Platform.YOUTUBE -> PlatformIcons.YoutubeLogo
+    Platform.INSTAGRAM -> PlatformIcons.InstagramLogo
+    Platform.TIKTOK -> PlatformIcons.TiktokLogo
+    Platform.FACEBOOK -> null
+}
+
 @Composable
 private fun PlatformBadge(platform: Platform, state: PlatformBadgeState) {
     val color = platformColor(platform)
@@ -229,12 +245,22 @@ private fun PlatformBadge(platform: Platform, state: PlatformBadgeState) {
             .background(background),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            platformShortLabel(platform).take(1),
-            style = MaterialTheme.typography.labelSmall,
-            color = content,
-            fontWeight = FontWeight.Bold,
-        )
+        val icon = platformIcon(platform)
+        if (icon != null) {
+            Icon(
+                icon,
+                contentDescription = platformShortLabel(platform),
+                tint = content,
+                modifier = Modifier.size(11.dp),
+            )
+        } else {
+            Text(
+                platformShortLabel(platform).take(1),
+                style = MaterialTheme.typography.labelSmall,
+                color = content,
+                fontWeight = FontWeight.Bold,
+            )
+        }
     }
 }
 
