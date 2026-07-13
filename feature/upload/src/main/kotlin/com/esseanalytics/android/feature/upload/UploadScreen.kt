@@ -262,6 +262,7 @@ private fun PublishForm(file: VideoFile, viewModel: UploadViewModel, onBackToLis
         if (durationSec != null && durationSec > 0) {
             ThumbnailPicker(
                 filePath = file.filePath,
+                thumbnailPath = file.thumbnailPath,
                 durationSec = durationSec,
                 offsetSec = thumbnailOffsetSec,
                 onOffsetChange = { thumbnailOffsetSec = it },
@@ -347,22 +348,29 @@ private fun FacebookCrossPostRow(checked: Boolean, enabled: Boolean, onCheckedCh
 @Composable
 private fun ThumbnailPicker(
     filePath: String,
+    thumbnailPath: String?,
     durationSec: Int,
     offsetSec: Float,
     onOffsetChange: (Float) -> Unit,
     viewModel: UploadViewModel,
 ) {
     var preview by remember(filePath) { mutableStateOf<Bitmap?>(null) }
-    var loading by remember(filePath) { mutableStateOf(true) }
-    // Solo se recaptura al SOLTAR el slider (onValueChangeFinished), no en
-    // cada tick de arrastre -- MediaMetadataRetriever no es tan barato como
-    // el seek de un <video> real, capturar en cada pixel arrastrado
-    // saturaría de trabajo de fondo sin que se note (solo el último importa).
-    var committedOffsetSec by remember(filePath) { mutableFloatStateOf(offsetSec) }
+    var loading by remember(filePath) { mutableStateOf(false) }
+    // null = todavía no se tocó el slider -- se muestra la miniatura que ya
+    // se generó al importar (barata, un archivo en disco) en vez de decodificar
+    // un frame de video real (MediaMetadataRetriever.getFrameAtTime) apenas
+    // se entra a la pantalla. Navigation Compose descarta y recompone cada
+    // pestaña al volver a ella, así que sin este freno cada vez que se
+    // visitaba Subir se pagaba el costo de esa decodificación de nuevo --
+    // notable en videos grandes/storage lento, es el motivo real del lag al
+    // cambiar de pestaña. Ahora solo se paga cuando el usuario de verdad
+    // mueve el slider (onValueChangeFinished).
+    var committedOffsetSec by remember(filePath) { mutableStateOf<Float?>(null) }
 
     LaunchedEffect(filePath, committedOffsetSec) {
+        val committed = committedOffsetSec ?: return@LaunchedEffect
         loading = true
-        preview = viewModel.captureThumbnailPreview(filePath, (committedOffsetSec * 1000).toLong())
+        preview = viewModel.captureThumbnailPreview(filePath, (committed * 1000).toLong())
         loading = false
     }
 
@@ -384,13 +392,20 @@ private fun ThumbnailPicker(
             contentAlignment = Alignment.Center,
         ) {
             val currentPreview = preview
-            if (currentPreview != null) {
-                Image(
+            when {
+                currentPreview != null -> Image(
                     bitmap = currentPreview.asImageBitmap(),
                     contentDescription = null,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize(),
                 )
+                thumbnailPath != null -> AsyncImage(
+                    model = File(thumbnailPath),
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                else -> Unit
             }
             if (loading) {
                 CircularProgressIndicator()
