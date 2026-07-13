@@ -19,6 +19,7 @@ data class VideoFile(
     val duracionSegundos: Int? = null,
     val resolucion: String? = null,
     val formato: String? = null,
+    val thumbnailPath: String? = null,
     val fechaCreacion: Instant? = null,
     val scheduledDate: Instant? = null,
     val createdAt: Instant = Instant.now(),

@@ -1,18 +1,25 @@
 package com.esseanalytics.android.feature.upload
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -23,13 +30,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.work.WorkInfo
+import coil.compose.AsyncImage
 import com.esseanalytics.android.core.designsystem.component.PlaceholderScreen
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
+import java.io.File
 
 // Fase 1: elegir un video ya importado, tildar a qué plataformas publicarlo,
 // completar título/descripción, y encolar un UploadWorker por plataforma.
@@ -70,15 +82,48 @@ private fun FileList(files: List<VideoFile>, onSelect: (VideoFile) -> Unit) {
     ) {
         items(files, key = { it.id }) { file ->
             Card(modifier = Modifier.fillMaxWidth(), onClick = { onSelect(file) }) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(file.fileName, style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "Faltan: ${pendingPlatformsLabel(file)}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    UploadThumbnail(file.thumbnailPath)
+                    Column(modifier = Modifier.padding(start = 12.dp)) {
+                        Text(file.fileName, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                        Text(
+                            "Faltan: ${pendingPlatformsLabel(file)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun UploadThumbnail(thumbnailPath: String?) {
+    Box(
+        modifier = Modifier
+            .size(width = 64.dp, height = 40.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (thumbnailPath != null) {
+            AsyncImage(
+                model = File(thumbnailPath),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Icon(
+                Icons.Filled.VideoLibrary,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
         }
     }
 }

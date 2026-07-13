@@ -19,6 +19,7 @@ data class FileEntity(
     val duracionSegundos: Int? = null,
     val resolucion: String? = null,
     val formato: String? = null,
+    val thumbnailPath: String? = null,
     val fechaCreacionEpochMs: Long? = null,
     val scheduledDateEpochMs: Long? = null,
     val createdAtEpochMs: Long,

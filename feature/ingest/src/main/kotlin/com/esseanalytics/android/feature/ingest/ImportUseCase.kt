@@ -5,6 +5,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import com.esseanalytics.android.core.database.FileRepository
 import com.esseanalytics.android.core.datastore.SettingsStore
+import com.esseanalytics.android.core.media.AndroidFrameThumbnailGenerator
 import com.esseanalytics.android.core.media.MediaProber
 import com.esseanalytics.android.core.model.ContentStatus
 import com.esseanalytics.android.core.model.FileStatus
@@ -35,6 +36,7 @@ class ImportUseCase @Inject constructor(
     @ApplicationContext private val context: Context,
     private val fileRepository: FileRepository,
     private val mediaProber: MediaProber,
+    private val thumbnailGenerator: AndroidFrameThumbnailGenerator,
     private val settingsStore: SettingsStore,
 ) {
     suspend fun import(uri: Uri): ImportResult = withContext(Dispatchers.IO) {
@@ -66,6 +68,10 @@ class ImportUseCase @Inject constructor(
                 return@withContext ImportResult.Duplicate(existing)
             }
 
+            val thumbnailsDir = File(context.filesDir, "thumbnails").apply { mkdirs() }
+            val thumbnailFile = File(thumbnailsDir, "${destination.nameWithoutExtension}.jpg")
+            val hasThumbnail = thumbnailGenerator.generate(destination, thumbnailFile)
+
             val videoFile = VideoFile(
                 fileName = displayName,
                 filePath = destination.absolutePath,
@@ -74,6 +80,7 @@ class ImportUseCase @Inject constructor(
                 duracionSegundos = durationSeconds,
                 resolucion = if (info.width != null && info.height != null) "${info.width}x${info.height}" else null,
                 formato = extension,
+                thumbnailPath = if (hasThumbnail) thumbnailFile.absolutePath else null,
                 fechaCreacion = Instant.now(),
             )
             val id = fileRepository.insert(videoFile)
