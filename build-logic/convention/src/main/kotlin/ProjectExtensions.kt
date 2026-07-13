@@ -7,5 +7,5 @@ import org.gradle.kotlin.dsl.getByType
 // tienen el accessor `libs` generado automáticamente — este helper lo expone
 // igual, para usar `libs.findVersion("...")` / `libs.findLibrary("...")` desde
 // cualquier plugin de este módulo.
-val Project.libs: VersionCatalog
+val Project.versionCatalog: VersionCatalog
     get() = extensions.getByType<VersionCatalogsExtension>().named("libs")

@@ -15,5 +15,6 @@ local.properties
 # README para el porqué no está commiteado.
 gradle/wrapper/gradle-wrapper.jar
 
-# Room exporta acá el schema de cada versión — sí se commitea a partir de
-# cuando exista una v2 real con Migration (ver EsseAnalyticsDatabase.kt).
+# core/database/schemas/ SÍ se commitea (no se ignora) — Room lo exporta ahí
+# en cada build (ksp room.schemaLocation) y hace falta el historial completo,
+# desde la v1, para poder escribir tests de Migration más adelante.

@@ -18,7 +18,7 @@ dependencyResolutionManagement {
     // ya lo hace automáticamente y tira error si se llama from() dos veces.
 }
 
-rootProject.name = "EsseAnalytics"
+rootProject.name = "essenalytics-android"
 
 include(":app")
 
