@@ -192,9 +192,13 @@ private fun DeleteVideoDialog(file: VideoFile, onConfirm: () -> Unit, onDismiss:
     )
 }
 
-// Verde/color de marca = publicado, tachado y apagado = descartado (modo
-// Simple auto-descarta las otras al publicar una, ver FileRepository),
-// contorno vacío = todavía pendiente.
+// Regla simple: color de marca SOLO si está publicado, gris en cualquier
+// otro caso (pendiente o descartado) -- antes pendiente quedaba con el
+// círculo vacío/transparente y descartado con un gris apenas distinto, una
+// distinción demasiado sutil para leerse de un vistazo. Ahora los dos son
+// el mismo círculo gris relleno; descartado se ve un poco más apagado
+// (alpha más bajo) que pendiente, pero ninguno de los dos se confunde con
+// publicado.
 @Composable
 private fun PlatformBadgeRow(file: VideoFile) {
     Row(
@@ -244,8 +248,8 @@ private fun PlatformBadge(platform: Platform, state: PlatformBadgeState) {
     val color = platformColor(platform)
     val (background, content) = when (state) {
         PlatformBadgeState.PUBLISHED -> color.copy(alpha = 0.15f) to color
-        PlatformBadgeState.DISCARDED -> MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-        PlatformBadgeState.PENDING -> Color.Transparent to MaterialTheme.colorScheme.onSurfaceVariant
+        PlatformBadgeState.DISCARDED -> MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+        PlatformBadgeState.PENDING -> MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
     }
 
     Box(
