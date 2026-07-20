@@ -83,11 +83,12 @@ private data class UserDto(
     val role: String,
     val tier: String,
     val isOwner: Boolean,
+    val hasCloudStorage: Boolean = false,
     val theme: String? = null,
 ) {
-    fun toDomain() = User(id, username, role, tier, isOwner, theme)
+    fun toDomain() = User(id, username, role, tier, isOwner, hasCloudStorage, theme)
 
     companion object {
-        fun fromDomain(u: User) = UserDto(u.id, u.username, u.role, u.tier, u.isOwner, u.theme)
+        fun fromDomain(u: User) = UserDto(u.id, u.username, u.role, u.tier, u.isOwner, u.hasCloudStorage, u.theme)
     }
 }

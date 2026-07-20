@@ -1,6 +1,11 @@
 package com.esseanalytics.android.app
 
 import android.net.Uri
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -14,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.CloudQueue
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Diamond
 import androidx.compose.material.icons.outlined.MoreHoriz
@@ -51,6 +57,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -68,6 +75,7 @@ import com.esseanalytics.android.feature.calendar.CalendarScreen
 import com.esseanalytics.android.feature.gems.GemsScreen
 import com.esseanalytics.android.feature.ingest.IngestScreen
 import com.esseanalytics.android.feature.library.LibraryScreen
+import com.esseanalytics.android.feature.remotelibrary.RemoteLibraryScreen
 import com.esseanalytics.android.feature.settings.SettingsScreen
 import com.esseanalytics.android.feature.stats.StatsScreen
 import com.esseanalytics.android.feature.sync.SyncScreen
@@ -85,6 +93,7 @@ private object Routes {
     const val GEMS = "gems"
     const val INGEST = "ingest"
     const val SETTINGS = "settings"
+    const val REMOTE_LIBRARY = "remote_library"
 }
 
 private data class BottomDestination(val route: String, val label: String, val icon: ImageVector)
@@ -112,6 +121,7 @@ fun EsseAnalyticsNavHost(
             pendingImportUris,
             onPendingImportUrisConsumed,
             isOwner = current.user.isOwner,
+            canUseCloudStorage = current.user.canUseCloudStorage,
             username = current.user.username,
         )
     }
@@ -124,6 +134,7 @@ private fun MainAppScaffold(
     pendingImportUris: List<Uri>,
     onPendingImportUrisConsumed: () -> Unit,
     isOwner: Boolean,
+    canUseCloudStorage: Boolean,
     username: String,
 ) {
     // Un video compartido desde otra app (Galería, Archivos) llega acá vía
@@ -156,41 +167,71 @@ private fun MainAppScaffold(
         bottomBar = {
             val backStackEntry by navController.currentBackStackEntryAsState()
             val currentDestination = backStackEntry?.destination
-            NavigationBar {
-                bottomDestinations.forEach { dest ->
-                    // startsWith, no == : Subir ahora es una ruta con
-                    // argumento opcional ("upload?fileId={fileId}"), no el
-                    // literal "upload" -- ver la ruta de Routes.UPLOAD más
-                    // abajo. Ninguna otra ruta de la app es prefijo de otra,
-                    // así que esto no genera falsos positivos.
-                    val selected = currentDestination?.hierarchy?.any { it.route?.startsWith(dest.route) == true } == true
-                    NavigationBarItem(
-                        selected = selected,
-                        onClick = {
-                            navController.navigate(dest.route) {
-                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        icon = { Icon(dest.icon, contentDescription = dest.label) },
-                        label = { Text(dest.label) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.surfaceVariant,
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        ),
-                    )
+            // El contenido scrolleable (Column/LazyColumn, sin background propio)
+            // se ve en Scaffold.containerColor = background, mientras el
+            // NavigationBar usa surfaceContainer (= surface acá, ver Theme.kt)
+            // -- esa diferencia es la misma que --background vs --card en la
+            // web, y ahí se resuelve con un borde superior sutil (MobileNav en
+            // Sidebar.tsx: "border-t border-border"), no ocultándola. Sin este
+            // HorizontalDivider la transición se veía como un bloque oscuro
+            // pegado contra la barra en vez de un borde de barra intencional.
+            Column {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                NavigationBar {
+                    bottomDestinations.forEach { dest ->
+                        // startsWith, no == : Subir ahora es una ruta con
+                        // argumento opcional ("upload?fileId={fileId}"), no el
+                        // literal "upload" -- ver la ruta de Routes.UPLOAD más
+                        // abajo. Ninguna otra ruta de la app es prefijo de otra,
+                        // así que esto no genera falsos positivos.
+                        val selected = currentDestination?.hierarchy?.any { it.route?.startsWith(dest.route) == true } == true
+                        NavigationBarItem(
+                            selected = selected,
+                            onClick = {
+                                navController.navigate(dest.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            },
+                            icon = { Icon(dest.icon, contentDescription = dest.label) },
+                            label = { Text(dest.label) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = MaterialTheme.colorScheme.surfaceVariant,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                        )
+                    }
                 }
             }
         },
     ) { padding ->
+        // duration=220 + FastOutSlowInEasing == el cubic-bezier [0.4,0,0.2,1]
+        // que motion/react usa en la web para transiciones de panel/vista
+        // (App.tsx, Sidebar.tsx, player/VideoModal.tsx, todas en ~0.22s con
+        // ese mismo easing). Se define acá una sola vez, a nivel de NavHost,
+        // en vez de repetirlo en cada composable(...).
+        val navAnimSpec = tween<Float>(220, easing = FastOutSlowInEasing)
+        val navOffsetSpec = tween<IntOffset>(220, easing = FastOutSlowInEasing)
         NavHost(
             navController = navController,
             startDestination = Routes.LIBRARY,
             modifier = Modifier.padding(padding),
+            enterTransition = {
+                fadeIn(navAnimSpec) + slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, navOffsetSpec) { it / 10 }
+            },
+            exitTransition = {
+                fadeOut(navAnimSpec) + slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Start, navOffsetSpec) { it / 10 }
+            },
+            popEnterTransition = {
+                fadeIn(navAnimSpec) + slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.End, navOffsetSpec) { it / 10 }
+            },
+            popExitTransition = {
+                fadeOut(navAnimSpec) + slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, navOffsetSpec) { it / 10 }
+            },
         ) {
             composable(Routes.LIBRARY) {
                 LibraryScreen(
@@ -198,12 +239,19 @@ private fun MainAppScaffold(
                     // Ya tiene alguna plataforma publicada -> Estadísticas (a
                     // eso fue, a ver cómo le fue); todavía nada publicado ->
                     // Subir, con ese archivo ya elegido.
-                    onVideoClick = { file ->
+                    onLocalClick = { file ->
                         if (file.platforms.isNotEmpty()) {
                             navController.navigate(Routes.STATS)
                         } else {
                             navController.navigate("${Routes.UPLOAD}?fileId=${file.id}")
                         }
+                    },
+                    // Un ítem remoto va directo al formulario de publicar de
+                    // esa cola (ver RemoteLibraryScreen.initialVideoId), no a
+                    // Estadísticas -- la central no refleja el publish remoto
+                    // ahí todavía (ver Parte C.1, fuera de alcance).
+                    onRemoteClick = { video ->
+                        navController.navigate("${Routes.REMOTE_LIBRARY}?videoId=${video._id}")
                     },
                 )
             }
@@ -215,7 +263,7 @@ private fun MainAppScaffold(
                 val fileId = backStackEntry.arguments?.getLong("fileId")?.takeIf { it >= 0 }
                 UploadScreen(initialFileId = fileId)
             }
-            composable(Routes.MORE) { MoreScreen(navController, isOwner) }
+            composable(Routes.MORE) { MoreScreen(navController, isOwner, canUseCloudStorage) }
             composable(Routes.INGEST) {
                 DetailScaffold("Importar video", onBack = navController::popBackStack) {
                     IngestScreen(
@@ -239,6 +287,15 @@ private fun MainAppScaffold(
             composable(Routes.SETTINGS) {
                 DetailScaffold("Ajustes", onBack = navController::popBackStack) { SettingsScreen() }
             }
+            composable(
+                route = "${Routes.REMOTE_LIBRARY}?videoId={videoId}",
+                arguments = listOf(navArgument("videoId") { type = NavType.StringType; nullable = true; defaultValue = null }),
+            ) { backStackEntry ->
+                val videoId = backStackEntry.arguments?.getString("videoId")
+                DetailScaffold("Biblioteca remota", onBack = navController::popBackStack) {
+                    RemoteLibraryScreen(initialVideoId = videoId)
+                }
+            }
         }
     }
 }
@@ -259,6 +316,17 @@ private fun AppTopBar(
 ) {
     TopAppBar(
         scrollBehavior = scrollBehavior,
+        // Default de Material es containerColor = surface (--card), pero el
+        // resto del contenido bajo la barra vive en Scaffold.containerColor =
+        // background (--background) -- esa diferencia real (mismo criterio
+        // que theme.css: página vs tarjeta) se notaba como una costura justo
+        // donde termina la barra, porque acá no hay ninguna tarjeta pegada a
+        // ese borde para justificarla. El header web (App.tsx) usa bg-background
+        // por la misma razón -- se replica acá para que no haya costura.
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.background,
+            scrolledContainerColor = MaterialTheme.colorScheme.background,
+        ),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // ic_launcher_foreground.png tiene el padding de "safe zone"
@@ -273,12 +341,25 @@ private fun AppTopBar(
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(40.dp),
                 )
-                Text(
-                    "EsseAnalytics",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(start = 8.dp),
-                )
+                // Split en dos Text, no un string único: la web (App.tsx,
+                // Sidebar.tsx, LoginPage.tsx, LandingPage.tsx) siempre pinta
+                // "Esse" en --foreground y "Analytics" en --primary (rojo o
+                // ámbar según el tema activo), nunca las dos palabras del
+                // mismo color.
+                Row(modifier = Modifier.padding(start = 8.dp)) {
+                    Text(
+                        "Esse",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        "Analytics",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
             }
         },
         actions = {
@@ -324,7 +405,7 @@ private fun UserAvatar(username: String, onClick: () -> Unit) {
 // tarjeta (mismo patrón "settings list" que iOS/Android usan para esto,
 // elevation=0.dp para que coincida con el resto de las Card() de la app).
 @Composable
-private fun MoreScreen(navController: NavHostController, isOwner: Boolean) {
+private fun MoreScreen(navController: NavHostController, isOwner: Boolean, canUseCloudStorage: Boolean) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -361,6 +442,19 @@ private fun MoreScreen(navController: NavHostController, isOwner: Boolean) {
                         label = "Usuarios",
                         description = "Administrar cuentas de la app",
                         onClick = { navController.navigate(Routes.USERS) },
+                    )
+                }
+                // Premium + entitlement de storage aparte (ver
+                // requireCloudStorage/hasCloudStorage) -- generalizado desde
+                // owner-only, ver Parte D del plan. El owner sigue viéndolo
+                // porque canUseCloudStorage ya lo incluye (User.kt).
+                if (canUseCloudStorage) {
+                    HorizontalDivider()
+                    MoreItem(
+                        icon = Icons.Outlined.CloudQueue,
+                        label = "Biblioteca remota",
+                        description = "Cola de videos en la nube, publicable desde cualquier lado",
+                        onClick = { navController.navigate(Routes.REMOTE_LIBRARY) },
                     )
                 }
                 HorizontalDivider()

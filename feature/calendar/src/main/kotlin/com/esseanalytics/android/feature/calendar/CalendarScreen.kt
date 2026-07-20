@@ -17,6 +17,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -41,8 +43,14 @@ import com.esseanalytics.android.core.designsystem.icon.TiktokLogo
 import com.esseanalytics.android.core.designsystem.icon.YoutubeLogo
 import com.esseanalytics.android.core.designsystem.theme.InstagramPurple
 import com.esseanalytics.android.core.designsystem.theme.TiktokPink
+import com.esseanalytics.android.core.designsystem.theme.UrgencyPast
+import com.esseanalytics.android.core.designsystem.theme.UrgencySoon
+import com.esseanalytics.android.core.designsystem.theme.UrgencyToday
 import com.esseanalytics.android.core.designsystem.theme.YoutubeRed
 import com.esseanalytics.android.core.model.Platform
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 
 // Fase 1 (básico): cadencia de publicación por plataforma -- último
 // publicado, cada cuántos días toca, y qué archivo local sigue en la cola.
@@ -168,6 +176,38 @@ private fun CalendarSlotCard(slot: CalendarSlot) {
                 )
             }
 
+            // "Cada N días" (arriba) es la cadencia, no una fecha -- acá se
+            // resuelve cuándo le toca en concreto (lastPublishedDate +
+            // intervalDays), mismo cálculo y mismas 3 etiquetas relativas que
+            // daysLabel() en PublishingQueue.tsx (desktop).
+            Column(
+                modifier = Modifier.padding(top = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    "Próxima publicación",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (slot.nextDate != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        UrgencyPill(slot.nextDate)
+                        Text(
+                            formatNextDate(slot.nextDate),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                } else {
+                    Text(
+                        "Sin fecha base todavía",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -195,6 +235,61 @@ private fun CalendarSlotCard(slot: CalendarSlot) {
         }
     }
 }
+
+// Mismo criterio que UrgencyPill en PublishingQueue.tsx (desktop): rojo si ya
+// venció, naranja si es hoy, ámbar si es mañana, neutro (sin pill) si falta
+// más de un día -- así la urgencia se lee de un vistazo, no solo con la fecha.
+@Composable
+private fun UrgencyPill(nextDate: LocalDate) {
+    val days = relDays(nextDate)
+    val color = when {
+        days < 0 -> UrgencyPast
+        days == 0L -> UrgencyToday
+        days == 1L -> UrgencySoon
+        else -> null
+    }
+    if (color == null) {
+        Text(
+            daysLabel(days),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(color.copy(alpha = 0.15f))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            if (days < 0) Icons.Outlined.WarningAmber else Icons.Outlined.Schedule,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.size(12.dp),
+        )
+        Text(
+            daysLabel(days),
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(start = 4.dp),
+        )
+    }
+}
+
+private fun relDays(next: LocalDate): Long = ChronoUnit.DAYS.between(LocalDate.now(), next)
+
+private fun daysLabel(days: Long): String = when {
+    days < 0 -> "Venció hace ${-days} día${if (-days != 1L) "s" else ""}"
+    days == 0L -> "Hoy"
+    days == 1L -> "Mañana"
+    else -> "En $days días"
+}
+
+private val nextDateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM yyyy")
+private fun formatNextDate(date: LocalDate): String = nextDateFormatter.format(date)
 
 private fun platformColor(platform: Platform): Color = when (platform) {
     Platform.YOUTUBE -> YoutubeRed

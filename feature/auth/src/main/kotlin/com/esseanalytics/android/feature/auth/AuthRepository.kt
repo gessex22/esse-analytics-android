@@ -47,5 +47,5 @@ class AuthRepository @Inject constructor(
 
     fun logout() = tokenStore.clear()
 
-    private fun UserDto.toDomain(id: String) = User(id, username, role, tier, isOwner, theme)
+    private fun UserDto.toDomain(id: String) = User(id, username, role, tier, isOwner, hasCloudStorage, theme)
 }

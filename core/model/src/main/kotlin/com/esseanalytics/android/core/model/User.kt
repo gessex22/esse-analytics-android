@@ -7,9 +7,13 @@ data class User(
     val role: String,       // "todopoderoso" | "editor" | ...
     val tier: String,       // "free" | "premium"
     val isOwner: Boolean,
+    // Plan APARTE de tier==='premium' -- aloja bytes de video reales en la
+    // central (Biblioteca remota general, ver requireCloudStorage en backend/).
+    val hasCloudStorage: Boolean = false,
     val theme: String? = null,
 ) {
     val isPremium: Boolean get() = isOwner || tier == "premium"
+    val canUseCloudStorage: Boolean get() = isOwner || (tier == "premium" && hasCloudStorage)
 }
 
 // Simple: las 3 plataformas avanzan juntas (auto-descarta las otras al publicar

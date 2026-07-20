@@ -11,6 +11,9 @@ data class UserDto(
     val role: String,
     val tier: String,
     val isOwner: Boolean,
+    // Plan aparte de tier==='premium' -- default false para no romper la
+    // deserialización si la central todavía no lo manda (ver Parte D del plan).
+    val hasCloudStorage: Boolean = false,
     val theme: String? = null,
 )
 

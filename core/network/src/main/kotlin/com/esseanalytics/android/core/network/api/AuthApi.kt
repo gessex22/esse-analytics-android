@@ -3,6 +3,7 @@ package com.esseanalytics.android.core.network.api
 import com.esseanalytics.android.core.network.dto.LinkInstallRequest
 import com.esseanalytics.android.core.network.dto.LoginRequest
 import com.esseanalytics.android.core.network.dto.LoginResponse
+import com.esseanalytics.android.core.network.dto.UpdateCloudStorageRequest
 import com.esseanalytics.android.core.network.dto.UpdateTierRequest
 import com.esseanalytics.android.core.network.dto.UserDto
 import com.esseanalytics.android.core.network.dto.UsersListResponse
@@ -36,6 +37,9 @@ interface AuthApi {
 
     @PATCH("api/auth/users/{id}/tier")
     suspend fun updateUserTier(@Path("id") id: String, @Body body: UpdateTierRequest)
+
+    @PATCH("api/auth/users/{id}/cloud-storage")
+    suspend fun updateUserCloudStorage(@Path("id") id: String, @Body body: UpdateCloudStorageRequest)
 
     @PATCH("api/auth/users/{id}/deactivate")
     suspend fun deactivateUser(@Path("id") id: String)

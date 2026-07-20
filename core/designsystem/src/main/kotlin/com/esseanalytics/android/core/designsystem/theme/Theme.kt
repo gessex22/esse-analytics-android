@@ -13,28 +13,91 @@ import androidx.compose.ui.platform.LocalContext
 // light mode que el resto de la marca no tiene.
 enum class EsseAnalyticsColorTheme { ROJO, AMBAR }
 
+// darkColorScheme() rellena con la paleta "Purple" default de Material3
+// cualquier rol que no se pase acá (primaryContainer, surfaceContainer*,
+// secondary/tertiary, etc.) -- por eso el FAB salía morado (PrimaryContainer
+// default = #4F378B) y el NavigationBar tenía un borde visible arriba
+// (SurfaceContainer default = un gris frío #211F26 que no pega con el fondo
+// custom). Se completan TODOS los roles con la paleta real de la marca, la
+// misma que theme.css, para que nada caiga al morado de Material.
 private val RojoColors = darkColorScheme(
     primary = PrimaryRojo,
     onPrimary = Color.White,
+    primaryContainer = PrimaryRojo,
+    onPrimaryContainer = Color.White,
+    inversePrimary = PrimaryRojo,
+    // Sin segundo/tercer color de marca (--accent == --primary en
+    // theme.css) -- se reusa el mismo rojo en vez de heredar el
+    // púrpura/rosa default de Material.
+    secondary = PrimaryRojo,
+    onSecondary = Color.White,
+    secondaryContainer = SurfaceVariantRojo,
+    onSecondaryContainer = OnSurfaceVariantRojo,
+    tertiary = PrimaryRojo,
+    onTertiary = Color.White,
+    tertiaryContainer = SurfaceVariantRojo,
+    onTertiaryContainer = OnSurfaceVariantRojo,
     background = BackgroundRojo,
     onBackground = OnSurfaceRojo,
     surface = SurfaceRojo,
     onSurface = OnSurfaceRojo,
     surfaceVariant = SurfaceVariantRojo,
     onSurfaceVariant = OnSurfaceVariantRojo,
+    inverseSurface = OnSurfaceRojo,
+    inverseOnSurface = BackgroundRojo,
+    error = DestructiveRojo,
+    onError = Color.White,
+    errorContainer = DestructiveRojo,
+    onErrorContainer = Color.White,
     outline = OutlineRojo,
+    outlineVariant = OutlineRojo,
+    surfaceBright = InputBackgroundRojo,
+    surfaceDim = BackgroundRojo,
+    // NavigationBar/BottomSheet/menús usan surfaceContainer por default --
+    // se mapea a --card (mismo tono que el resto de las Card() de la app)
+    // para que no se note la costura contra el fondo.
+    surfaceContainer = SurfaceRojo,
+    surfaceContainerHigh = PopoverRojo,
+    surfaceContainerHighest = InputBackgroundRojo,
+    surfaceContainerLow = BackgroundRojo,
+    surfaceContainerLowest = BackgroundRojo,
 )
 
 private val AmbarColors = darkColorScheme(
     primary = PrimaryAmbar,
     onPrimary = Color.Black,
+    primaryContainer = PrimaryAmbar,
+    onPrimaryContainer = Color.Black,
+    inversePrimary = PrimaryAmbar,
+    secondary = PrimaryAmbar,
+    onSecondary = Color.Black,
+    secondaryContainer = SurfaceVariantAmbar,
+    onSecondaryContainer = OnSurfaceVariantAmbar,
+    tertiary = PrimaryAmbar,
+    onTertiary = Color.Black,
+    tertiaryContainer = SurfaceVariantAmbar,
+    onTertiaryContainer = OnSurfaceVariantAmbar,
     background = BackgroundAmbar,
     onBackground = OnSurfaceAmbar,
     surface = SurfaceAmbar,
     onSurface = OnSurfaceAmbar,
     surfaceVariant = SurfaceVariantAmbar,
     onSurfaceVariant = OnSurfaceVariantAmbar,
+    inverseSurface = OnSurfaceAmbar,
+    inverseOnSurface = BackgroundAmbar,
+    error = DestructiveAmbar,
+    onError = Color.White,
+    errorContainer = DestructiveAmbar,
+    onErrorContainer = Color.White,
     outline = OutlineAmbar,
+    outlineVariant = OutlineAmbar,
+    surfaceBright = InputBackgroundAmbar,
+    surfaceDim = BackgroundAmbar,
+    surfaceContainer = SurfaceAmbar,
+    surfaceContainerHigh = PopoverAmbar,
+    surfaceContainerHighest = InputBackgroundAmbar,
+    surfaceContainerLow = BackgroundAmbar,
+    surfaceContainerLowest = BackgroundAmbar,
 )
 
 @Composable

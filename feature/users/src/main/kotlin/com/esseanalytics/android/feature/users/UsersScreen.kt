@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CloudQueue
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.PeopleOutline
@@ -57,6 +58,7 @@ fun UsersScreen(modifier: Modifier = Modifier, viewModel: UsersViewModel = hiltV
     val query by viewModel.query.collectAsState()
     val statusFilter by viewModel.statusFilter.collectAsState()
     val togglingId by viewModel.togglingUserId.collectAsState()
+    val togglingStorageId by viewModel.togglingStorageUserId.collectAsState()
     val deactivatingId by viewModel.deactivatingUserId.collectAsState()
     var confirmDeactivateId by remember { mutableStateOf<String?>(null) }
 
@@ -125,9 +127,11 @@ fun UsersScreen(modifier: Modifier = Modifier, viewModel: UsersViewModel = hiltV
                             user = user,
                             showingDeleted = statusFilter == UserStatusFilter.DELETED,
                             toggling = togglingId == user.id,
+                            togglingStorage = togglingStorageId == user.id,
                             deactivating = deactivatingId == user.id,
                             confirmingDeactivate = confirmDeactivateId == user.id,
                             onToggleTier = { viewModel.toggleTier(user) },
+                            onToggleCloudStorage = { viewModel.toggleCloudStorage(user) },
                             onRequestDeactivate = { confirmDeactivateId = user.id },
                             onCancelDeactivate = { confirmDeactivateId = null },
                             onConfirmDeactivate = {
@@ -147,9 +151,11 @@ private fun UserCard(
     user: AppUserDto,
     showingDeleted: Boolean,
     toggling: Boolean,
+    togglingStorage: Boolean,
     deactivating: Boolean,
     confirmingDeactivate: Boolean,
     onToggleTier: () -> Unit,
+    onToggleCloudStorage: () -> Unit,
     onRequestDeactivate: () -> Unit,
     onCancelDeactivate: () -> Unit,
     onConfirmDeactivate: () -> Unit,
@@ -222,7 +228,23 @@ private fun UserCard(
                     }
                     TextButton(onClick = onCancelDeactivate) { Text("No") }
                 } else {
+                    Icon(
+                        Icons.Outlined.Star,
+                        contentDescription = "Premium",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp),
+                    )
                     Switch(checked = isPremium, onCheckedChange = { onToggleTier() }, enabled = !toggling)
+                    // Plan aparte de Premium -- ver requireCloudStorage en la
+                    // central. Habilita la Biblioteca remota general para este
+                    // usuario (Parte D del plan).
+                    Icon(
+                        Icons.Outlined.CloudQueue,
+                        contentDescription = "Almacenamiento en la nube",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 6.dp).size(14.dp),
+                    )
+                    Switch(checked = user.hasCloudStorage, onCheckedChange = { onToggleCloudStorage() }, enabled = !togglingStorage)
                     IconButton(onClick = onRequestDeactivate) {
                         Icon(
                             Icons.Outlined.Delete,

@@ -2,7 +2,6 @@ package com.esseanalytics.android.feature.calendar
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.esseanalytics.android.core.database.FileRepository
 import com.esseanalytics.android.core.network.api.SyncApi
 import com.esseanalytics.android.core.network.dto.CalendarConfigDto
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -10,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import javax.inject.Inject
 
 data class CalendarSlot(
@@ -18,6 +18,11 @@ data class CalendarSlot(
     val lastPublishedDate: String,
     val intervalDays: Int,
     val nextFileName: String?,
+    // lastPublishedDate + intervalDays -- mismo cálculo que calcNextDate() en
+    // frontend/src/data/mockPublishingData.ts (consumido por
+    // PublishingQueue.tsx en desktop). null si todavía no hay una fecha base
+    // (plataforma sin nada publicado todavía, la central manda "").
+    val nextDate: LocalDate?,
 )
 
 sealed interface CalendarUiState {
@@ -33,7 +38,6 @@ sealed interface CalendarUiState {
 @HiltViewModel
 class CalendarViewModel @Inject constructor(
     private val syncApi: SyncApi,
-    private val fileRepository: FileRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<CalendarUiState>(CalendarUiState.Loading)
@@ -57,14 +61,22 @@ class CalendarViewModel @Inject constructor(
         }
     }
 
-    private suspend fun CalendarConfigDto.toSlot(): CalendarSlot {
-        val nextFileName = nextVideoId?.toLongOrNull()?.let { fileRepository.findById(it)?.fileName }
-        return CalendarSlot(
-            platform = platform,
-            lastPublishedTitle = lastPublishedTitle,
-            lastPublishedDate = lastPublishedDate,
-            intervalDays = intervalDays,
-            nextFileName = nextFileName,
-        )
-    }
+    // nextVideoId es un ObjectId de Mongo o un título (nunca un id de Room) --
+    // la central ya lo resuelve contra FileModel y lo manda listo en
+    // nextVideo.title (ver CalendarConfigDto), no hace falta re-resolverlo acá.
+    private fun CalendarConfigDto.toSlot(): CalendarSlot = CalendarSlot(
+        platform = platform,
+        lastPublishedTitle = lastPublishedTitle,
+        lastPublishedDate = lastPublishedDate,
+        intervalDays = intervalDays,
+        nextFileName = nextVideo?.title,
+        // lastPublishedDate llega en "yyyy-MM-dd" (ver
+        // local-backend/backend: new Date().toISOString().slice(0, 10)) o ""
+        // si la plataforma todavía no tiene nada publicado -- ahí no hay
+        // fecha base de la que calcular la próxima.
+        nextDate = lastPublishedDate.takeIf { it.isNotBlank() }
+            ?.runCatching { LocalDate.parse(this) }
+            ?.getOrNull()
+            ?.plusDays(intervalDays.toLong()),
+    )
 }

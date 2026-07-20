@@ -11,6 +11,7 @@ data class AppUserDto(
     val username: String,
     val role: String,
     val tier: String,
+    val hasCloudStorage: Boolean = false,
     val status: String,
     val email: String? = null,
     val linkedPlatforms: List<String>? = null,
@@ -28,3 +29,6 @@ data class UsersListResponse(val users: List<AppUserDto> = emptyList(), val tota
 
 @Serializable
 data class UpdateTierRequest(val tier: String)
+
+@Serializable
+data class UpdateCloudStorageRequest(val hasCloudStorage: Boolean)

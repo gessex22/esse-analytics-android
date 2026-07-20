@@ -1,38 +1,49 @@
 package com.esseanalytics.android.feature.library
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.CloudQueue
+import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,6 +65,8 @@ import com.esseanalytics.android.core.designsystem.theme.TiktokPink
 import com.esseanalytics.android.core.designsystem.theme.YoutubeRed
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
+import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
+import kotlinx.coroutines.launch
 import java.io.File
 
 // Historial de todo lo importado -- no solo una lista, cada tarjeta muestra
@@ -62,53 +75,117 @@ import java.io.File
 // ese estado (ver EsseAnalyticsNavHost): sin nada publicado todavía, a Subir
 // con ese archivo ya elegido; con algo ya publicado, a Estadísticas.
 // Miniatura real (AndroidFrameThumbnailGenerator, ver core:media).
+//
+// Fusión local+remoto (Parte D del plan): si el usuario tiene
+// canUseCloudStorage, esta lista TAMBIÉN trae la cola remota (central) y
+// muestra chips de filtro arriba -- sin el entitlement, se ve exactamente
+// igual que antes (cero chips, solo locales).
 @Composable
 fun LibraryScreen(
     onImportClick: () -> Unit = {},
-    onVideoClick: (VideoFile) -> Unit = {},
+    onLocalClick: (VideoFile) -> Unit = {},
+    onRemoteClick: (RemoteLibraryVideoDto) -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
-    val files by viewModel.files.collectAsState()
-    var deleteTarget by remember { mutableStateOf<VideoFile?>(null) }
+    val items by viewModel.items.collectAsState()
+    val filter by viewModel.filter.collectAsState()
+    val canUseCloudStorage by viewModel.canUseCloudStorage.collectAsState()
+    val canSeeBackupCatalog by viewModel.canSeeBackupCatalog.collectAsState()
+    var deleteTarget by remember { mutableStateOf<LibraryListItem?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(canUseCloudStorage) {
+        if (canUseCloudStorage) viewModel.refreshRemote()
+    }
+    LaunchedEffect(canSeeBackupCatalog) {
+        if (canSeeBackupCatalog) viewModel.refreshBackupCatalog()
+    }
 
     Scaffold(
         modifier = modifier,
+        // Sin esto, Scaffold reserva DE NUEVO el alto de la barra de estado y
+        // la barra de navegación del sistema (contentWindowInsets default =
+        // systemBarsForVisualComponents) -- espacio que el Scaffold de afuera
+        // (MainAppScaffold, compartido por las 4 pestañas del bottom nav) ya
+        // consumió con su TopAppBar/NavigationBar. Se veía como una franja
+        // vacía extra arriba y abajo SOLO en esta pantalla, porque es la
+        // única con un Scaffold propio (lo necesita para el FAB).
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             FloatingActionButton(onClick = onImportClick) {
                 Icon(Icons.Outlined.Add, contentDescription = "Importar video")
             }
         },
     ) { padding ->
-        if (files.isEmpty()) {
-            PlaceholderScreen(
-                title = "Todavía no hay videos",
-                note = "Tocá + para importar uno, o compartilo desde Galería con \"Compartir → EsseAnalytics\".",
-                icon = Icons.Outlined.VideoLibrary,
-                modifier = Modifier.padding(padding),
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(files, key = { it.id }) { file ->
-                    VideoFileCard(
-                        file,
-                        onClick = { onVideoClick(file) },
-                        onDeleteClick = { deleteTarget = file },
-                    )
+        Column(modifier = Modifier.padding(padding)) {
+            if (canUseCloudStorage || canSeeBackupCatalog) {
+                LibraryFilterChips(
+                    filter = filter,
+                    onFilterChange = viewModel::setFilter,
+                    canUseCloudStorage = canUseCloudStorage,
+                    canSeeBackupCatalog = canSeeBackupCatalog,
+                )
+            }
+
+            if (items.isEmpty()) {
+                PlaceholderScreen(
+                    title = "Todavía no hay videos",
+                    note = "Tocá + para importar uno, o compartilo desde Galería con \"Compartir → EsseAnalytics\".",
+                    icon = Icons.Outlined.VideoLibrary,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    // bottom=80: el FloatingActionButton de Scaffold flota SOBRE
+                    // el contenido, no reserva espacio propio -- sin este margen
+                    // extra abajo, el "+" tapaba la última tarjeta visible. FAB
+                    // (56dp) + su margen por default de Scaffold (16dp) + 8dp de
+                    // aire = 80dp -- lo mínimo para despejarlo (antes 96dp dejaba
+                    // una franja vacía innecesariamente grande con listas cortas,
+                    // que se ve como un borde oscuro pegado al bottom nav).
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 80.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(
+                        items,
+                        key = { item ->
+                            when (item) {
+                                is LibraryListItem.Local -> "local_${item.file.id}"
+                                is LibraryListItem.Remote -> "remote_${item.video._id}"
+                                is LibraryListItem.BackupCatalog -> "backup_${item.entry.file_name}"
+                            }
+                        },
+                    ) { item ->
+                        LibraryItemCard(
+                            item,
+                            onClick = {
+                                when (item) {
+                                    is LibraryListItem.Local -> onLocalClick(item.file)
+                                    is LibraryListItem.Remote -> onRemoteClick(item.video)
+                                    // Solo lectura -- sin bytes, sin adónde navegar (ver
+                                    // BackupApi). Avisa por qué en vez de no hacer nada.
+                                    is LibraryListItem.BackupCatalog -> scope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            "Este archivo vive en tu PC -- no se puede reproducir ni publicar desde acá.",
+                                        )
+                                    }
+                                }
+                            },
+                            onDeleteClick = { deleteTarget = item },
+                        )
+                    }
                 }
             }
         }
     }
 
     deleteTarget?.let { target ->
-        DeleteVideoDialog(
-            file = target,
+        DeleteItemDialog(
+            item = target,
             onConfirm = {
                 viewModel.delete(target)
                 deleteTarget = null
@@ -118,8 +195,51 @@ fun LibraryScreen(
     }
 }
 
+// Remoto y Catálogo PC son gates DISTINTOS (canUseCloudStorage vs
+// canSeeBackupCatalog) -- un premium sin el entitlement de storage ve Todos/
+// Local/Catálogo PC pero no Remoto; el owner ve los 4.
 @Composable
-private fun VideoFileCard(file: VideoFile, onClick: () -> Unit, onDeleteClick: () -> Unit) {
+private fun LibraryFilterChips(
+    filter: LibraryFilter,
+    onFilterChange: (LibraryFilter) -> Unit,
+    canUseCloudStorage: Boolean,
+    canSeeBackupCatalog: Boolean,
+) {
+    val visibleFilters = buildList {
+        add(LibraryFilter.ALL)
+        add(LibraryFilter.LOCAL)
+        if (canUseCloudStorage) add(LibraryFilter.REMOTE)
+        if (canSeeBackupCatalog) add(LibraryFilter.BACKUP_CATALOG)
+    }
+    // horizontalScroll, NO fillMaxWidth -- con los 4 chips (owner) el ancho no
+    // entra en pantallas angostas; sin scroll, Row comprime el último chip
+    // hasta que su texto envuelve letra por letra en una columna pegada al borde.
+    Row(
+        modifier = Modifier
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        visibleFilters.forEach { entry ->
+            FilterChip(
+                selected = filter == entry,
+                onClick = { onFilterChange(entry) },
+                label = { Text(libraryFilterLabel(entry)) },
+                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.surfaceVariant),
+            )
+        }
+    }
+}
+
+private fun libraryFilterLabel(filter: LibraryFilter): String = when (filter) {
+    LibraryFilter.ALL -> "Todos"
+    LibraryFilter.LOCAL -> "Local"
+    LibraryFilter.REMOTE -> "Cola remota"
+    LibraryFilter.BACKUP_CATALOG -> "Catálogo PC"
+}
+
+@Composable
+private fun LibraryItemCard(item: LibraryListItem, onClick: () -> Unit, onDeleteClick: () -> Unit) {
     // elevation = 0.dp: la elevación por defecto de Card mezcla el color
     // primario sobre la superficie -- se ve como una tarjeta más clara/tibia
     // de lo que pide el tema (--card plano en theme.css). Mismo fix en todas
@@ -134,50 +254,88 @@ private fun VideoFileCard(file: VideoFile, onClick: () -> Unit, onDeleteClick: (
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            VideoThumbnail(file.thumbnailPath)
+            when (item) {
+                is LibraryListItem.Local -> LocalThumbnail(item.file.thumbnailPath)
+                // Sin miniatura real para remotos todavía -- necesitaría un
+                // ImageLoader de Coil con el JWT adjunto, ver la nota del plan
+                // (Parte D). Ícono de nube genérico mientras tanto.
+                is LibraryListItem.Remote -> OriginThumbnail(Icons.Outlined.CloudQueue, "Video en la cola remota")
+                // Ícono de PC en vez de nube -- distingue de un vistazo la
+                // cola remota (publicable) del catálogo de solo lectura.
+                is LibraryListItem.BackupCatalog -> OriginThumbnail(Icons.Outlined.Computer, "Video en tu PC")
+            }
 
             Column(
                 modifier = Modifier
                     .padding(start = 12.dp)
                     .weight(1f),
             ) {
-                Text(file.fileName, style = MaterialTheme.typography.titleMedium, maxLines = 1)
-                val durationLabel = file.duracionSegundos?.let { "${it}s" } ?: "—"
-                Text(
-                    "$durationLabel · ${file.resolucion ?: "—"}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                PlatformBadgeRow(file)
+                Text(item.displayName, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                when (item) {
+                    is LibraryListItem.Local -> {
+                        val durationLabel = item.file.duracionSegundos?.let { "${it}s" } ?: "—"
+                        Text(
+                            "$durationLabel · ${item.file.resolucion ?: "—"}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        PlatformBadgeRow(published = item.file.platforms, discarded = item.file.platformsDiscarded.map { it.apiValue })
+                    }
+                    is LibraryListItem.Remote -> {
+                        val durationLabel = item.video.durationSeconds?.let { "${it}s" } ?: "—"
+                        Text(
+                            "$durationLabel · ${item.video.resolution ?: "—"}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        PlatformBadgeRow(
+                            published = item.video.platforms.mapNotNull { Platform.fromApiValue(it) },
+                            discarded = item.video.platformsDiscarded,
+                        )
+                    }
+                    is LibraryListItem.BackupCatalog -> {
+                        val durationLabel = item.entry.duracion_segundos?.let { "${it.toInt()}s" } ?: "—"
+                        Text(
+                            "$durationLabel · ${item.entry.resolucion ?: "—"}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        PlatformBadgeRow(
+                            published = item.entry.platforms.mapNotNull { Platform.fromApiValue(it) },
+                            discarded = item.entry.platforms_discarded,
+                        )
+                    }
+                }
             }
 
-            IconButton(onClick = onDeleteClick) {
-                Icon(
-                    Icons.Outlined.Delete,
-                    contentDescription = "Eliminar video",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            // Sin botón de borrar para el catálogo -- es un mirror de solo
+            // lectura, no hay nada que la app pueda eliminar desde acá (ver
+            // LibraryViewModel.delete()).
+            if (item !is LibraryListItem.BackupCatalog) {
+                IconButton(onClick = onDeleteClick) {
+                    Icon(
+                        Icons.Outlined.Delete,
+                        contentDescription = "Eliminar video",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }
 }
 
-// El texto cambia según si hay algo que de verdad se borra del teléfono
-// (copia propia, filesDir/videos) o si el archivo nunca se copió (referencia
-// persistida vía SAF, ver DeleteVideoUseCase/ImportUseCase) -- ahí solo se
-// suelta la referencia, el video del usuario no se toca.
 @Composable
-private fun DeleteVideoDialog(file: VideoFile, onConfirm: () -> Unit, onDismiss: () -> Unit) {
-    val isReferenceOnly = file.filePath.startsWith("content://")
+private fun DeleteItemDialog(item: LibraryListItem, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    val isReferenceOnly = (item as? LibraryListItem.Local)?.file?.filePath?.startsWith("content://") == true
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("¿Eliminar \"${file.fileName}\"?") },
+        title = { Text("¿Eliminar \"${item.displayName}\"?") },
         text = {
             Text(
-                if (isReferenceOnly) {
-                    "EsseAnalytics solo tenía una referencia a este video -- se quita de la app, pero el archivo original sigue donde estaba (Galería/Archivos)."
-                } else {
-                    "Esto borra el archivo del almacenamiento del teléfono. No se puede deshacer."
+                when {
+                    item is LibraryListItem.Remote -> "Esto borra el video de la nube. No se puede deshacer."
+                    isReferenceOnly -> "EsseAnalytics solo tenía una referencia a este video -- se quita de la app, pero el archivo original sigue donde estaba (Galería/Archivos)."
+                    else -> "Esto borra el archivo del almacenamiento del teléfono. No se puede deshacer."
                 },
             )
         },
@@ -198,17 +356,18 @@ private fun DeleteVideoDialog(file: VideoFile, onConfirm: () -> Unit, onDismiss:
 // distinción demasiado sutil para leerse de un vistazo. Ahora los dos son
 // el mismo círculo gris relleno; descartado se ve un poco más apagado
 // (alpha más bajo) que pendiente, pero ninguno de los dos se confunde con
-// publicado.
+// publicado. published/discarded llegan como listas ya normalizadas (Platform
+// para local, String->Platform para remoto) para no duplicar esta función.
 @Composable
-private fun PlatformBadgeRow(file: VideoFile) {
+private fun PlatformBadgeRow(published: List<Platform>, discarded: List<String>) {
     Row(
         modifier = Modifier.padding(top = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Platform.publishable.forEach { platform ->
             val state = when {
-                platform in file.platforms -> PlatformBadgeState.PUBLISHED
-                platform in file.platformsDiscarded -> PlatformBadgeState.DISCARDED
+                platform in published -> PlatformBadgeState.PUBLISHED
+                platform.apiValue in discarded -> PlatformBadgeState.DISCARDED
                 else -> PlatformBadgeState.PENDING
             }
             PlatformBadge(platform, state)
@@ -279,7 +438,7 @@ private fun PlatformBadge(platform: Platform, state: PlatformBadgeState) {
 }
 
 @Composable
-private fun VideoThumbnail(thumbnailPath: String?) {
+private fun LocalThumbnail(thumbnailPath: String?) {
     Box(
         modifier = Modifier
             .size(width = 64.dp, height = 40.dp)
@@ -310,5 +469,26 @@ private fun VideoThumbnail(thumbnailPath: String?) {
                 )
             }
         }
+    }
+}
+
+// Sin miniatura real para remoto/catálogo -- ninguno de los dos tiene bytes
+// accesibles desde acá (ver el comentario en LibraryItemCard). Un solo
+// composable parametrizado por ícono en vez de uno por origen.
+@Composable
+private fun OriginThumbnail(icon: ImageVector, contentDescription: String) {
+    Box(
+        modifier = Modifier
+            .size(width = 64.dp, height = 40.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = contentDescription,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
     }
 }

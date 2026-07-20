@@ -1,15 +1,20 @@
 package com.esseanalytics.android.core.network.di
 
+import android.content.Context
 import com.esseanalytics.android.core.network.api.AuthApi
+import com.esseanalytics.android.core.network.api.BackupApi
 import com.esseanalytics.android.core.network.api.PlatformAuthApi
+import com.esseanalytics.android.core.network.api.RemoteLibraryApi
 import com.esseanalytics.android.core.network.api.SyncApi
 import com.esseanalytics.android.core.network.interceptor.AuthAuthenticator
 import com.esseanalytics.android.core.network.interceptor.AuthInterceptor
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import kotlinx.serialization.json.Json
+import okhttp3.Cache
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -49,11 +54,33 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideOkHttpClient(
+        @ApplicationContext context: Context,
         authInterceptor: AuthInterceptor,
         authAuthenticator: AuthAuthenticator,
     ): OkHttpClient = OkHttpClient.Builder()
         .addInterceptor(authInterceptor)
         .authenticator(authAuthenticator)
+        // Timeouts default de OkHttp (10s) alcanzaban mientras esto era solo
+        // JSON chico -- la Biblioteca remota (Parte C del plan) sube videos
+        // multipart por acá mismo (mismo @CentralRetrofit, para que el JWT se
+        // adjunte solo vía AuthInterceptor). Subirlos no perjudica las
+        // llamadas JSON normales, solo les da más margen si algo se cuelga.
+        .writeTimeout(5, java.util.concurrent.TimeUnit.MINUTES)
+        .readTimeout(2, java.util.concurrent.TimeUnit.MINUTES)
+        // Cache de disco para los GET de la central (listados de sync/biblioteca
+        // remota) -- la central no manda Cache-Control propio, así que sin el
+        // network interceptor de acá abajo OkHttp jamás cachearía nada. 60s
+        // alcanza para evitar el pedido repetido de una ida y vuelta rápida
+        // (ej. abrir y cerrar Ajustes) sin arriesgar datos viejos por mucho tiempo.
+        .cache(Cache(java.io.File(context.cacheDir, "http_cache"), 10L * 1024 * 1024))
+        .addNetworkInterceptor { chain ->
+            val response = chain.proceed(chain.request())
+            if (chain.request().method == "GET" && response.header("Cache-Control") == null) {
+                response.newBuilder().header("Cache-Control", "public, max-age=60").build()
+            } else {
+                response
+            }
+        }
         .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
         .build()
 
@@ -90,4 +117,13 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideSyncApi(@CentralRetrofit retrofit: Retrofit): SyncApi = retrofit.create(SyncApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideRemoteLibraryApi(@CentralRetrofit retrofit: Retrofit): RemoteLibraryApi =
+        retrofit.create(RemoteLibraryApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideBackupApi(@CentralRetrofit retrofit: Retrofit): BackupApi = retrofit.create(BackupApi::class.java)
 }

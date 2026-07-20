@@ -43,6 +43,7 @@ dependencies {
     implementation(project(":feature:users"))
     implementation(project(":feature:gems"))
     implementation(project(":feature:settings"))
+    implementation(project(":feature:remotelibrary"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
@@ -54,6 +55,11 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.hilt.navigation.compose)
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    // ImageLoaderFactory custom para Coil (ver EsseAnalyticsApp.kt) -- el
+    // consumo real (AsyncImage) sigue viviendo en feature:library, que ya
+    // declara esta misma dependencia.
+    implementation(libs.coil.compose)
 
     // Solo para el wiring de Configuration.Provider en EsseAnalyticsApp (deja
     // que Hilt sepa crear los @HiltWorker de feature:upload) -- la lógica de

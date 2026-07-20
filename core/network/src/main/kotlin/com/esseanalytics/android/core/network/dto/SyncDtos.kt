@@ -32,6 +32,19 @@ data class CalendarConfigDto(
     val intervalDays: Int,
     val lastVideoId: String? = null,
     val nextVideoId: String? = null,
+    // La central YA resuelve nextVideoId (que es un ObjectId de Mongo o un
+    // título, nunca un id de Room) contra FileModel server-side -- ver
+    // sync.controller.ts, GET /api/sync/calendar-config. Usar esto directo en
+    // vez de tratar nextVideoId como id local (CalendarViewModel lo hacía mal,
+    // por eso siempre mostraba "Sin definir").
+    val nextVideo: NextVideoDto? = null,
+)
+
+@Serializable
+data class NextVideoDto(
+    val fileId: String,
+    val title: String,
+    val duration: String,
 )
 
 // Mismos DTOs que ya consume frontend/src/components/SyncPanel.tsx --

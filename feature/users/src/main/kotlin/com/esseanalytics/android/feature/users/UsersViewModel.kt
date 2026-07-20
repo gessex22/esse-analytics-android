@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.esseanalytics.android.core.network.api.AuthApi
 import com.esseanalytics.android.core.network.dto.AppUserDto
+import com.esseanalytics.android.core.network.dto.UpdateCloudStorageRequest
 import com.esseanalytics.android.core.network.dto.UpdateTierRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
@@ -47,6 +48,9 @@ class UsersViewModel @Inject constructor(
 
     private val _togglingUserId = MutableStateFlow<String?>(null)
     val togglingUserId: StateFlow<String?> = _togglingUserId.asStateFlow()
+
+    private val _togglingStorageUserId = MutableStateFlow<String?>(null)
+    val togglingStorageUserId: StateFlow<String?> = _togglingStorageUserId.asStateFlow()
 
     private val _deactivatingUserId = MutableStateFlow<String?>(null)
     val deactivatingUserId: StateFlow<String?> = _deactivatingUserId.asStateFlow()
@@ -100,6 +104,24 @@ class UsersViewModel @Inject constructor(
             _togglingUserId.value = user.id
             runCatching { authApi.updateUserTier(user.id, UpdateTierRequest(newTier)) }
             _togglingUserId.value = null
+        }
+    }
+
+    // Plan aparte de tier -- ver requireCloudStorage en la central. Sin
+    // condicionar a tier===premium acá tampoco (misma decisión que el
+    // toggle web, ver UsersPanel.tsx): la central ya exige los dos juntos.
+    fun toggleCloudStorage(user: AppUserDto) {
+        val next = !user.hasCloudStorage
+        val current = _uiState.value
+        if (current is UsersUiState.Success) {
+            _uiState.value = current.copy(
+                users = current.users.map { if (it.id == user.id) it.copy(hasCloudStorage = next) else it },
+            )
+        }
+        viewModelScope.launch {
+            _togglingStorageUserId.value = user.id
+            runCatching { authApi.updateUserCloudStorage(user.id, UpdateCloudStorageRequest(next)) }
+            _togglingStorageUserId.value = null
         }
     }
 
