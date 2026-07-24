@@ -1,6 +1,7 @@
 package com.esseanalytics.android.feature.upload
 
 import android.content.Context
+import com.esseanalytics.android.core.media.NormalizeProcessor
 import com.esseanalytics.android.core.media.TrimProcessor
 import com.esseanalytics.android.core.network.api.PlatformAuthApi
 import com.esseanalytics.android.core.network.di.PlatformOkHttp
@@ -38,6 +39,7 @@ class InstagramUploader @Inject constructor(
     @ApplicationContext private val context: Context,
     private val platformAuthApi: PlatformAuthApi,
     private val trimProcessor: TrimProcessor,
+    private val normalizeProcessor: NormalizeProcessor,
     @field:PlatformOkHttp private val httpClient: OkHttpClient,
 ) : PlatformUploader {
 
@@ -45,20 +47,22 @@ class InstagramUploader @Inject constructor(
 
     override suspend fun upload(file: File, metadata: UploadMetadata, onProgress: (Float) -> Unit): UploadResult {
         var tempTrimmed: File? = null
+        var tempNormalized: File? = null
         return try {
             val tokenInfo = platformAuthApi.instagramToken()
             val token = tokenInfo.access_token
             val igUserId = tokenInfo.instagram_user_id
 
             // Meta rechaza (ProcessingFailedError genérico, sin decir la causa
-            // real) algunos videos sin explicar por qué -- confirmado en
-            // desktop que la causa más común es la DURACIÓN: cuentas sin el
-            // rollout de Reels extendido quedan topeadas a 60s vía la API, sin
-            // importar el encoding. En vez de adivinar de antemano, se intenta
-            // el original y, si falla, se recorta a 60s (sin recodificar,
-            // AndroidTrimProcessor) y se reintenta UNA vez -- mismo criterio
-            // que desktop, pero 2 etapas y no 3 (sin Normalize: hubiera hecho
-            // falta libx264, que es GPL, y esta es una app comercial cerrada).
+            // real) algunos videos sin explicar por qué. Dos causas confirmadas
+            // en desktop: DURACIÓN (cuentas sin el rollout de Reels extendido
+            // quedan topeadas a 60s vía la API) y códec/resolución/bitrate
+            // fuera de lo que Meta acepta. En vez de adivinar de antemano, se
+            // escala: original -> recorte a 60s (sin recodificar,
+            // AndroidTrimProcessor) -> recorte + normalize (recodifica a
+            // H.264/AAC con Media3 Transformer, cap 1080x1920) -- mismas 3
+            // etapas que desktop/iOS, ya con Normalize implementado (ver
+            // Media3NormalizeProcessor.kt).
             var container = attemptContainer(igUserId, token, metadata, file, onProgress)
             var uploadedFile = file
 
@@ -71,9 +75,18 @@ class InstagramUploader @Inject constructor(
                 }
             }
 
+            if (container == null && tempTrimmed != null) {
+                val normalized = File(context.cacheDir, "ig_normalized_${System.currentTimeMillis()}.mp4")
+                if (normalizeProcessor.normalize(tempTrimmed, normalized).isSuccess) {
+                    tempNormalized = normalized
+                    uploadedFile = normalized
+                    container = attemptContainer(igUserId, token, metadata, normalized, onProgress)
+                }
+            }
+
             if (container == null) {
                 return UploadResult.Failure(
-                    "Instagram rechazó la subida (se probó el original y un recorte a 60s).",
+                    "Instagram rechazó la subida (se probó el original, un recorte a 60s, y recorte + normalizado).",
                     retryable = false,
                 )
             }
@@ -108,6 +121,7 @@ class InstagramUploader @Inject constructor(
             UploadResult.Failure(e.message ?: "Error de red al subir a Instagram.", retryable = true)
         } finally {
             tempTrimmed?.delete()
+            tempNormalized?.delete()
         }
     }
 
