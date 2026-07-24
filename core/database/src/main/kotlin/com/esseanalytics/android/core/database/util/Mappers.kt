@@ -30,6 +30,7 @@ fun FileEntity.toDomain() = VideoFile(
     scheduledDate = scheduledDateEpochMs?.let { Instant.ofEpochMilli(it) },
     createdAt = Instant.ofEpochMilli(createdAtEpochMs),
     updatedAt = Instant.ofEpochMilli(updatedAtEpochMs),
+    remoteLibraryVideoId = remoteLibraryVideoId,
 )
 
 fun VideoFile.toEntity() = FileEntity(
@@ -48,6 +49,7 @@ fun VideoFile.toEntity() = FileEntity(
     scheduledDateEpochMs = scheduledDate?.toEpochMilli(),
     createdAtEpochMs = createdAt.toEpochMilli(),
     updatedAtEpochMs = updatedAt.toEpochMilli(),
+    remoteLibraryVideoId = remoteLibraryVideoId,
 )
 
 fun PlatformVideoEntity.toDomain() = PlatformVideo(

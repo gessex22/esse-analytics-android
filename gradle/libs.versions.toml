@@ -17,6 +17,7 @@ okhttp = "4.12.0"
 kotlinxSerializationJson = "1.7.3"
 workManager = "2.9.1"
 coil = "2.7.0"
+media3 = "1.5.1"
 lifecycle = "2.8.7"
 navigationCompose = "2.8.5"
 datastore = "1.1.1"
@@ -81,6 +82,12 @@ kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
+
+# Reproductor de video (nuevo -- no existía ninguno todavía, ver LocalVideoPlayerView
+# / RemoteVideoPlayerView en iOS para el equivalente). media3-ui trae PlayerView
+# (interop clásico, sin la API de Compose todavía estable en esta versión).
+androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
+androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxJunit" }

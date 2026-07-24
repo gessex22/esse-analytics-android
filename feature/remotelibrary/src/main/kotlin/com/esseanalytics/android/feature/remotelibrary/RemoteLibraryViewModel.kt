@@ -12,12 +12,18 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.media.AndroidFrameThumbnailGenerator
 import com.esseanalytics.android.core.media.AndroidMediaProber
 import com.esseanalytics.android.core.media.MediaSource
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
+import com.esseanalytics.android.core.network.di.CentralRetrofit
+import com.esseanalytics.android.core.network.dto.RemoteLibraryUploadResponse
 import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
+import com.esseanalytics.android.core.network.tus.TUSUploadClient
+import com.esseanalytics.android.core.network.util.remoteLibraryStreamUrl
+import com.esseanalytics.android.core.network.util.remoteLibraryThumbnailUrl
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -26,10 +32,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.asRequestBody
-import okhttp3.RequestBody.Companion.toRequestBody
+import retrofit2.Retrofit
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.TimeUnit
@@ -47,9 +55,24 @@ class RemoteLibraryViewModel @Inject constructor(
     private val api: RemoteLibraryApi,
     private val mediaProber: AndroidMediaProber,
     private val thumbnailGenerator: AndroidFrameThumbnailGenerator,
+    private val okHttpClient: OkHttpClient,
+    @CentralRetrofit private val retrofit: Retrofit,
+    private val json: Json,
+    private val tokenStore: TokenStore,
 ) : ViewModel() {
 
     private val workManager = WorkManager.getInstance(context)
+
+    // Mirror de RemoteLibraryAPI.thumbnailURL en iOS. Null si el video no
+    // tiene miniatura -- el caller (RemoteVideoRow) muestra el ícono
+    // genérico en ese caso, no rompe nada.
+    fun thumbnailUrl(video: RemoteLibraryVideoDto): String? =
+        remoteLibraryThumbnailUrl(retrofit.baseUrl(), video._id, video.thumbnailStoredFileName, tokenStore.token)
+
+    // Mirror de RemoteLibraryAPI.streamURL en iOS -- usada por el reproductor
+    // (ver VideoPlayerDialog) desde la lista de esta pantalla.
+    fun streamUrl(video: RemoteLibraryVideoDto): String? =
+        remoteLibraryStreamUrl(retrofit.baseUrl(), video._id, tokenStore.token)
 
     private val _uiState = MutableStateFlow<RemoteLibraryUiState>(RemoteLibraryUiState.Loading)
     val uiState: StateFlow<RemoteLibraryUiState> = _uiState.asStateFlow()
@@ -83,6 +106,11 @@ class RemoteLibraryViewModel @Inject constructor(
         }
     }
 
+    // Sube por TUS resumable (mismo protocolo que iOS y el frontend de
+    // escritorio, ver TUSUploadClient) -- el multipart single-shot que había
+    // acá antes apuntaba a un endpoint que la central ya no tiene (bug real:
+    // subir a Nube estaba roto). La miniatura sigue siendo multipart simple,
+    // DESPUÉS de crear el video (mismo orden que iOS).
     private suspend fun doUpload(uri: Uri) {
         val displayName = queryDisplayName(uri) ?: "video_${System.currentTimeMillis()}.mp4"
         val extension = displayName.substringAfterLast('.', "mp4")
@@ -102,30 +130,35 @@ class RemoteLibraryViewModel @Inject constructor(
             val thumbnailFile = File(tempDir, "${UUID.randomUUID()}.jpg")
             val hasThumbnail = thumbnailGenerator.generate(mediaSource, thumbnailFile)
 
-            val videoPart = MultipartBody.Part.createFormData(
-                "video", tempFile.name, tempFile.asRequestBody("video/*".toMediaType()),
-            )
-            val thumbnailPart = if (hasThumbnail) {
-                MultipartBody.Part.createFormData(
-                    "thumbnail", thumbnailFile.name, thumbnailFile.asRequestBody("image/jpeg".toMediaType()),
-                )
-            } else {
-                null
+            val metadata = buildMap {
+                put("filename", tempFile.name)
+                put("filetype", "video/mp4")
+                put("fileName", displayName)
+                info.durationSeconds?.let { put("durationSeconds", it.toInt().toString()) }
+                if (info.width != null && info.height != null) put("resolution", "${info.width}x${info.height}")
+                put("formato", extension)
             }
 
-            api.uploadVideo(
-                video = videoPart,
-                thumbnail = thumbnailPart,
-                fileName = displayName.toRequestBody("text/plain".toMediaType()),
-                durationSeconds = info.durationSeconds?.toInt()?.toString()?.toRequestBody("text/plain".toMediaType()),
-                resolution = if (info.width != null && info.height != null) {
-                    "${info.width}x${info.height}".toRequestBody("text/plain".toMediaType())
-                } else {
-                    null
-                },
-                formato = extension.toRequestBody("text/plain".toMediaType()),
+            val tusEndpoint = retrofit.baseUrl().newBuilder()
+                .addPathSegments("api/remote-library/tus")
+                .build()
+                .toString()
+
+            val responseBody = TUSUploadClient.upload(
+                file = tempFile,
+                endpoint = tusEndpoint,
+                okHttpClient = okHttpClient,
+                metadata = metadata,
             )
-            if (hasThumbnail) thumbnailFile.delete()
+            var video = json.decodeFromString<RemoteLibraryUploadResponse>(responseBody).video
+
+            if (hasThumbnail) {
+                val thumbnailPart = MultipartBody.Part.createFormData(
+                    "thumbnail", thumbnailFile.name, thumbnailFile.asRequestBody("image/jpeg".toMediaType()),
+                )
+                video = runCatching { api.uploadThumbnail(video._id, thumbnailPart).video }.getOrDefault(video)
+                thumbnailFile.delete()
+            }
         } finally {
             tempFile.delete()
         }

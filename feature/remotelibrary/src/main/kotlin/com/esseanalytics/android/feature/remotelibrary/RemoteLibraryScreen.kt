@@ -24,6 +24,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.CloudQueue
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -48,10 +49,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.work.WorkInfo
+import coil.compose.AsyncImage
 import com.esseanalytics.android.core.designsystem.component.PlaceholderScreen
 import com.esseanalytics.android.core.designsystem.icon.InstagramLogo
 import com.esseanalytics.android.core.designsystem.icon.PlatformIcons
@@ -76,6 +80,7 @@ fun RemoteLibraryScreen(
     val uiState by viewModel.uiState.collectAsState()
     val uploading by viewModel.uploading.collectAsState()
     var selectedVideo by remember { mutableStateOf<RemoteLibraryVideoDto?>(null) }
+    var playingVideo by remember { mutableStateOf<RemoteLibraryVideoDto?>(null) }
     // Llegar acá desde un ítem remoto en Videos (Parte D del plan) abre el
     // formulario de publicar de una, apenas la lista carga y lo encuentra --
     // no consumido de nuevo si el usuario después vuelve a la lista a mano.
@@ -146,7 +151,9 @@ fun RemoteLibraryScreen(
                             items(state.videos, key = { it._id }) { video ->
                                 RemoteVideoRow(
                                     video = video,
+                                    thumbnailUrl = viewModel.thumbnailUrl(video),
                                     onClick = { selectedVideo = video },
+                                    onPlayClick = { playingVideo = video },
                                     onDelete = { viewModel.delete(video) },
                                 )
                             }
@@ -172,10 +179,24 @@ fun RemoteLibraryScreen(
             }
         }
     }
+
+    playingVideo?.let { video ->
+        RemoteVideoPlayerDialog(
+            title = video.fileName,
+            streamUrl = viewModel.streamUrl(video),
+            onDismiss = { playingVideo = null },
+        )
+    }
 }
 
 @Composable
-private fun RemoteVideoRow(video: RemoteLibraryVideoDto, onClick: () -> Unit, onDelete: () -> Unit) {
+private fun RemoteVideoRow(
+    video: RemoteLibraryVideoDto,
+    thumbnailUrl: String?,
+    onClick: () -> Unit,
+    onPlayClick: () -> Unit,
+    onDelete: () -> Unit,
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         onClick = onClick,
@@ -186,19 +207,51 @@ private fun RemoteVideoRow(video: RemoteLibraryVideoDto, onClick: () -> Unit, on
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(width = 64.dp, height = 40.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Outlined.CloudQueue,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
-                )
+            Box {
+                Box(
+                    modifier = Modifier
+                        .size(width = 64.dp, height = 40.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (thumbnailUrl != null) {
+                        AsyncImage(
+                            model = thumbnailUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(6.dp)),
+                            error = rememberVectorPainter(Icons.Outlined.CloudQueue),
+                        )
+                    } else {
+                        Icon(
+                            Icons.Outlined.CloudQueue,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+                // Badge chico en la esquina -- el resto de la miniatura sigue
+                // mandando el tap al onClick de la Card (abre el formulario
+                // de publicar), solo este círculo dispara el reproductor.
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(3.dp)
+                        .size(18.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .clickable(onClick = onPlayClick),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Outlined.PlayArrow,
+                        contentDescription = "Reproducir",
+                        tint = Color.White,
+                        modifier = Modifier.size(12.dp),
+                    )
+                }
             }
             Column(
                 modifier = Modifier

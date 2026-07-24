@@ -14,9 +14,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -50,6 +52,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.work.Data
@@ -65,6 +68,7 @@ import com.esseanalytics.android.core.designsystem.theme.TiktokPink
 import com.esseanalytics.android.core.designsystem.theme.YoutubeRed
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
+import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
 import java.io.File
 
 // Elegir un video ya importado, tildar a qué plataformas publicarlo,
@@ -78,7 +82,17 @@ fun UploadScreen(
     viewModel: UploadViewModel = hiltViewModel(),
 ) {
     val files by viewModel.files.collectAsState()
+    val remoteVideos by viewModel.remoteVideos.collectAsState()
+    val importingRemoteId by viewModel.importingRemoteId.collectAsState()
+    val nextUploads by viewModel.nextUploads.collectAsState()
     var selectedFile by remember { mutableStateOf<VideoFile?>(null) }
+
+    // Best-effort: si el usuario no tiene el entitlement de Nube, la API
+    // devuelve 403 y remoteVideos queda vacío -- la sección de Nube
+    // simplemente no aparece, sin error visible (mismo criterio que
+    // RemoteLibraryViewModel/LibraryViewModel).
+    LaunchedEffect(Unit) { viewModel.refreshRemoteVideos() }
+    LaunchedEffect(Unit) { viewModel.refreshNextUploads() }
     // Distingue "todavía no autoseleccionó nada" de "el usuario tocó Elegir
     // otro video a propósito" -- sin esto, un simple cambio en la lista (se
     // importa/publica/borra algo mientras el usuario está mirando la lista a
@@ -101,7 +115,7 @@ fun UploadScreen(
         }
     }
 
-    if (files.isEmpty()) {
+    if (files.isEmpty() && remoteVideos.isEmpty()) {
         PlaceholderScreen(
             title = "Nada para subir todavía",
             note = "Importá un video primero desde la pestaña Videos.",
@@ -127,8 +141,29 @@ fun UploadScreen(
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
+            // Además de lo local, deja elegir un video de Nube como fuente --
+            // se baja y de ahí en más se publica igual que cualquier archivo
+            // local (mismo criterio que VideoPickerView en iOS). Antes esta
+            // pantalla solo consultaba el catálogo local, la cola remota no
+            // aparecía acá aunque sí existiera en la pestaña Nube.
+            if (remoteVideos.isNotEmpty()) {
+                RemoteVideoStrip(
+                    videos = remoteVideos,
+                    importingId = importingRemoteId,
+                    thumbnailUrl = viewModel::thumbnailUrl,
+                    onSelect = { video ->
+                        viewModel.importFromRemote(video) { file ->
+                            if (file != null) {
+                                selectedFile = file
+                                browsingList = false
+                            }
+                        }
+                    },
+                )
+            }
             FileList(
                 files = files,
+                nextUploads = nextUploads,
                 onSelect = {
                     selectedFile = it
                     browsingList = false
@@ -148,8 +183,81 @@ fun UploadScreen(
     }
 }
 
+// Tira horizontal aparte (no mezclada en el LazyColumn de locales) -- son
+// fuentes distintas (uno ya está en el teléfono, el otro hay que bajarlo
+// primero), mezclarlas en una sola lista larga sería confuso sobre cuál
+// acción va a disparar tocar la tarjeta.
 @Composable
-private fun FileList(files: List<VideoFile>, onSelect: (VideoFile) -> Unit, modifier: Modifier = Modifier) {
+private fun RemoteVideoStrip(
+    videos: List<RemoteLibraryVideoDto>,
+    importingId: String?,
+    thumbnailUrl: (RemoteLibraryVideoDto) -> String?,
+    onSelect: (RemoteLibraryVideoDto) -> Unit,
+) {
+    Column(modifier = Modifier.padding(bottom = 8.dp)) {
+        Text(
+            "Cola remota",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 4.dp),
+        )
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(videos, key = { it._id }) { video ->
+                val isImporting = importingId == video._id
+                Card(
+                    modifier = Modifier.width(140.dp),
+                    onClick = { if (importingId == null) onSelect(video) },
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                ) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(80.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            val url = thumbnailUrl(video)
+                            when {
+                                isImporting -> CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                                url != null -> AsyncImage(
+                                    model = url,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                                else -> Icon(
+                                    Icons.Outlined.CloudUpload,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        Text(
+                            video.fileName,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FileList(
+    files: List<VideoFile>,
+    nextUploads: Map<Platform, String>,
+    onSelect: (VideoFile) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     LazyColumn(
         modifier = modifier,
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
@@ -168,17 +276,60 @@ private fun FileList(files: List<VideoFile>, onSelect: (VideoFile) -> Unit, modi
                 ) {
                     UploadThumbnail(file.thumbnailPath)
                     Column(modifier = Modifier.padding(start = 12.dp)) {
-                        Text(file.fileName, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                        Text(
+                            file.fileName,
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                         Text(
                             "Faltan: ${pendingPlatformsLabel(file)}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        val nextFor = Platform.publishable.filter { nextUploads[it] == file.fileName }
+                        if (nextFor.isNotEmpty()) NextUploadBadgeRow(nextFor)
                     }
                 }
             }
         }
     }
+}
+
+// Mismo badge que LibraryScreen.kt (feature:library) -- duplicado a
+// propósito, mismo criterio que platformColor/platformIcon acá abajo: cada
+// feature module ya repite estos helpers en vez de forzar una dependencia
+// cruzada solo para esto.
+@Composable
+private fun NextUploadBadgeRow(platforms: List<Platform>) {
+    Row(
+        modifier = Modifier.padding(top = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        platforms.forEach { platform ->
+            val color = platformColor(platform)
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(color.copy(alpha = 0.15f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            ) {
+                Text(
+                    "Próximo ${platformShortLabel(platform)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = color,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+    }
+}
+
+private fun platformShortLabel(platform: Platform): String = when (platform) {
+    Platform.YOUTUBE -> "YT"
+    Platform.INSTAGRAM -> "IG"
+    Platform.TIKTOK -> "TT"
+    Platform.FACEBOOK -> "FB"
 }
 
 @Composable

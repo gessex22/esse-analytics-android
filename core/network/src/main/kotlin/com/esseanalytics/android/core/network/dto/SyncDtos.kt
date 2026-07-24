@@ -19,6 +19,13 @@ data class GroupStatsItemDto(
     val fileName: String,
     val fecha_creacion: String,
     val platforms: Map<String, GroupStatsSlotDto>,
+    // Cuando hay match en Biblioteca remota (por fileName, resuelto server-side
+    // -- ver getGroupStats en sync.controller.ts), permiten pedir la miniatura
+    // puntual de ESE video en vez de traer un batch aparte de la cola remota y
+    // adivinar por nombre (mismo fix que StatsView/GroupStatsCard en iOS,
+    // commit "Corrige congelamiento... optimiza rendimiento de red").
+    val remoteLibraryVideoId: String? = null,
+    val thumbnailStoredFileName: String? = null,
 )
 
 @Serializable
@@ -55,7 +62,10 @@ data class NextVideoDto(
 data class SyncCandidateDto(
     val _id: String,
     val file_name: String,
-    val duracion_segundos: Int,
+    // Double, NO Int -- mismo motivo que duracion_segundos en BackupFileDto
+    // (ver ese comentario): FileModel.duracion_segundos es un Number sin
+    // restricción de entero, y llega con decimales reales (ej. 27.656).
+    val duracion_segundos: Double,
     val fecha_creacion: String? = null,
     val formato: String? = null,
 )
@@ -67,7 +77,9 @@ data class SyncReviewItemDto(
     val platformUrl: String,
     val title: String,
     val thumbnail: String,
-    val durationSeconds: Int,
+    // Double, NO Int -- PlatformVideoModel.durationSeconds es un Number sin
+    // restricción de entero, mismo riesgo que duracion_segundos arriba.
+    val durationSeconds: Double,
     val publishedAt: String,
     val views: Int = 0,
     val candidates: List<SyncCandidateDto> = emptyList(),
@@ -139,6 +151,22 @@ data class CrossMatchCandidatesResponseDto(
 
 @Serializable
 data class ConfirmLinkRequest(val fileId: String)
+
+// POST /api/sync/record-publish (alias de /api/sync/history, ver
+// recordUploadEvent en backup.controller.ts) -- registro central puntual de
+// UNA publicación, independiente de Biblioteca remota. Antes de esto solo
+// iOS (SyncAPI.recordPublish) lo llamaba; sin esto, un link cargado a mano
+// desde Android no aparecía en Estadísticas/Sincronizar (getGroupStats,
+// getCrossMatchCandidates) aunque el archivo local ya lo tuviera.
+@Serializable
+data class RecordPublishRequest(
+    val platform: String,
+    val platformId: String,
+    val platformUrl: String? = null,
+    val fileName: String? = null,
+    val title: String? = null,
+    val publishedAt: String? = null,
+)
 
 @Serializable
 data class TriggerSyncResponse(val ok: Boolean, val total: Int, val upserted: Int)

@@ -16,6 +16,18 @@ interface PlatformVideoDao {
     @Query("SELECT * FROM platform_videos WHERE platform = :platform AND platformId = :platformId LIMIT 1")
     suspend fun findByPlatformAndId(platform: String, platformId: String): PlatformVideoEntity?
 
+    // Para el editor manual de link (ver VideoDetailViewModel): saber si YA
+    // hay un link guardado para esta plataforma en este archivo, para
+    // precargar el campo de texto en vez de arrancar siempre vacío.
+    @Query("SELECT * FROM platform_videos WHERE linkedFileId = :fileId AND platform = :platform LIMIT 1")
+    suspend fun findByLinkedFileAndPlatform(fileId: Long, platform: String): PlatformVideoEntity?
+
+    // Borrar el link a mano (campo de texto vacío) vuelve la plataforma a
+    // "pendiente" -- sin fila de platform_videos que la respalde, mismo
+    // criterio que borrar el PlatformVideoEntity en iOS (VideoDetailView.saveLink).
+    @Query("DELETE FROM platform_videos WHERE linkedFileId = :fileId AND platform = :platform")
+    suspend fun deleteByLinkedFileAndPlatform(fileId: Long, platform: String)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: PlatformVideoEntity): Long
 

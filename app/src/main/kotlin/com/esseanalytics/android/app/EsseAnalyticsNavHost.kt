@@ -50,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -112,18 +113,31 @@ fun EsseAnalyticsNavHost(
     sessionViewModel: SessionViewModel = hiltViewModel(),
 ) {
     val authState by sessionViewModel.authState.collectAsState()
-    val navController = rememberNavController()
 
     when (val current = authState) {
         is AuthState.LoggedOut -> LoginScreen(onLoggedIn = { /* authState cambia solo, ver TokenStore */ })
-        is AuthState.LoggedIn -> MainAppScaffold(
-            navController,
-            pendingImportUris,
-            onPendingImportUrisConsumed,
-            isOwner = current.user.isOwner,
-            canUseCloudStorage = current.user.canUseCloudStorage,
-            username = current.user.username,
-        )
+        // key(user.id): fuerza un NavHostController -- y con él, TODOS los
+        // ViewModelStore de cada pantalla (Library, RemoteLibrary, Stats,
+        // Sync, etc.) -- completamente nuevo cada vez que la cuenta logueada
+        // cambia sin matar el proceso. Antes navController se remember-eaba
+        // acá arriba, a nivel de un composable que nunca sale de composición
+        // (solo alterna qué hijo dibuja) -- sobrevivía un logout/login con
+        // otra cuenta, y los ViewModels ya creados (con datos cacheados en
+        // memoria de la cuenta anterior -- ver RemoteLibraryViewModel._uiState,
+        // que solo refresca en su init{}, una vez por instancia) no se
+        // recreaban. Bug real reportado: loguearse con otra cuenta mostraba
+        // la Biblioteca remota de la cuenta anterior.
+        is AuthState.LoggedIn -> key(current.user.id) {
+            val navController = rememberNavController()
+            MainAppScaffold(
+                navController,
+                pendingImportUris,
+                onPendingImportUrisConsumed,
+                isOwner = current.user.isOwner,
+                canUseCloudStorage = current.user.canUseCloudStorage,
+                username = current.user.username,
+            )
+        }
     }
 }
 

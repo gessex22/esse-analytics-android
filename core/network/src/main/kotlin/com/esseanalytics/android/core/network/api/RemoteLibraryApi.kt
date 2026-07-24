@@ -4,7 +4,6 @@ import com.esseanalytics.android.core.network.dto.RemoteLibraryListResponse
 import com.esseanalytics.android.core.network.dto.RemoteLibraryUploadResponse
 import com.esseanalytics.android.core.network.dto.UpdateRemoteLibraryPlatformsRequest
 import okhttp3.MultipartBody
-import okhttp3.RequestBody
 import okhttp3.ResponseBody
 import retrofit2.http.Body
 import retrofit2.http.DELETE
@@ -17,24 +16,22 @@ import retrofit2.http.Path
 import retrofit2.http.Streaming
 
 // Biblioteca remota (owner-only, ver Parte C del plan) -- storage real en la
-// central, no un mirror de metadata como SyncApi/backup. thumbnail es
-// opcional (Retrofit omite un @Part null del body multipart, no hace falta
-// una sobrecarga aparte); duration/resolution/formato los manda ESTE cliente
-// porque la central no tiene ffmpeg -- ver AndroidMediaProber.
+// central, no un mirror de metadata como SyncApi/backup. El video se sube por
+// TUS resumable (ver core/network/tus/TUSUploadClient.kt), no por acá -- la
+// central migró de multipart single-shot a TUS y este método quedó apuntando
+// a una ruta que ya no existe (bug real: subir a Nube estaba roto). La
+// miniatura sí sigue siendo multipart simple, aparte, DESPUÉS de crear el
+// video (mismo orden que RemoteLibraryAPI.upload en iOS).
 interface RemoteLibraryApi {
-    @Multipart
-    @POST("api/remote-library/videos")
-    suspend fun uploadVideo(
-        @Part video: MultipartBody.Part,
-        @Part thumbnail: MultipartBody.Part? = null,
-        @Part("fileName") fileName: RequestBody,
-        @Part("durationSeconds") durationSeconds: RequestBody? = null,
-        @Part("resolution") resolution: RequestBody? = null,
-        @Part("formato") formato: RequestBody? = null,
-    ): RemoteLibraryUploadResponse
-
     @GET("api/remote-library/videos")
     suspend fun listVideos(): RemoteLibraryListResponse
+
+    @Multipart
+    @POST("api/remote-library/videos/{id}/thumbnail")
+    suspend fun uploadThumbnail(
+        @Path("id") id: String,
+        @Part thumbnail: MultipartBody.Part,
+    ): RemoteLibraryUploadResponse
 
     // @Streaming: evita que OkHttp lea el body entero a memoria antes de
     // devolverlo -- RemoteUploadWorker copia byteStream() a un temporal en

@@ -13,10 +13,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.lifecycleScope
+import com.esseanalytics.android.core.datastore.AuthState
 import com.esseanalytics.android.core.datastore.SettingsStore
+import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.designsystem.theme.EsseAnalyticsColorTheme
 import com.esseanalytics.android.core.designsystem.theme.EsseAnalyticsTheme
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 // Single-activity: toda la navegación vive en EsseAnalyticsNavHost (Compose
@@ -36,7 +40,15 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var settingsStore: SettingsStore
 
+    @Inject
+    lateinit var tokenStore: TokenStore
+
     private var pendingImportUris by mutableStateOf<List<Uri>>(emptyList())
+
+    // Último userId logueado visto por ESTA instancia de Activity -- se
+    // reinicia solo en null en cada recreate()/proceso nuevo, nunca en un
+    // logout (ver el collect de abajo).
+    private var lastLoggedInUserId: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,6 +61,30 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
         )
         handleIncomingIntent(intent)
+
+        // Cambiar de cuenta SIN cerrar la app (logout -> login con otra
+        // cuenta, mismo proceso) dejaba Calendario/Estadísticas (y
+        // potencialmente otras pantallas detrás de "Más") sin cargar datos
+        // de la cuenta nueva hasta matar la app a mano -- el reset de
+        // EsseAnalyticsNavHost (key(user.id)) alcanza para el NavHostController
+        // de Compose, pero el ViewModelStore real de Jetpack Navigation cuelga
+        // del Activity (NavControllerViewModel), y auditar cada pantalla para
+        // garantizar que SIEMPRE refresque sola es fácil de romper de nuevo a
+        // futuro. recreate() es exactamente lo que "cerrar la app" ya
+        // soluciona (mata Activity + todos los ViewModelStore + NavHost),
+        // automatizado acá para no depender de que el usuario lo haga a mano.
+        lifecycleScope.launch {
+            tokenStore.authState.collect { state ->
+                val userId = (state as? AuthState.LoggedIn)?.user?.id ?: return@collect
+                val previous = lastLoggedInUserId
+                if (previous != null && previous != userId) {
+                    recreate()
+                    return@collect
+                }
+                lastLoggedInUserId = userId
+            }
+        }
+
         setContent {
             val colorThemeRaw by settingsStore.colorTheme.collectAsState(initial = "rojo")
             val colorTheme = if (colorThemeRaw == "ambar") EsseAnalyticsColorTheme.AMBAR else EsseAnalyticsColorTheme.ROJO

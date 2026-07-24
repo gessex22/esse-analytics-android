@@ -31,6 +31,9 @@ class FileRepository @Inject constructor(
 
     suspend fun findByName(name: String): VideoFile? = fileDao.findByName(name)?.toDomain()
 
+    suspend fun findByRemoteLibraryVideoId(remoteId: String): VideoFile? =
+        fileDao.findByRemoteLibraryVideoId(remoteId)?.toDomain()
+
     suspend fun findByPath(path: String): VideoFile? = fileDao.findByPath(path)?.toDomain()
 
     suspend fun findNextUnpublished(platform: Platform): VideoFile? =
@@ -61,6 +64,32 @@ class FileRepository @Inject constructor(
         if (newPlatforms != file.platforms || newDiscarded != file.platformsDiscarded) {
             update(file.copy(platforms = newPlatforms, platformsDiscarded = newDiscarded))
         }
+    }
+
+    // Contraparte de addPlatform -- vuelve la plataforma a "pendiente" (no la
+    // descarta). Se usa al borrar manualmente el link de una plataforma, mismo
+    // criterio que removePlatform en iOS (FileEntity.swift).
+    suspend fun removePlatform(fileId: Long, platform: Platform) = db.withTransaction {
+        val file = fileDao.findById(fileId)?.toDomain() ?: return@withTransaction
+        if (platform !in file.platforms) return@withTransaction
+        update(file.copy(platforms = file.platforms.filter { it != platform }))
+    }
+
+    // Ciclo pendiente -> publicado -> descartado -> pendiente -- mirror de
+    // togglePlatform en iOS (VideoDetailView.swift) y RemoteLibraryView.tsx
+    // (desktop). Editor manual del estado por plataforma, no depende de una
+    // subida real vía la API (eso es onPlatformPublished, de abajo).
+    suspend fun cyclePlatformStatus(fileId: Long, platform: Platform) = db.withTransaction {
+        val file = fileDao.findById(fileId)?.toDomain() ?: return@withTransaction
+        val (newPlatforms, newDiscarded) = when {
+            platform in file.platforms ->
+                file.platforms.filter { it != platform } to file.platformsDiscarded + platform
+            platform in file.platformsDiscarded ->
+                file.platforms to file.platformsDiscarded.filter { it != platform }
+            else ->
+                file.platforms + platform to file.platformsDiscarded
+        }
+        update(file.copy(platforms = newPlatforms, platformsDiscarded = newDiscarded))
     }
 
     // Modo Simple: al publicar de verdad en una plataforma, las OTRAS 2 quedan

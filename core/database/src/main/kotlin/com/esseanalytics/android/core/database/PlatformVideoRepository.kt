@@ -25,6 +25,12 @@ class PlatformVideoRepository @Inject constructor(
     suspend fun findByPlatformAndId(platform: Platform, platformId: String): PlatformVideo? =
         dao.findByPlatformAndId(platform.apiValue, platformId)?.toDomain()
 
+    suspend fun findByLinkedFileAndPlatform(fileId: Long, platform: Platform): PlatformVideo? =
+        dao.findByLinkedFileAndPlatform(fileId, platform.apiValue)?.toDomain()
+
+    suspend fun deleteForFile(fileId: Long, platform: Platform) =
+        dao.deleteByLinkedFileAndPlatform(fileId, platform.apiValue)
+
     // db.unlinkOthersForFile ANTES del upsert: sin esto, re-publicar el mismo
     // archivo a la misma plataforma (platformId nuevo cada vez) deja dos filas
     // linkeadas al mismo fileId -- mismo bug que ya se encontró y arregló del

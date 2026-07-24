@@ -5,11 +5,17 @@ import androidx.lifecycle.viewModelScope
 import com.esseanalytics.android.core.database.FileRepository
 import com.esseanalytics.android.core.datastore.AuthState
 import com.esseanalytics.android.core.datastore.TokenStore
+import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.api.BackupApi
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
+import com.esseanalytics.android.core.network.api.SyncApi
+import com.esseanalytics.android.core.network.di.CentralRetrofit
 import com.esseanalytics.android.core.network.dto.BackupFileDto
 import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
+import com.esseanalytics.android.core.network.util.remoteLibraryStreamUrl
+import com.esseanalytics.android.core.network.util.remoteLibraryThumbnailUrl
 import dagger.hilt.android.lifecycle.HiltViewModel
+import retrofit2.Retrofit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -29,8 +35,21 @@ class LibraryViewModel @Inject constructor(
     private val deleteVideoUseCase: DeleteVideoUseCase,
     private val remoteLibraryApi: RemoteLibraryApi,
     private val backupApi: BackupApi,
-    tokenStore: TokenStore,
+    private val syncApi: SyncApi,
+    private val tokenStore: TokenStore,
+    @CentralRetrofit private val retrofit: Retrofit,
 ) : ViewModel() {
+
+    // Mirror de RemoteLibraryAPI.thumbnailURL en iOS -- ver
+    // remoteLibraryThumbnailUrl. Null si el video no tiene miniatura.
+    fun thumbnailUrl(video: RemoteLibraryVideoDto): String? =
+        remoteLibraryThumbnailUrl(retrofit.baseUrl(), video._id, video.thumbnailStoredFileName, tokenStore.token)
+
+    // Mirror de RemoteLibraryAPI.streamURL en iOS -- usada por el reproductor
+    // (ver VideoPlayerDialog) para videos de la cola remota mostrados acá en
+    // "Todos"/"Cola remota".
+    fun streamUrl(video: RemoteLibraryVideoDto): String? =
+        remoteLibraryStreamUrl(retrofit.baseUrl(), video._id, tokenStore.token)
 
     // Premium + entitlement de storage aparte (ver requireCloudStorage en la
     // central) -- reactivo a tokenStore.authState para que un refreshUser()
@@ -49,6 +68,27 @@ class LibraryViewModel @Inject constructor(
     private val _remoteVideos = MutableStateFlow<List<RemoteLibraryVideoDto>>(emptyList())
     private val _backupFiles = MutableStateFlow<List<BackupFileDto>>(emptyList())
 
+    // Título (file_name) del "próximo" video a publicar por plataforma, según
+    // la central (GET /api/sync/calendar-config, ya usado por Calendario). Se
+    // matchea contra LibraryListItem.displayName -- mismo criterio de nombre
+    // que usa el resto de la app cuando no hay un id en común entre el
+    // catálogo local (Room, Long) y FileModel de la central (ObjectId).
+    private val _nextUploads = MutableStateFlow<Map<Platform, String>>(emptyMap())
+    val nextUploads: StateFlow<Map<Platform, String>> = _nextUploads.asStateFlow()
+
+    fun refreshNextUploads() {
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { syncApi.getCalendarConfig() } }
+                .onSuccess { configs ->
+                    _nextUploads.value = configs.mapNotNull { cfg ->
+                        val platform = Platform.fromApiValue(cfg.platform)
+                        val title = cfg.nextVideo?.title
+                        if (platform != null && !title.isNullOrBlank()) platform to title else null
+                    }.toMap()
+                }
+        }
+    }
+
     private val _filter = MutableStateFlow(LibraryFilter.ALL)
     val filter: StateFlow<LibraryFilter> = _filter.asStateFlow()
 
@@ -64,15 +104,43 @@ class LibraryViewModel @Inject constructor(
         _backupFiles,
         _filter,
     ) { local, remote, backup, filter ->
+        // Mismo criterio que LibraryView.swift (iOS): un video real puede
+        // existir en más de una de las 3 fuentes (local + cola remota, o cola
+        // remota + catálogo del backup automático) -- sin este cruce, "Todos"
+        // lo mostraba una fila por fuente, como si fueran videos distintos.
+        // Match por remoteLibraryVideoId primero (link explícito, ver
+        // ImportUseCase.importFromRemoteLibrary) y fileName como respaldo
+        // para lo que se importó antes de que existiera ese link. Local
+        // siempre gana (tiene bytes reproducibles); remoto le gana a
+        // "catálogo PC" (tiene miniatura real, el catálogo PC es solo
+        // metadata). Cada chip de filtro individual sigue mostrando su fuente
+        // completa sin filtrar.
+        val localRemoteIds = local.mapNotNull { it.remoteLibraryVideoId }.toSet()
+        val localFileNames = local.map { it.fileName }.toSet()
+        val remoteFileNames = remote.map { it.fileName }.toSet()
+
+        fun isAlreadyLocal(video: RemoteLibraryVideoDto) =
+            video._id in localRemoteIds || video.fileName in localFileNames
+
         val merged = buildList {
             if (filter == LibraryFilter.ALL || filter == LibraryFilter.LOCAL) {
                 addAll(local.map { LibraryListItem.Local(it) })
             }
             if (filter == LibraryFilter.ALL || filter == LibraryFilter.REMOTE) {
-                addAll(remote.map { LibraryListItem.Remote(it) })
+                val videos = if (filter == LibraryFilter.ALL) {
+                    remote.filter { !isAlreadyLocal(it) }
+                } else {
+                    remote
+                }
+                addAll(videos.map { LibraryListItem.Remote(it) })
             }
             if (filter == LibraryFilter.ALL || filter == LibraryFilter.BACKUP_CATALOG) {
-                addAll(backup.map { LibraryListItem.BackupCatalog(it) })
+                val files = if (filter == LibraryFilter.ALL) {
+                    backup.filter { it.file_name !in localFileNames && it.file_name !in remoteFileNames }
+                } else {
+                    backup
+                }
+                addAll(files.map { LibraryListItem.BackupCatalog(it) })
             }
         }
         merged.sortedByDescending { it.sortInstant }

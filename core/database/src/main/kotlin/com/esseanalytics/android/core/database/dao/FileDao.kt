@@ -21,6 +21,12 @@ interface FileDao {
     @Query("SELECT * FROM files WHERE fileName = :name LIMIT 1")
     suspend fun findByName(name: String): FileEntity?
 
+    // Link explícito primero (ver ImportUseCase.importFromRemoteLibrary) --
+    // más confiable que fileName, que se puede repetir o venir con doble
+    // extensión.
+    @Query("SELECT * FROM files WHERE remoteLibraryVideoId = :remoteId LIMIT 1")
+    suspend fun findByRemoteLibraryVideoId(remoteId: String): FileEntity?
+
     @Query("SELECT * FROM files WHERE status != 'ELIMINADO_DISCO' ORDER BY fechaCreacionEpochMs DESC")
     fun findAll(): Flow<List<FileEntity>>
 

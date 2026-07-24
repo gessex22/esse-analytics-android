@@ -24,6 +24,7 @@ data class VideoFile(
     val scheduledDate: Instant? = null,
     val createdAt: Instant = Instant.now(),
     val updatedAt: Instant = Instant.now(),
+    val remoteLibraryVideoId: String? = null,
 ) {
     val isFullyResolved: Boolean
         get() = Platform.publishable.all { it in platforms || it in platformsDiscarded }

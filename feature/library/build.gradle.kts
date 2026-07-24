@@ -14,4 +14,12 @@ dependencies {
     implementation(project(":core:network"))
     implementation(project(":core:datastore"))
     implementation(libs.coil.compose)
+    // Para armar la URL de miniatura de Nube con retrofit.baseUrl() (ver
+    // remoteLibraryThumbnailUrl) -- core:network lo declara `implementation`,
+    // no es transitivo.
+    implementation(libs.retrofit.core)
+    // Reproductor para videos locales -- no existía ninguno (solo miniatura
+    // estática), ver LocalVideoPlayerScreen.
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui)
 }

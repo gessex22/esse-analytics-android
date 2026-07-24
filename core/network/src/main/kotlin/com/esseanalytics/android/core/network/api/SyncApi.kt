@@ -5,6 +5,7 @@ import com.esseanalytics.android.core.network.dto.ConfirmLinkRequest
 import com.esseanalytics.android.core.network.dto.CrossMatchCandidatesResponseDto
 import com.esseanalytics.android.core.network.dto.GroupStatsResponse
 import com.esseanalytics.android.core.network.dto.PlatformRecentPageDto
+import com.esseanalytics.android.core.network.dto.RecordPublishRequest
 import com.esseanalytics.android.core.network.dto.ResolveCrossMatchSlotRequest
 import com.esseanalytics.android.core.network.dto.SyncReviewResponseDto
 import com.esseanalytics.android.core.network.dto.SyncStatsDto
@@ -63,4 +64,8 @@ interface SyncApi {
     // Confirma que un video puntual de una plataforma es ESTE archivo local.
     @POST("api/sync/cross-match/resolve")
     suspend fun resolveCrossMatchSlot(@Body body: ResolveCrossMatchSlotRequest)
+
+    // Registro central puntual de una publicación -- ver RecordPublishRequest.
+    @POST("api/sync/record-publish")
+    suspend fun recordPublish(@Body body: RecordPublishRequest)
 }

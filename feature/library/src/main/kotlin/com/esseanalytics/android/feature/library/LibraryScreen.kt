@@ -1,6 +1,7 @@
 package com.esseanalytics.android.feature.library
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +23,8 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CloudQueue
 import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -50,8 +53,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
@@ -92,7 +97,12 @@ fun LibraryScreen(
     val filter by viewModel.filter.collectAsState()
     val canUseCloudStorage by viewModel.canUseCloudStorage.collectAsState()
     val canSeeBackupCatalog by viewModel.canSeeBackupCatalog.collectAsState()
+    val nextUploads by viewModel.nextUploads.collectAsState()
     var deleteTarget by remember { mutableStateOf<LibraryListItem?>(null) }
+    var playingLocal by remember { mutableStateOf<VideoFile?>(null) }
+    var playingRemote by remember { mutableStateOf<RemoteLibraryVideoDto?>(null) }
+    var editingFile by remember { mutableStateOf<VideoFile?>(null) }
+    var editingRemoteVideo by remember { mutableStateOf<RemoteLibraryVideoDto?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -102,6 +112,7 @@ fun LibraryScreen(
     LaunchedEffect(canSeeBackupCatalog) {
         if (canSeeBackupCatalog) viewModel.refreshBackupCatalog()
     }
+    LaunchedEffect(Unit) { viewModel.refreshNextUploads() }
 
     Scaffold(
         modifier = modifier,
@@ -162,6 +173,8 @@ fun LibraryScreen(
                     ) { item ->
                         LibraryItemCard(
                             item,
+                            nextUploads = nextUploads,
+                            remoteThumbnailUrl = (item as? LibraryListItem.Remote)?.let { viewModel.thumbnailUrl(it.video) },
                             onClick = {
                                 when (item) {
                                     is LibraryListItem.Local -> onLocalClick(item.file)
@@ -175,7 +188,25 @@ fun LibraryScreen(
                                     }
                                 }
                             },
+                            onPlayClick = {
+                                when (item) {
+                                    is LibraryListItem.Local -> playingLocal = item.file
+                                    is LibraryListItem.Remote -> playingRemote = item.video
+                                    is LibraryListItem.BackupCatalog -> Unit
+                                }
+                            },
                             onDeleteClick = { deleteTarget = item },
+                            // Local edita contra Room (VideoDetailViewModel);
+                            // Remote (todavía sin bajar -- Android no tiene forma
+                            // de "descargar" un video de Nube a un registro local,
+                            // a diferencia de iOS) edita directo contra
+                            // RemoteLibraryVideoModel (RemoteVideoEditViewModel).
+                            // BackupCatalog es de solo lectura, sin editor.
+                            onEditPlatformsClick = when (item) {
+                                is LibraryListItem.Local -> { { editingFile = item.file } }
+                                is LibraryListItem.Remote -> { { editingRemoteVideo = item.video } }
+                                is LibraryListItem.BackupCatalog -> null
+                            },
                         )
                     }
                 }
@@ -192,6 +223,24 @@ fun LibraryScreen(
             },
             onDismiss = { deleteTarget = null },
         )
+    }
+
+    playingLocal?.let { file ->
+        LocalVideoPlayerDialog(file = file, onDismiss = { playingLocal = null })
+    }
+    playingRemote?.let { video ->
+        RemoteVideoPlayerDialog(
+            title = video.fileName,
+            streamUrl = viewModel.streamUrl(video),
+            onDismiss = { playingRemote = null },
+        )
+    }
+
+    editingFile?.let { file ->
+        VideoDetailSheet(file = file, onDismiss = { editingFile = null })
+    }
+    editingRemoteVideo?.let { video ->
+        RemoteVideoDetailSheet(video = video, onDismiss = { editingRemoteVideo = null })
     }
 }
 
@@ -239,7 +288,15 @@ private fun libraryFilterLabel(filter: LibraryFilter): String = when (filter) {
 }
 
 @Composable
-private fun LibraryItemCard(item: LibraryListItem, onClick: () -> Unit, onDeleteClick: () -> Unit) {
+private fun LibraryItemCard(
+    item: LibraryListItem,
+    nextUploads: Map<Platform, String>,
+    remoteThumbnailUrl: String?,
+    onClick: () -> Unit,
+    onPlayClick: () -> Unit,
+    onDeleteClick: () -> Unit,
+    onEditPlatformsClick: (() -> Unit)? = null,
+) {
     // elevation = 0.dp: la elevación por defecto de Card mezcla el color
     // primario sobre la superficie -- se ve como una tarjeta más clara/tibia
     // de lo que pide el tema (--card plano en theme.css). Mismo fix en todas
@@ -254,15 +311,49 @@ private fun LibraryItemCard(item: LibraryListItem, onClick: () -> Unit, onDelete
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            when (item) {
-                is LibraryListItem.Local -> LocalThumbnail(item.file.thumbnailPath)
-                // Sin miniatura real para remotos todavía -- necesitaría un
-                // ImageLoader de Coil con el JWT adjunto, ver la nota del plan
-                // (Parte D). Ícono de nube genérico mientras tanto.
-                is LibraryListItem.Remote -> OriginThumbnail(Icons.Outlined.CloudQueue, "Video en la cola remota")
-                // Ícono de PC en vez de nube -- distingue de un vistazo la
-                // cola remota (publicable) del catálogo de solo lectura.
-                is LibraryListItem.BackupCatalog -> OriginThumbnail(Icons.Outlined.Computer, "Video en tu PC")
+            Box {
+                when (item) {
+                    is LibraryListItem.Local -> LocalThumbnail(item.file.thumbnailPath)
+                    // El JWT viaja como ?token= en la URL (ver remoteLibraryThumbnailUrl),
+                    // no como header -- por eso no hace falta un ImageLoader de Coil
+                    // custom, AsyncImage normal alcanza. Mismo Box con fondo que
+                    // OriginThumbnail SIEMPRE (antes el branch de AsyncImage no lo
+                    // tenía -- un fallo de carga dejaba la fila completamente en
+                    // blanco, sin caja ni ícono, en vez de degradar al ícono de nube).
+                    is LibraryListItem.Remote -> Box(
+                        modifier = Modifier
+                            .size(width = 64.dp, height = 40.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (remoteThumbnailUrl != null) {
+                            AsyncImage(
+                                model = remoteThumbnailUrl,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                                error = rememberVectorPainter(Icons.Outlined.CloudQueue),
+                            )
+                        } else {
+                            Icon(
+                                Icons.Outlined.CloudQueue,
+                                contentDescription = "Video en la cola remota",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                    // Ícono de PC en vez de nube -- distingue de un vistazo la
+                    // cola remota (publicable) del catálogo de solo lectura.
+                    is LibraryListItem.BackupCatalog -> OriginThumbnail(Icons.Outlined.Computer, "Video en tu PC")
+                }
+
+                // Sin bytes reproducibles para el catálogo de solo lectura (ver
+                // el snackbar de onClick más arriba) -- ningún play acá.
+                if (item !is LibraryListItem.BackupCatalog) {
+                    PlayBadge(onClick = onPlayClick, modifier = Modifier.align(Alignment.BottomEnd))
+                }
             }
 
             Column(
@@ -270,7 +361,14 @@ private fun LibraryItemCard(item: LibraryListItem, onClick: () -> Unit, onDelete
                     .padding(start = 12.dp)
                     .weight(1f),
             ) {
-                Text(item.displayName, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                Text(
+                    item.displayName,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val nextFor = Platform.publishable.filter { nextUploads[it] == item.displayName }
+                if (nextFor.isNotEmpty()) NextUploadBadgeRow(nextFor)
                 when (item) {
                     is LibraryListItem.Local -> {
                         val durationLabel = item.file.duracionSegundos?.let { "${it}s" } ?: "—"
@@ -282,7 +380,7 @@ private fun LibraryItemCard(item: LibraryListItem, onClick: () -> Unit, onDelete
                         PlatformBadgeRow(published = item.file.platforms, discarded = item.file.platformsDiscarded.map { it.apiValue })
                     }
                     is LibraryListItem.Remote -> {
-                        val durationLabel = item.video.durationSeconds?.let { "${it}s" } ?: "—"
+                        val durationLabel = item.video.durationSeconds?.let { "${it.toInt()}s" } ?: "—"
                         Text(
                             "$durationLabel · ${item.video.resolution ?: "—"}",
                             style = MaterialTheme.typography.bodyMedium,
@@ -308,15 +406,32 @@ private fun LibraryItemCard(item: LibraryListItem, onClick: () -> Unit, onDelete
                 }
             }
 
+            // Marcar publicado a mano + cargar el link real -- solo tiene
+            // sentido en local (ver onEditPlatformsClick en LibraryScreen).
+            // size(36.dp) en vez del default de IconButton (48dp): con los 2
+            // botones a full size no quedaba ancho para el título -- se
+            // truncaba mucho antes de lo necesario en pantallas angostas.
+            if (onEditPlatformsClick != null) {
+                IconButton(onClick = onEditPlatformsClick, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        Icons.Outlined.Edit,
+                        contentDescription = "Editar plataformas",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+
             // Sin botón de borrar para el catálogo -- es un mirror de solo
             // lectura, no hay nada que la app pueda eliminar desde acá (ver
             // LibraryViewModel.delete()).
             if (item !is LibraryListItem.BackupCatalog) {
-                IconButton(onClick = onDeleteClick) {
+                IconButton(onClick = onDeleteClick, modifier = Modifier.size(36.dp)) {
                     Icon(
                         Icons.Outlined.Delete,
                         contentDescription = "Eliminar video",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
                     )
                 }
             }
@@ -375,16 +490,50 @@ private fun PlatformBadgeRow(published: List<Platform>, discarded: List<String>)
     }
 }
 
-private enum class PlatformBadgeState { PUBLISHED, DISCARDED, PENDING }
+// "Próximo" a publicar en cada plataforma según el calendario (central) --
+// distinto de PlatformBadgeRow (que muestra el estado publicado/descartado/
+// pendiente): esto avisa CUÁL de los pendientes es el que el calendario
+// espera que salga a continuación, algo que antes no se veía en ningún
+// lado de la lista (ni acá ni en el picker de Subir).
+@Composable
+private fun NextUploadBadgeRow(platforms: List<Platform>) {
+    Row(
+        modifier = Modifier.padding(top = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        platforms.forEach { platform ->
+            val color = platformColor(platform)
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(color.copy(alpha = 0.15f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            ) {
+                Text(
+                    "Próximo ${platformShortLabel(platform)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = color,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+    }
+}
 
-private fun platformColor(platform: Platform): Color = when (platform) {
+// internal, no private -- VideoDetailSheet.kt (editor manual de plataformas/
+// links) también distingue estos 3 estados.
+internal enum class PlatformBadgeState { PUBLISHED, DISCARDED, PENDING }
+
+// internal, no private -- VideoDetailSheet.kt (editor manual de plataformas/
+// links) las reusa para no duplicar la paleta de marca.
+internal fun platformColor(platform: Platform): Color = when (platform) {
     Platform.YOUTUBE -> YoutubeRed
     Platform.INSTAGRAM -> InstagramPurple
     Platform.TIKTOK -> TiktokPink
     Platform.FACEBOOK -> Color.Gray
 }
 
-private fun platformShortLabel(platform: Platform): String = when (platform) {
+internal fun platformShortLabel(platform: Platform): String = when (platform) {
     Platform.YOUTUBE -> "YT"
     Platform.INSTAGRAM -> "IG"
     Platform.TIKTOK -> "TT"
@@ -395,7 +544,7 @@ private fun platformShortLabel(platform: Platform): String = when (platform) {
 // en vez de iniciales de texto -- Facebook no tiene logo propio ahí tampoco
 // (es crosspost, no una plataforma publicable directa), se queda con el
 // fallback de texto.
-private fun platformIcon(platform: Platform): ImageVector? = when (platform) {
+internal fun platformIcon(platform: Platform): ImageVector? = when (platform) {
     Platform.YOUTUBE -> PlatformIcons.YoutubeLogo
     Platform.INSTAGRAM -> PlatformIcons.InstagramLogo
     Platform.TIKTOK -> PlatformIcons.TiktokLogo
@@ -434,6 +583,30 @@ private fun PlatformBadge(platform: Platform, state: PlatformBadgeState) {
                 fontWeight = FontWeight.Bold,
             )
         }
+    }
+}
+
+// Badge chico en la esquina de la miniatura en vez de cubrirla entera -- así
+// el resto del thumbnail sigue mandando el tap al onClick de la Card (que va
+// a Estadísticas/Subir/publish-form, ver LibraryScreen), solo este círculo
+// dispara el reproductor.
+@Composable
+private fun PlayBadge(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .padding(3.dp)
+            .size(18.dp)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.55f))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Icons.Outlined.PlayArrow,
+            contentDescription = "Reproducir",
+            tint = Color.White,
+            modifier = Modifier.size(12.dp),
+        )
     }
 }
 

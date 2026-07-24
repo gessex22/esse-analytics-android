@@ -24,4 +24,10 @@ data class FileEntity(
     val scheduledDateEpochMs: Long? = null,
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,
+    // Link explícito a RemoteLibraryVideoDto._id cuando este archivo se bajó
+    // de Nube para publicar (ver ImportUseCase.importFromRemoteLibrary) --
+    // mismo campo que remoteLibraryVideoId en FileEntity.swift (iOS). Sin
+    // esto, la dedup contra Nube en Videos → Todos solo podía comparar por
+    // fileName, que se rompe fácil (nombres repetidos, doble extensión).
+    val remoteLibraryVideoId: String? = null,
 )

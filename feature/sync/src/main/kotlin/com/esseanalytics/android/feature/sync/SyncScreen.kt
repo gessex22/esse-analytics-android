@@ -430,7 +430,7 @@ private fun ReviewCard(
         Column(Modifier.padding(12.dp)) {
             Text(item.title, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
             Text(
-                formatDuration(item.durationSeconds),
+                formatDuration(item.durationSeconds.toInt()),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -454,7 +454,7 @@ private fun ReviewCard(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(candidate.file_name, style = MaterialTheme.typography.bodySmall, maxLines = 1)
                                 Text(
-                                    formatDuration(candidate.duracion_segundos),
+                                    formatDuration(candidate.duracion_segundos.toInt()),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )

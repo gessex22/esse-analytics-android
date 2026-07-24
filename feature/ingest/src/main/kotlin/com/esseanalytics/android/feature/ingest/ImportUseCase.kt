@@ -11,7 +11,10 @@ import com.esseanalytics.android.core.media.MediaProber
 import com.esseanalytics.android.core.media.MediaSource
 import com.esseanalytics.android.core.model.ContentStatus
 import com.esseanalytics.android.core.model.FileStatus
+import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
+import com.esseanalytics.android.core.network.api.RemoteLibraryApi
+import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -45,6 +48,7 @@ class ImportUseCase @Inject constructor(
     private val mediaProber: MediaProber,
     private val thumbnailGenerator: AndroidFrameThumbnailGenerator,
     private val settingsStore: SettingsStore,
+    private val remoteLibraryApi: RemoteLibraryApi,
 ) {
     suspend fun import(uri: Uri, canPersist: Boolean = false): ImportResult = withContext(Dispatchers.IO) {
         var copiedFile: File? = null
@@ -113,6 +117,74 @@ class ImportUseCase @Inject constructor(
             // entre que se eligió y se leyó, IO error, etc.
             copiedFile?.delete()
             ImportResult.Error(e.message ?: "Error al importar el video.")
+        }
+    }
+
+    // Mirror de ImportUseCase.importFromRemoteLibrary en iOS -- deja publicar
+    // desde Subir un video que vive en Nube: se baja a storage propio y de ahí
+    // en más se trata exactamente igual que cualquier archivo local (mismo
+    // UploadWorker, sin código nuevo del lado de publicar).
+    //
+    // Match por remoteLibraryVideoId primero (link explícito) -- si ya se
+    // había bajado este MISMO video antes, se reusa el archivo local en vez
+    // de descargarlo de nuevo (evita duplicados en Videos → Todos apenas se
+    // toca "Publicar" más de una vez desde Nube).
+    suspend fun importFromRemoteLibrary(video: RemoteLibraryVideoDto): ImportResult = withContext(Dispatchers.IO) {
+        try {
+            val existing = fileRepository.findByRemoteLibraryVideoId(video._id)
+            if (existing != null) {
+                val merged = mergePlatformsFromRemote(existing, video)
+                if (merged != existing) fileRepository.update(merged)
+                return@withContext ImportResult.Success(merged)
+            }
+
+            val videosDir = File(context.filesDir, "videos").apply { mkdirs() }
+            val extension = video.fileName.substringAfterLast('.', "mp4")
+            val destination = File(videosDir, "${UUID.randomUUID()}.$extension")
+
+            remoteLibraryApi.streamVideo(video._id).byteStream().use { input ->
+                destination.outputStream().use { output -> input.copyTo(output) }
+            }
+
+            val mediaSource = MediaSource.LocalFile(destination)
+            val thumbnailsDir = File(context.filesDir, "thumbnails").apply { mkdirs() }
+            val thumbnailFile = File(thumbnailsDir, "${UUID.randomUUID()}.jpg")
+            val hasThumbnail = thumbnailGenerator.generate(mediaSource, thumbnailFile)
+
+            val videoFile = VideoFile(
+                fileName = video.fileName,
+                filePath = destination.absolutePath,
+                status = FileStatus.PENDIENTE,
+                contentStatus = ContentStatus.BORRADOR,
+                platforms = video.platforms.mapNotNull(Platform::fromApiValue),
+                platformsDiscarded = video.platformsDiscarded.mapNotNull(Platform::fromApiValue),
+                duracionSegundos = video.durationSeconds?.toInt(),
+                resolucion = video.resolution,
+                formato = video.formato ?: extension,
+                thumbnailPath = if (hasThumbnail) thumbnailFile.absolutePath else null,
+                fechaCreacion = video.createdAt?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: Instant.now(),
+                remoteLibraryVideoId = video._id,
+            )
+            val id = fileRepository.insert(videoFile)
+            ImportResult.Success(videoFile.copy(id = id))
+        } catch (e: Exception) {
+            ImportResult.Error(e.message ?: "No se pudo bajar el video de la nube.")
+        }
+    }
+
+    // Un video puede haberse resuelto en más plataformas en Nube desde la
+    // última vez que se bajó acá (ej. publicado desde la PC mientras tanto) --
+    // se completa lo que falte localmente, nunca se pisa un estado que el
+    // teléfono ya tenga resuelto.
+    private fun mergePlatformsFromRemote(local: VideoFile, video: RemoteLibraryVideoDto): VideoFile {
+        val remotePlatforms = video.platforms.mapNotNull(Platform::fromApiValue)
+        val remoteDiscarded = video.platformsDiscarded.mapNotNull(Platform::fromApiValue)
+        val newPlatforms = (local.platforms + remotePlatforms).distinct()
+        val newDiscarded = (local.platformsDiscarded + remoteDiscarded).distinct().filter { it !in newPlatforms }
+        return if (newPlatforms != local.platforms || newDiscarded != local.platformsDiscarded) {
+            local.copy(platforms = newPlatforms, platformsDiscarded = newDiscarded)
+        } else {
+            local
         }
     }
 

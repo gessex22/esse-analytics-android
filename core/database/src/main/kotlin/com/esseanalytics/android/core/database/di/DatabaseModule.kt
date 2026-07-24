@@ -3,6 +3,7 @@ package com.esseanalytics.android.core.database.di
 import android.content.Context
 import androidx.room.Room
 import com.esseanalytics.android.core.database.EsseAnalyticsDatabase
+import com.esseanalytics.android.core.database.MIGRATION_2_3
 import com.esseanalytics.android.core.database.dao.FileDao
 import com.esseanalytics.android.core.database.dao.PlatformVideoDao
 import dagger.Module
@@ -19,6 +20,10 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): EsseAnalyticsDatabase =
         Room.databaseBuilder(context, EsseAnalyticsDatabase::class.java, "essenalytics.db")
+            .addMigrations(MIGRATION_2_3)
+            // Sigue como red de contención para saltos de versión SIN
+            // Migration explícita (ej. instalaciones que quedaron en v1) --
+            // MIGRATION_2_3 cubre el único salto real de acá en más.
             .fallbackToDestructiveMigration()
             .build()
 
