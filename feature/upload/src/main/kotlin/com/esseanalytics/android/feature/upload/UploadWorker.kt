@@ -12,12 +12,15 @@ import com.esseanalytics.android.core.database.FileRepository
 import com.esseanalytics.android.core.database.PlatformVideoRepository
 import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.model.Platform
+import com.esseanalytics.android.core.network.api.SyncApi
+import com.esseanalytics.android.core.network.dto.RecordPublishRequest
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.time.Instant
 import java.util.UUID
 
 // Un worker por (archivo, plataforma) -- UploadScreen encola uno por cada
@@ -34,6 +37,7 @@ class UploadWorker @AssistedInject constructor(
     private val fileRepository: FileRepository,
     private val platformVideoRepository: PlatformVideoRepository,
     private val settingsStore: SettingsStore,
+    private val syncApi: SyncApi,
     private val youtubeUploader: YoutubeUploader,
     private val instagramUploader: InstagramUploader,
     private val tiktokUploader: TiktokUploader,
@@ -57,8 +61,8 @@ class UploadWorker @AssistedInject constructor(
             Platform.FACEBOOK -> return Result.failure(workDataOf(KEY_ERROR to "Facebook no es una subida directa."))
         }
 
-        val storedPath = fileRepository.findById(fileId)?.filePath ?: return Result.failure()
-        val resolved = resolveUploadFile(storedPath)
+        val videoFile = fileRepository.findById(fileId) ?: return Result.failure()
+        val resolved = resolveUploadFile(videoFile.filePath)
             ?: return Result.failure(workDataOf(KEY_ERROR to "El archivo local ya no existe."))
 
         val metadata = UploadMetadata(
@@ -84,6 +88,7 @@ class UploadWorker @AssistedInject constructor(
                         title = title,
                     )
                     fileRepository.onPlatformPublished(fileId, platform, settingsStore.workflowMode.first())
+                    reportPublish(platform, result.platformId, result.platformUrl, videoFile.fileName, title)
 
                     // Facebook NO pasa por onPlatformPublished (no está en
                     // Platform.publishable) -- si le pidiéramos eso también,
@@ -102,6 +107,7 @@ class UploadWorker @AssistedInject constructor(
                                 title = title,
                             )
                             fileRepository.addPlatform(fileId, Platform.FACEBOOK)
+                            reportPublish(Platform.FACEBOOK, fb.videoId, fb.url, videoFile.fileName, title)
                             workDataOf(KEY_FACEBOOK_URL to fb.url)
                         }
                         is FacebookCrossPostResult.Failed -> workDataOf(KEY_FACEBOOK_ERROR to fb.message)
@@ -124,6 +130,28 @@ class UploadWorker @AssistedInject constructor(
             }
         } finally {
             if (resolved.isTemp) resolved.file.delete()
+        }
+    }
+
+    // Publicar directo desde el celular no dejaba ningún rastro en la central
+    // (FileModel/PlatformVideoModel/platform_config) -- a diferencia de iOS
+    // (UploadCoordinator.recordSuccess), acá nunca se llamaba a este endpoint.
+    // Sin esto, Estadísticas no tenía de dónde sacar el platformId real, y el
+    // Calendario (getCalendarConfig) nunca avanzaba "próximo a publicar" para
+    // lo subido desde Android -- solo el escritorio lo actualizaba. Best-effort:
+    // si falla, la subida real ya se completó y ya quedó registrada en Room.
+    private suspend fun reportPublish(platform: Platform, platformId: String, platformUrl: String, fileName: String, title: String) {
+        runCatching {
+            syncApi.recordPublish(
+                RecordPublishRequest(
+                    platform = platform.apiValue,
+                    platformId = platformId,
+                    platformUrl = platformUrl.ifBlank { null },
+                    fileName = fileName,
+                    title = title,
+                    publishedAt = Instant.now().toString(),
+                ),
+            )
         }
     }
 

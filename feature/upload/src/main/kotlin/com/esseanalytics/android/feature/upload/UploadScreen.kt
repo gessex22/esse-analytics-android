@@ -150,6 +150,7 @@ fun UploadScreen(
                 RemoteVideoStrip(
                     videos = remoteVideos,
                     importingId = importingRemoteId,
+                    nextUploads = nextUploads,
                     thumbnailUrl = viewModel::thumbnailUrl,
                     onSelect = { video ->
                         viewModel.importFromRemote(video) { file ->
@@ -191,6 +192,7 @@ fun UploadScreen(
 private fun RemoteVideoStrip(
     videos: List<RemoteLibraryVideoDto>,
     importingId: String?,
+    nextUploads: Map<Platform, String>,
     thumbnailUrl: (RemoteLibraryVideoDto) -> String?,
     onSelect: (RemoteLibraryVideoDto) -> Unit,
 ) {
@@ -242,8 +244,11 @@ private fun RemoteVideoStrip(
                             video.fileName,
                             style = MaterialTheme.typography.bodySmall,
                             maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(top = 6.dp),
                         )
+                        val nextFor = Platform.publishable.filter { nextUploads[it] == video.fileName }
+                        if (nextFor.isNotEmpty()) NextUploadBadgeRow(nextFor)
                     }
                 }
             }
