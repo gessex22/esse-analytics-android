@@ -461,7 +461,7 @@ private fun parseDateOrEpoch(iso: String): Instant = runCatching { Instant.parse
 private data class AccumulatedViewsPoint(val platform: Platform, val videoLabel: String, val cumulativeViews: Int)
 
 private fun accumulatedViewsData(items: List<GroupStatsItemDto>): List<AccumulatedViewsPoint> {
-    val sorted = items.sortedByDescending { parseDateOrEpoch(it.fecha_creacion) }
+    val sorted = items.sortedBy { parseDateOrEpoch(it.fecha_creacion) }
     val points = mutableListOf<AccumulatedViewsPoint>()
     for (platform in PLATFORM_ORDER) {
         var running = 0

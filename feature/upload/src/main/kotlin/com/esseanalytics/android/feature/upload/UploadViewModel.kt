@@ -46,7 +46,7 @@ import javax.inject.Inject
 @HiltViewModel
 class UploadViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    fileRepository: FileRepository,
+    private val fileRepository: FileRepository,
     private val settingsStore: SettingsStore,
     private val thumbnailGenerator: AndroidFrameThumbnailGenerator,
     private val remoteLibraryApi: RemoteLibraryApi,
