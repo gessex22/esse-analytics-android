@@ -14,6 +14,8 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import kotlinx.serialization.json.Json
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import okhttp3.Cache
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -99,8 +101,8 @@ object NetworkModule {
     @Provides
     @Singleton
     @CentralRetrofit
-    fun provideRetrofit(okHttpClient: OkHttpClient, json: Json): Retrofit = Retrofit.Builder()
-        .baseUrl(CENTRAL_BASE_URL)
+    fun provideRetrofit(okHttpClient: OkHttpClient, json: Json, settingsStore: com.esseanalytics.android.core.datastore.SettingsStore): Retrofit = Retrofit.Builder()
+        .baseUrl(runBlocking { settingsStore.serverUrl.first() }.ifBlank { CENTRAL_BASE_URL }.let { if (it.endsWith('/')) it else "$it/" })
         .client(okHttpClient)
         .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
         .build()

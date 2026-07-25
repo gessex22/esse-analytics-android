@@ -18,6 +18,7 @@ import com.esseanalytics.android.core.media.AndroidFrameThumbnailGenerator
 import com.esseanalytics.android.core.media.MediaSource
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
+import com.esseanalytics.android.core.model.WorkflowMode
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
 import com.esseanalytics.android.core.network.api.SyncApi
 import com.esseanalytics.android.core.network.di.CentralRetrofit
@@ -128,6 +129,9 @@ class UploadViewModel @Inject constructor(
         crossPostFacebook: Boolean = false,
     ) {
         viewModelScope.launch {
+            if (settingsStore.workflowMode.first() == WorkflowMode.SIMPLE) {
+                fileRepository.resolvePublicationSelection(file.id, platforms)
+            }
             val networkType = if (settingsStore.wifiOnlyUploads.first()) NetworkType.UNMETERED else NetworkType.CONNECTED
             val metadata = UploadMetadata(
                 title = title,

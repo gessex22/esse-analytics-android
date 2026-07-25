@@ -103,6 +103,15 @@ class FileRepository @Inject constructor(
         update(file.copy(platformsDiscarded = file.platformsDiscarded + stillPending))
     }
 
+    suspend fun resolvePublicationSelection(fileId: Long, selected: Set<Platform>) = db.withTransaction {
+        val file = fileDao.findById(fileId)?.toDomain() ?: return@withTransaction
+        val discarded = Platform.publishable.filter {
+            it !in selected && it !in file.platforms
+        }
+        val next = (file.platformsDiscarded + discarded).distinct().filter { it !in selected }
+        update(file.copy(platformsDiscarded = next))
+    }
+
     // Punto de entrada único que usan las 3 pantallas de subida (feature:upload)
     // tras confirmar una publicación real — combina addPlatform con el
     // auto-descarte de resolveOthersAsDiscarded SOLO si el modo es Simple,
@@ -110,8 +119,5 @@ class FileRepository @Inject constructor(
     // cada uno hace ambas llamadas condicionadas a workflow_mode === 'simple').
     suspend fun onPlatformPublished(fileId: Long, platform: Platform, workflowMode: WorkflowMode) {
         addPlatform(fileId, platform)
-        if (workflowMode == WorkflowMode.SIMPLE) {
-            resolveOthersAsDiscarded(fileId, platform)
-        }
     }
 }

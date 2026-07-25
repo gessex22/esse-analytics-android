@@ -2,6 +2,7 @@ package com.esseanalytics.android.core.network.api
 
 import com.esseanalytics.android.core.network.dto.LinkInstallRequest
 import com.esseanalytics.android.core.network.dto.LoginRequest
+import com.esseanalytics.android.core.network.dto.RegisterRequest
 import com.esseanalytics.android.core.network.dto.LoginResponse
 import com.esseanalytics.android.core.network.dto.UpdateCloudStorageRequest
 import com.esseanalytics.android.core.network.dto.UpdateTierRequest
@@ -17,6 +18,9 @@ import retrofit2.http.Query
 interface AuthApi {
     @POST("api/auth/login")
     suspend fun login(@Body body: LoginRequest): LoginResponse
+
+    @POST("api/auth/register")
+    suspend fun register(@Body body: RegisterRequest): LoginResponse
 
     // Re-lee tier/role frescos SIN emitir un token nuevo — no hay refresh token,
     // esto solo sirve para refrescar el user object guardado localmente.

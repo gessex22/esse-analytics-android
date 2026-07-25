@@ -61,9 +61,7 @@ class LibraryViewModel @Inject constructor(
     // Catálogo de solo lectura (backup automático del escritorio) -- gratis
     // para todo premium (requirePremium en la central), no requiere el
     // entitlement de storage aparte que sí pide la cola remota de arriba.
-    val canSeeBackupCatalog: StateFlow<Boolean> = tokenStore.authState
-        .map { (it as? AuthState.LoggedIn)?.user?.isPremium == true }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    val canSeeBackupCatalog: StateFlow<Boolean> = MutableStateFlow(false).asStateFlow()
 
     private val _remoteVideos = MutableStateFlow<List<RemoteLibraryVideoDto>>(emptyList())
     private val _backupFiles = MutableStateFlow<List<BackupFileDto>>(emptyList())

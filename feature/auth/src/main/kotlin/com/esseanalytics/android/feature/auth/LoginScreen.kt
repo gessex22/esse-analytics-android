@@ -18,6 +18,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -32,6 +35,8 @@ fun LoginScreen(
     viewModel: LoginViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    var registerMode by remember { mutableStateOf(false) }
+    var confirmPassword by remember { mutableStateOf("") }
 
     LaunchedEffect(state.loggedIn) {
         if (state.loggedIn) onLoggedIn()
@@ -68,6 +73,17 @@ fun LoginScreen(
             ),
             modifier = Modifier.fillMaxWidth(),
         )
+        if (registerMode) {
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = confirmPassword,
+                onValueChange = { confirmPassword = it },
+                label = { Text("Repetir contraseña") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = state.password,
@@ -93,7 +109,11 @@ fun LoginScreen(
         }
 
         Button(
-            onClick = viewModel::login,
+            onClick = {
+                if (registerMode && state.password != confirmPassword) {
+                    viewModel.setPasswordMismatch()
+                } else if (registerMode) viewModel.register(state.username, state.password) else viewModel.login()
+            },
             enabled = !state.loading,
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.primary,
@@ -111,8 +131,11 @@ fun LoginScreen(
                     modifier = Modifier.height(20.dp),
                 )
             } else {
-                Text("Entrar", fontWeight = FontWeight.SemiBold)
+                Text(if (registerMode) "Crear cuenta" else "Entrar", fontWeight = FontWeight.SemiBold)
             }
+        }
+        androidx.compose.material3.TextButton(onClick = { registerMode = !registerMode; confirmPassword = "" }) {
+            Text(if (registerMode) "Ya tengo una cuenta" else "Crear cuenta")
         }
     }
 }

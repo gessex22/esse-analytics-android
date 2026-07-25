@@ -16,10 +16,16 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalUriHandler
+import com.esseanalytics.android.core.model.Platform
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -32,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import kotlinx.coroutines.launch
 import com.esseanalytics.android.core.model.WorkflowMode
 
 // Junta los settings que ya existían sueltos (workflowMode, wifiOnlyUploads)
@@ -41,6 +48,13 @@ fun SettingsScreen(modifier: Modifier = Modifier, viewModel: SettingsViewModel =
     val colorTheme by viewModel.colorTheme.collectAsState()
     val workflowMode by viewModel.workflowMode.collectAsState()
     val wifiOnly by viewModel.wifiOnlyUploads.collectAsState()
+    val serverUrl by viewModel.serverUrl.collectAsState()
+    var serverUrlDraft by remember(serverUrl) { mutableStateOf(serverUrl) }
+    var pendingWorkflowMode by remember { mutableStateOf<WorkflowMode?>(null) }
+    val connections by viewModel.connections.collectAsState()
+    val discoveredPc by viewModel.discoveredPc.collectAsState()
+    val uriHandler = LocalUriHandler.current
+    val scope = rememberCoroutineScope()
 
     // Sin scroll acá, la sección "Cuenta" (con el botón de cerrar sesión) al
     // final de 3 secciones + un divisor quedaba cortada fuera de la pantalla
@@ -52,6 +66,10 @@ fun SettingsScreen(modifier: Modifier = Modifier, viewModel: SettingsViewModel =
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
+        LaunchedEffect(Unit) {
+            viewModel.refreshConnections()
+            viewModel.discoverPc()
+        }
         SettingsSection(title = "Tema") {
             ThemeOptionRow(
                 label = "Rojo",
@@ -70,7 +88,7 @@ fun SettingsScreen(modifier: Modifier = Modifier, viewModel: SettingsViewModel =
                 label = "Simple",
                 description = "Publicar en una red descarta automáticamente las otras 2 pendientes.",
                 selected = workflowMode == WorkflowMode.SIMPLE,
-            ) { viewModel.setWorkflowMode(WorkflowMode.SIMPLE) }
+            ) { if (workflowMode == WorkflowMode.AVANZADO) pendingWorkflowMode = WorkflowMode.SIMPLE else viewModel.setWorkflowMode(WorkflowMode.SIMPLE) }
             RadioOptionRow(
                 label = "Avanzado",
                 description = "Cada plataforma se controla por separado, sin auto-descarte.",
@@ -96,11 +114,75 @@ fun SettingsScreen(modifier: Modifier = Modifier, viewModel: SettingsViewModel =
             }
         }
 
+        SettingsSection(title = "Servidor de la PC") {
+            discoveredPc?.let { (name, url) ->
+                Text("PC encontrada: $name", color = MaterialTheme.colorScheme.primary)
+                TextButton(onClick = { serverUrlDraft = url }) { Text("Usar esta PC ($url)") }
+            }
+            OutlinedTextField(
+                value = serverUrlDraft,
+                onValueChange = { serverUrlDraft = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("URL opcional") },
+                placeholder = { Text("http://192.168.1.50:4000") },
+            )
+            Text(
+                "Dejá vacío para usar la central. Después de guardar, reiniciá la app para aplicar el servidor.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Text(
+                "La PC y el telefono deben estar en la misma red. Si no aparece, permite EsseAnalytics en el firewall de Windows para el puerto 4000.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            OutlinedButton(
+                onClick = { viewModel.setServerUrl(serverUrlDraft) },
+                modifier = Modifier.padding(top = 8.dp),
+            ) { Text("Guardar servidor") }
+        }
+
+        SettingsSection(title = "Cuentas conectadas") {
+            Platform.publishable.forEach { platform ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(platform.displayName, modifier = Modifier.weight(1f))
+                    if (connections[platform] == true) {
+                        Text("Conectada", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 8.dp))
+                        TextButton(onClick = { viewModel.disconnect(platform) }) { Text("Desconectar") }
+                    } else {
+                        TextButton(onClick = {
+                            scope.launch {
+                                viewModel.connectUrl(platform)?.let(uriHandler::openUri)
+                            }
+                        }) { Text("Conectar") }
+                    }
+                }
+            }
+        }
+
         HorizontalDivider()
 
         SettingsSection(title = "Cuenta") {
             LogoutRow(onLogout = viewModel::logout)
         }
+    }
+
+    pendingWorkflowMode?.let { mode ->
+        AlertDialog(
+            onDismissRequest = { pendingWorkflowMode = null },
+            title = { Text("Cambiar a modo simple") },
+            text = { Text("Al cambiar a modo simple, las plataformas no seleccionadas podrán marcarse como descartadas al publicar. Los videos ya publicados no se modificarán.") },
+            confirmButton = {
+                TextButton(onClick = { viewModel.setWorkflowMode(mode); pendingWorkflowMode = null }) { Text("Cambiar") }
+            },
+            dismissButton = { TextButton(onClick = { pendingWorkflowMode = null }) { Text("Cancelar") } },
+        )
     }
 }
 

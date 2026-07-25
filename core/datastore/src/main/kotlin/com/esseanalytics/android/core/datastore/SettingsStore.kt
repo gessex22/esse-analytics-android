@@ -37,6 +37,14 @@ class SettingsStore @Inject constructor(
         context.dataStore.edit { it[KEY_WIFI_ONLY] = enabled }
     }
 
+    val serverUrl: Flow<String> = context.dataStore.data.map { it[KEY_SERVER_URL] ?: "" }
+
+    suspend fun setServerUrl(value: String) {
+        context.dataStore.edit { prefs ->
+            if (value.isBlank()) prefs.remove(KEY_SERVER_URL) else prefs[KEY_SERVER_URL] = value.trim().trimEnd('/')
+        }
+    }
+
     // Importar SIEMPRE copia el archivo a storage privado (ver ImportUseCase
     // y el plan, sección "Ingesta de videos") -- el original en Galería/
     // Archivos queda intacto a menos que el usuario prenda esto. Default
@@ -72,6 +80,7 @@ class SettingsStore @Inject constructor(
     private companion object {
         val KEY_WORKFLOW_MODE = stringPreferencesKey("workflow_mode")
         val KEY_WIFI_ONLY = booleanPreferencesKey("wifi_only_uploads")
+        val KEY_SERVER_URL = stringPreferencesKey("server_url")
         val KEY_INSTALL_ID = stringPreferencesKey("install_id")
         val KEY_DELETE_ORIGINAL = booleanPreferencesKey("delete_original_after_import")
         val KEY_COLOR_THEME = stringPreferencesKey("color_theme")

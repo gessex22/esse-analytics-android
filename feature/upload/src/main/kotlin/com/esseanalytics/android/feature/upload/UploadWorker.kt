@@ -1,7 +1,7 @@
 package com.esseanalytics.android.feature.upload
 
 import android.content.Context
-import android.net.Uri
+import androidx.core.net.toUri
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.Data
@@ -13,12 +13,16 @@ import com.esseanalytics.android.core.database.PlatformVideoRepository
 import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.api.SyncApi
+import com.esseanalytics.android.core.network.api.RemoteLibraryApi
+import com.esseanalytics.android.core.network.dto.RemoteLibraryPlatformLinkDto
+import com.esseanalytics.android.core.network.dto.UpdateRemoteLibraryPlatformsRequest
 import com.esseanalytics.android.core.network.dto.RecordPublishRequest
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.time.Instant
 import java.util.UUID
@@ -38,6 +42,7 @@ class UploadWorker @AssistedInject constructor(
     private val platformVideoRepository: PlatformVideoRepository,
     private val settingsStore: SettingsStore,
     private val syncApi: SyncApi,
+    private val remoteLibraryApi: RemoteLibraryApi,
     private val youtubeUploader: YoutubeUploader,
     private val instagramUploader: InstagramUploader,
     private val tiktokUploader: TiktokUploader,
@@ -75,7 +80,7 @@ class UploadWorker @AssistedInject constructor(
 
         try {
             val result = uploader.upload(resolved.file, metadata) { progress ->
-                setProgressAsync(workDataOf(KEY_PROGRESS to progress))
+                runBlocking { setProgress(workDataOf(KEY_PROGRESS to progress)) }
             }
 
             return when (result) {
@@ -89,6 +94,18 @@ class UploadWorker @AssistedInject constructor(
                     )
                     fileRepository.onPlatformPublished(fileId, platform, settingsStore.workflowMode.first())
                     reportPublish(platform, result.platformId, result.platformUrl, videoFile.fileName, title)
+                    videoFile.remoteLibraryVideoId?.let { remoteId ->
+                        runCatching {
+                            remoteLibraryApi.updatePlatforms(
+                                remoteId,
+                                UpdateRemoteLibraryPlatformsRequest(
+                                    platforms = (fileRepository.findById(fileId)?.platforms ?: emptyList()).map { it.apiValue },
+                                    platformsDiscarded = (fileRepository.findById(fileId)?.platformsDiscarded ?: emptyList()).map { it.apiValue },
+                                    platformLinks = listOf(RemoteLibraryPlatformLinkDto(platform.apiValue, result.platformId, result.platformUrl.ifBlank { null }, Instant.now().toString())),
+                                ),
+                            )
+                        }
+                    }
 
                     // Facebook NO pasa por onPlatformPublished (no está en
                     // Platform.publishable) -- si le pidiéramos eso también,
@@ -170,7 +187,7 @@ class UploadWorker @AssistedInject constructor(
             runCatching {
                 val tempDir = File(applicationContext.cacheDir, "uploads").apply { mkdirs() }
                 val tempFile = File(tempDir, "${UUID.randomUUID()}.mp4")
-                applicationContext.contentResolver.openInputStream(Uri.parse(storedPath))?.use { input ->
+                applicationContext.contentResolver.openInputStream(storedPath.toUri())?.use { input ->
                     tempFile.outputStream().use { output -> input.copyTo(output) }
                 } ?: return@runCatching null
                 ResolvedFile(tempFile, isTemp = true)

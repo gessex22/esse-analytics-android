@@ -1,6 +1,7 @@
 package com.esseanalytics.android.core.network.api
 
 import com.esseanalytics.android.core.network.dto.AuthUrlResponse
+import com.esseanalytics.android.core.network.dto.ConnectionStatusDto
 import com.esseanalytics.android.core.network.dto.InstagramTokenResponse
 import com.esseanalytics.android.core.network.dto.SetYoutubeThumbnailRequest
 import com.esseanalytics.android.core.network.dto.TiktokTokenResponse
@@ -17,6 +18,11 @@ import retrofit2.http.Query
 // ?client=android que hace que el callback de auth/url vuelva por deep link
 // (essenalytics://oauth-callback) en vez de la página HTML pensada para popup.
 interface PlatformAuthApi {
+    @GET("api/{platform}/auth/status")
+    suspend fun status(@Path("platform") platform: String): ConnectionStatusDto
+
+    @retrofit2.http.DELETE("api/{platform}/auth")
+    suspend fun disconnect(@Path("platform") platform: String)
     @GET("api/instagram/token")
     suspend fun instagramToken(): InstagramTokenResponse
 

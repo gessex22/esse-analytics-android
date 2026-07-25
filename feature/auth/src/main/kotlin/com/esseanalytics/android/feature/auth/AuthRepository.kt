@@ -7,6 +7,7 @@ import com.esseanalytics.android.core.network.JwtUtils
 import com.esseanalytics.android.core.network.api.AuthApi
 import com.esseanalytics.android.core.network.dto.LinkInstallRequest
 import com.esseanalytics.android.core.network.dto.LoginRequest
+import com.esseanalytics.android.core.network.dto.RegisterRequest
 import com.esseanalytics.android.core.network.dto.UserDto
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -18,13 +19,20 @@ class AuthRepository @Inject constructor(
     private val settingsStore: SettingsStore,
 ) {
     suspend fun login(username: String, password: String): Result<User> = runCatching {
-        val response = authApi.login(LoginRequest(username, password))
+        saveLogin(authApi.login(LoginRequest(username, password)))
+    }
+
+    suspend fun register(username: String, password: String, email: String? = null): Result<User> = runCatching {
+        saveLogin(authApi.register(RegisterRequest(username, password, email)))
+    }
+
+    private suspend fun saveLogin(response: com.esseanalytics.android.core.network.dto.LoginResponse): User {
         val userId = JwtUtils.decodeUserId(response.token)
             ?: error("El token no trae id de usuario — revisar el JWT que devuelve la central")
         val user = response.user.toDomain(userId)
         tokenStore.save(response.token, user)
         ensureInstallLinked()
-        user
+        return user
     }
 
     // POST /api/auth/link-install una sola vez por instalación — requerido

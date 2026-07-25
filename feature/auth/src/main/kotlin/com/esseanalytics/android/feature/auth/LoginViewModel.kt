@@ -41,4 +41,21 @@ class LoginViewModel @Inject constructor(
                 .onFailure { e -> _uiState.update { it.copy(loading = false, error = e.message ?: "Error al iniciar sesión") } }
         }
     }
+
+    fun register(username: String, password: String) {
+        if (username.isBlank() || password.length < 6) {
+            _uiState.update { it.copy(error = "Usuario requerido y contraseña de al menos 6 caracteres") }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(loading = true, error = null) }
+            authRepository.register(username.trim(), password)
+                .onSuccess { _uiState.update { it.copy(loading = false, loggedIn = true) } }
+                .onFailure { e -> _uiState.update { it.copy(loading = false, error = e.message ?: "Error al registrar") } }
+        }
+    }
+
+    fun setPasswordMismatch() {
+        _uiState.update { it.copy(error = "Las contraseñas no coinciden") }
+    }
 }
