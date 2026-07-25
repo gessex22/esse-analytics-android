@@ -120,12 +120,10 @@ fun StatsScreen(modifier: Modifier = Modifier, viewModel: StatsViewModel = hiltV
     var showExpandedChart by remember { mutableStateOf(false) }
 
     Column(modifier = modifier.fillMaxSize()) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 "Los últimos videos publicados en las 3 redes, comparados lado a lado.",
@@ -133,7 +131,10 @@ fun StatsScreen(modifier: Modifier = Modifier, viewModel: StatsViewModel = hiltV
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(end = 8.dp),
             )
-            TextButton(onClick = viewModel::refresh) {
+            TextButton(
+                onClick = viewModel::refresh,
+                modifier = Modifier.align(Alignment.End),
+            ) {
                 Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                 Text("Actualizar", modifier = Modifier.padding(start = 4.dp))
             }
@@ -458,16 +459,14 @@ private fun parseDateOrEpoch(iso: String): Instant = runCatching { Instant.parse
 // sumando views video a video en orden cronológico. El eje X es por video
 // (V1..Vn), no por fecha -- con solo 5 videos, una fecha real deja huecos o
 // aprieta los puntos según cuán separados estén en el tiempo.
-private data class AccumulatedViewsPoint(val platform: Platform, val videoLabel: String, val cumulativeViews: Int)
+private data class ViewsPoint(val platform: Platform, val videoLabel: String, val views: Int)
 
-private fun accumulatedViewsData(items: List<GroupStatsItemDto>): List<AccumulatedViewsPoint> {
+private fun viewsData(items: List<GroupStatsItemDto>): List<ViewsPoint> {
     val sorted = items.sortedBy { parseDateOrEpoch(it.fecha_creacion) }
-    val points = mutableListOf<AccumulatedViewsPoint>()
+    val points = mutableListOf<ViewsPoint>()
     for (platform in PLATFORM_ORDER) {
-        var running = 0
         sorted.forEachIndexed { index, item ->
-            running += item.platforms[platform.apiValue]?.views ?: 0
-            points += AccumulatedViewsPoint(platform, "V${index + 1}", running)
+            points += ViewsPoint(platform, "V${index + 1}", item.platforms[platform.apiValue]?.views ?: 0)
         }
     }
     return points
@@ -521,7 +520,7 @@ private fun TotalStat(icon: ImageVector, value: String, label: String) {
 // el resto del scroll, no queda fijo arriba.
 @Composable
 private fun StatsChartCard(items: List<GroupStatsItemDto>, onExpand: () -> Unit) {
-    val chartData = remember(items) { accumulatedViewsData(items) }
+    val chartData = remember(items) { viewsData(items) }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -531,7 +530,7 @@ private fun StatsChartCard(items: List<GroupStatsItemDto>, onExpand: () -> Unit)
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Vistas acumuladas por plataforma",
+                    "Vistas por video y plataforma",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
@@ -540,7 +539,7 @@ private fun StatsChartCard(items: List<GroupStatsItemDto>, onExpand: () -> Unit)
                     Icon(Icons.Outlined.Fullscreen, contentDescription = "Expandir estadísticas")
                 }
             }
-            AccumulatedViewsChart(chartData, modifier = Modifier.fillMaxWidth().height(180.dp))
+            ViewsChart(chartData, modifier = Modifier.fillMaxWidth().height(180.dp))
         }
     }
 }
@@ -551,12 +550,12 @@ private fun StatsChartCard(items: List<GroupStatsItemDto>, onExpand: () -> Unit)
 // X implícito (un punto por video, sin labels -- con 5 videos el eje X real
 // no aporta nada que el orden ya no diga). Leyenda de plataformas debajo.
 @Composable
-private fun AccumulatedViewsChart(data: List<AccumulatedViewsPoint>, modifier: Modifier = Modifier, yAxisTickCount: Int = 4) {
+private fun ViewsChart(data: List<ViewsPoint>, modifier: Modifier = Modifier, yAxisTickCount: Int = 4) {
     if (data.isEmpty()) return
 
     val grouped = remember(data) { data.groupBy { it.platform } }
     val videoCount = remember(data) { data.map { it.videoLabel }.distinct().size }
-    val maxViews = remember(data) { (data.maxOfOrNull { it.cumulativeViews } ?: 0).coerceAtLeast(1) }
+    val maxViews = remember(data) { (data.maxOfOrNull { it.views } ?: 0).coerceAtLeast(1) }
     val textMeasurer = rememberTextMeasurer()
     val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
     val labelStyle = TextStyle(fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -592,13 +591,13 @@ private fun AccumulatedViewsChart(data: List<AccumulatedViewsPoint>, modifier: M
                         val path = Path()
                         sortedPoints.forEachIndexed { index, point ->
                             val x = xFor(index)
-                            val y = yFor(point.cumulativeViews)
+                            val y = yFor(point.views)
                             if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
                         }
                         drawPath(path, color = color, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
                     }
                     sortedPoints.forEachIndexed { index, point ->
-                        drawCircle(color, radius = 3.dp.toPx(), center = Offset(xFor(index), yFor(point.cumulativeViews)))
+                        drawCircle(color, radius = 3.dp.toPx(), center = Offset(xFor(index), yFor(point.views)))
                     }
                 }
             }
@@ -636,7 +635,7 @@ private fun AccumulatedViewsChart(data: List<AccumulatedViewsPoint>, modifier: M
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun ExpandedStatsChartDialog(items: List<GroupStatsItemDto>, onDismiss: () -> Unit) {
-    val chartData = remember(items) { accumulatedViewsData(items) }
+    val chartData = remember(items) { viewsData(items) }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
@@ -655,11 +654,11 @@ private fun ExpandedStatsChartDialog(items: List<GroupStatsItemDto>, onDismiss: 
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 Text(
-                    "Vistas acumuladas por plataforma",
+                    "Vistas por video y plataforma",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
-                AccumulatedViewsChart(
+                ViewsChart(
                     chartData,
                     modifier = Modifier.fillMaxWidth().height(320.dp),
                     yAxisTickCount = 6,
