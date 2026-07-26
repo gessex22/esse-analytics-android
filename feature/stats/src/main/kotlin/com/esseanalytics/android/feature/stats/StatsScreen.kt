@@ -84,6 +84,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
+import kotlin.math.pow
 
 // Mismo dato y misma vista que frontend/src/components/StatsView.tsx: los
 // últimos videos ya vinculados en las 3 plataformas, con un donut de SOLO
@@ -441,6 +442,20 @@ private fun ViewsDonut(platforms: Map<String, GroupStatsSlotDto>, modifier: Modi
     }
 }
 
+private fun chartAxisMax(rawMax: Int): Int {
+    if (rawMax <= 0) return 1
+    val padded = rawMax * 1.15
+    val magnitude = 10.0.pow(kotlin.math.floor(kotlin.math.log10(padded))).toInt().coerceAtLeast(1)
+    val normalized = padded / magnitude
+    val step = when {
+        normalized <= 1.0 -> 0.2
+        normalized <= 2.0 -> 0.5
+        normalized <= 5.0 -> 1.0
+        else -> 2.0
+    } * magnitude
+    return (kotlin.math.ceil(padded / step) * step).roundToInt().coerceAtLeast(1)
+}
+
 private fun formatNum(n: Int): String = when {
     n >= 1_000_000 -> "${(n / 1_000_000.0).let { "%.1f".format(it) }.removeSuffix(".0")}M"
     n >= 1_000 -> "${(n / 1_000.0).let { "%.1f".format(it) }.removeSuffix(".0")}K"
@@ -555,7 +570,7 @@ private fun ViewsChart(data: List<ViewsPoint>, modifier: Modifier = Modifier, yA
 
     val grouped = remember(data) { data.groupBy { it.platform } }
     val videoCount = remember(data) { data.map { it.videoLabel }.distinct().size }
-    val maxViews = remember(data) { (data.maxOfOrNull { it.views } ?: 0).coerceAtLeast(1) }
+    val maxViews = remember(data) { chartAxisMax(data.maxOfOrNull { it.views } ?: 0) }
     val textMeasurer = rememberTextMeasurer()
     val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
     val labelStyle = TextStyle(fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
