@@ -158,18 +158,22 @@ class UploadWorker @AssistedInject constructor(
     // lo subido desde Android -- solo el escritorio lo actualizaba. Best-effort:
     // si falla, la subida real ya se completó y ya quedó registrada en Room.
     private suspend fun reportPublish(platform: Platform, platformId: String, platformUrl: String, fileName: String, title: String, remoteId: String?) {
-        runCatching {
-            syncApi.recordPublish(
-                RecordPublishRequest(
-                    platform = platform.apiValue,
-                    platformId = platformId,
-                    platformUrl = platformUrl.ifBlank { null },
-                    fileName = fileName,
-                    remoteLibraryVideoId = remoteId,
-                    title = title,
-                    publishedAt = Instant.now().toString(),
-                ),
-            )
+        repeat(3) { attempt ->
+            val sent = runCatching {
+                syncApi.recordPublish(
+                    RecordPublishRequest(
+                        platform = platform.apiValue,
+                        platformId = platformId,
+                        platformUrl = platformUrl.ifBlank { null },
+                        fileName = fileName,
+                        remoteLibraryVideoId = remoteId,
+                        title = title,
+                        publishedAt = Instant.now().toString(),
+                    ),
+                )
+            }.isSuccess
+            if (sent) return
+            if (attempt < 2) kotlinx.coroutines.delay(750L * (attempt + 1))
         }
     }
 

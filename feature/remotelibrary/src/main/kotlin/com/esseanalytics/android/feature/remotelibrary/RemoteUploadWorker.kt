@@ -8,6 +8,8 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
+import com.esseanalytics.android.core.network.api.SyncApi
+import com.esseanalytics.android.core.network.dto.RecordPublishRequest
 import com.esseanalytics.android.core.network.dto.UpdateRemoteLibraryPlatformsRequest
 import com.esseanalytics.android.feature.upload.InstagramUploader
 import com.esseanalytics.android.feature.upload.TiktokUploader
@@ -20,6 +22,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
+import java.time.Instant
 
 // Publica un video de la cola remota (central) directo a una plataforma --
 // SIN tocar UploadWorker/FileRepository/PlatformVideoRepository (ver Parte
@@ -32,6 +35,7 @@ class RemoteUploadWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
     private val remoteLibraryApi: RemoteLibraryApi,
+    private val syncApi: SyncApi,
     private val youtubeUploader: YoutubeUploader,
     private val instagramUploader: InstagramUploader,
     private val tiktokUploader: TiktokUploader,
@@ -77,6 +81,22 @@ class RemoteUploadWorker @AssistedInject constructor(
                         remoteLibraryApi.updatePlatforms(
                             videoId,
                             UpdateRemoteLibraryPlatformsRequest(platforms = updatedPlatforms),
+                        )
+                    }
+                    // La actualización de Biblioteca remota no sustituye el
+                    // registro de publicación: Estadísticas, Historial y el
+                    // match del catálogo dependen de PlatformVideoModel.
+                    runCatching {
+                        syncApi.recordPublish(
+                            RecordPublishRequest(
+                                platform = platform.apiValue,
+                                platformId = result.platformId,
+                                platformUrl = result.platformUrl.ifBlank { null },
+                                fileName = title,
+                                remoteLibraryVideoId = videoId,
+                                title = title,
+                                publishedAt = Instant.now().toString(),
+                            ),
                         )
                     }
                     Result.success(workDataOf(KEY_RESULT_URL to result.platformUrl))
