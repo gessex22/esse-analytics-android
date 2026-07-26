@@ -165,6 +165,7 @@ data class RecordPublishRequest(
     val platformId: String,
     val platformUrl: String? = null,
     val fileName: String? = null,
+    val remoteLibraryVideoId: String? = null,
     val title: String? = null,
     val publishedAt: String? = null,
 )

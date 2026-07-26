@@ -165,6 +165,7 @@ class UploadWorker @AssistedInject constructor(
                     platformId = platformId,
                     platformUrl = platformUrl.ifBlank { null },
                     fileName = fileName,
+                    remoteLibraryVideoId = videoFile.remoteLibraryVideoId,
                     title = title,
                     publishedAt = Instant.now().toString(),
                 ),
