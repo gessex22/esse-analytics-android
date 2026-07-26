@@ -93,7 +93,7 @@ class UploadWorker @AssistedInject constructor(
                         title = title,
                     )
                     fileRepository.onPlatformPublished(fileId, platform, settingsStore.workflowMode.first())
-                    reportPublish(platform, result.platformId, result.platformUrl, videoFile.fileName, title)
+                    reportPublish(platform, result.platformId, result.platformUrl, videoFile.fileName, title, videoFile.remoteLibraryVideoId)
                     videoFile.remoteLibraryVideoId?.let { remoteId ->
                         runCatching {
                             remoteLibraryApi.updatePlatforms(
@@ -124,7 +124,7 @@ class UploadWorker @AssistedInject constructor(
                                 title = title,
                             )
                             fileRepository.addPlatform(fileId, Platform.FACEBOOK)
-                            reportPublish(Platform.FACEBOOK, fb.videoId, fb.url, videoFile.fileName, title)
+                            reportPublish(Platform.FACEBOOK, fb.videoId, fb.url, videoFile.fileName, title, videoFile.remoteLibraryVideoId)
                             workDataOf(KEY_FACEBOOK_URL to fb.url)
                         }
                         is FacebookCrossPostResult.Failed -> workDataOf(KEY_FACEBOOK_ERROR to fb.message)
@@ -157,7 +157,7 @@ class UploadWorker @AssistedInject constructor(
     // Calendario (getCalendarConfig) nunca avanzaba "próximo a publicar" para
     // lo subido desde Android -- solo el escritorio lo actualizaba. Best-effort:
     // si falla, la subida real ya se completó y ya quedó registrada en Room.
-    private suspend fun reportPublish(platform: Platform, platformId: String, platformUrl: String, fileName: String, title: String) {
+    private suspend fun reportPublish(platform: Platform, platformId: String, platformUrl: String, fileName: String, title: String, remoteId: String?) {
         runCatching {
             syncApi.recordPublish(
                 RecordPublishRequest(
@@ -165,7 +165,7 @@ class UploadWorker @AssistedInject constructor(
                     platformId = platformId,
                     platformUrl = platformUrl.ifBlank { null },
                     fileName = fileName,
-                    remoteLibraryVideoId = videoFile.remoteLibraryVideoId,
+                    remoteLibraryVideoId = remoteId,
                     title = title,
                     publishedAt = Instant.now().toString(),
                 ),
