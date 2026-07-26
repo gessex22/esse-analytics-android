@@ -89,6 +89,7 @@ import java.io.File
 fun LibraryScreen(
     onImportClick: () -> Unit = {},
     onLocalClick: (VideoFile) -> Unit = {},
+    onOpenUpload: (Long) -> Unit = {},
     onRemoteClick: (RemoteLibraryVideoDto) -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: LibraryViewModel = hiltViewModel(),
@@ -177,7 +178,7 @@ fun LibraryScreen(
                             remoteThumbnailUrl = (item as? LibraryListItem.Remote)?.let { viewModel.thumbnailUrl(it.video) },
                             onClick = {
                                 when (item) {
-                                    is LibraryListItem.Local -> onLocalClick(item.file)
+                                    is LibraryListItem.Local -> editingFile = item.file
                                     is LibraryListItem.Remote -> onRemoteClick(item.video)
                                     // Solo lectura -- sin bytes, sin adónde navegar (ver
                                     // BackupApi). Avisa por qué en vez de no hacer nada.
@@ -237,7 +238,14 @@ fun LibraryScreen(
     }
 
     editingFile?.let { file ->
-        VideoDetailSheet(file = file, onDismiss = { editingFile = null })
+        VideoDetailSheet(
+            file = file,
+            onDismiss = { editingFile = null },
+            onPublish = {
+                editingFile = null
+                onOpenUpload(file.id)
+            },
+        )
     }
     editingRemoteVideo?.let { video ->
         RemoteVideoDetailSheet(video = video, onDismiss = { editingRemoteVideo = null })

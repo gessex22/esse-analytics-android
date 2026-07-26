@@ -250,6 +250,7 @@ private fun MainAppScaffold(
             composable(Routes.LIBRARY) {
                 LibraryScreen(
                     onImportClick = { navController.navigate(Routes.INGEST) },
+                    onOpenUpload = { fileId -> navController.navigate("${Routes.UPLOAD}?fileId=$fileId") },
                     // Ya tiene alguna plataforma publicada -> Estadísticas (a
                     // eso fue, a ver cómo le fue); todavía nada publicado ->
                     // Subir, con ese archivo ya elegido.

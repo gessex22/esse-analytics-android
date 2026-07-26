@@ -160,6 +160,7 @@ data class ConfirmLinkRequest(val fileId: String)
 // getCrossMatchCandidates) aunque el archivo local ya lo tuviera.
 @Serializable
 data class RecordPublishRequest(
+    val source: String = "android",
     val platform: String,
     val platformId: String,
     val platformUrl: String? = null,

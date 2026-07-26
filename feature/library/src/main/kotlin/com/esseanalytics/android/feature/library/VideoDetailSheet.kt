@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -14,17 +15,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.LinkOff
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -32,6 +34,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,6 +47,16 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import android.content.ContentValues
+import android.net.Uri
+import android.os.Environment
+import android.provider.MediaStore
+import java.io.File
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 
 // Editor manual de "publicado + link real" por plataforma, para un archivo
 // local -- mirror de VideoDetailView (iOS): tocar el badge cicla pendiente ->
@@ -52,31 +68,75 @@ import kotlinx.coroutines.launch
 fun VideoDetailSheet(
     file: VideoFile,
     onDismiss: () -> Unit,
+    onPublish: () -> Unit = {},
     viewModel: VideoDetailViewModel = hiltViewModel(),
 ) {
-    val sheetState = rememberModalBottomSheetState()
     val isSaving by viewModel.isSaving.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var galleryMessage by remember { mutableStateOf<String?>(null) }
+    val exoPlayer = remember(file.filePath) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(Uri.parse(file.filePath)))
+            playWhenReady = true
+            prepare()
+        }
+    }
+    androidx.compose.runtime.DisposableEffect(exoPlayer) {
+        onDispose { exoPlayer.release() }
+    }
 
     var linkEditorPlatform by remember { mutableStateOf<Platform?>(null) }
     var linkEditorText by remember { mutableStateOf("") }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp),
-        ) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        androidx.compose.material3.Surface(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                AndroidView(
+                    factory = { PlayerView(context).apply { player = exoPlayer } },
+                    modifier = Modifier.fillMaxWidth().height(280.dp),
+                )
+                androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    item {
             Text(file.fileName, style = MaterialTheme.typography.titleMedium, maxLines = 2)
             Text(
-                "Marcar publicado a mano y cargar el link real de cada plataforma.",
+                listOfNotNull(
+                    file.resolucion?.let { "Resolución: $it" },
+                    file.duracionSegundos?.let { "Duración: ${it}s" },
+                    file.formato?.let { "Formato: $it" },
+                ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 2.dp, bottom = 16.dp),
             )
 
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = onDismiss) { Text("Cerrar") }
+                TextButton(onClick = {
+                    scope.launch {
+                        galleryMessage = saveVideoToGallery(context, file)
+                    }
+                }) {
+                    Icon(Icons.Outlined.Download, contentDescription = null)
+                    Text("Guardar en galería")
+                }
+                TextButton(onClick = onPublish) {
+                    Icon(Icons.Outlined.CloudUpload, contentDescription = null)
+                    Text("Publicar")
+                }
+            }
+            galleryMessage?.let { message ->
+                Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+            }
+
+                    }
+                    item { Text("Estado por plataforma", style = MaterialTheme.typography.titleSmall) }
+                    item {
             Platform.publishable.forEach { platform ->
                 VideoDetailPlatformRow(
                     platform = platform,
@@ -104,6 +164,9 @@ fun VideoDetailSheet(
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
+                    }
+                }
+            }
         }
     }
 
@@ -120,6 +183,34 @@ fun VideoDetailSheet(
             },
         )
     }
+
+}
+
+private suspend fun saveVideoToGallery(context: android.content.Context, file: VideoFile): String {
+    return withContext(Dispatchers.IO) { runCatching {
+        val source = File(file.filePath)
+        require(source.exists()) { "No se encontró el archivo de video." }
+        val values = ContentValues().apply {
+            put(MediaStore.Video.Media.DISPLAY_NAME, file.fileName)
+            put(MediaStore.Video.Media.MIME_TYPE, "video/${source.extension.ifEmpty { "mp4" }}")
+            put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/EsseAnalytics")
+            put(MediaStore.Video.Media.IS_PENDING, 1)
+        }
+        val resolver = context.contentResolver
+        val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+            ?: error("No se pudo crear el archivo en la galería.")
+        try {
+            resolver.openOutputStream(uri)?.use { output -> source.inputStream().use { it.copyTo(output) } }
+                ?: error("No se pudo escribir el video.")
+            values.clear()
+            values.put(MediaStore.Video.Media.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+            "Video guardado en Películas/EsseAnalytics"
+        } catch (error: Throwable) {
+            resolver.delete(uri, null, null)
+            throw error
+        }
+    }.getOrElse { "No se pudo guardar: ${it.message ?: "error desconocido"}" } }
 }
 
 // internal, no private -- RemoteVideoDetailSheet.kt (editor equivalente para
