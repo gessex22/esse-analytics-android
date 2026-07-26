@@ -16,8 +16,12 @@ class AuthEventBus @Inject constructor() {
     val events: SharedFlow<AuthEvent> = _events.asSharedFlow()
 
     suspend fun emitSessionExpired() = _events.emit(AuthEvent.SessionExpired)
+
+    suspend fun emitPlatformSessionExpired(platform: String) =
+        _events.emit(AuthEvent.PlatformSessionExpired(platform))
 }
 
 sealed interface AuthEvent {
     data object SessionExpired : AuthEvent
+    data class PlatformSessionExpired(val platform: String) : AuthEvent
 }

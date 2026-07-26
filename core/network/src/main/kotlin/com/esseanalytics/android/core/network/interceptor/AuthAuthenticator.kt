@@ -25,6 +25,17 @@ class AuthAuthenticator @Inject constructor(
     private val scope = CoroutineScope(Dispatchers.IO)
 
     override fun authenticate(route: Route?, response: Response): Request? {
+        // Un 401 de estos endpoints significa que venció la cuenta de la
+        // plataforma, no el JWT de Esse Analytics. No debemos cerrar la sesión
+        // completa del usuario por eso.
+        val platform = response.request.url.encodedPath
+            .substringAfter("/api/", "")
+            .substringBefore('/')
+            .takeIf { it in setOf("youtube", "instagram", "tiktok") }
+        if (platform != null) {
+            scope.launch { authEventBus.emitPlatformSessionExpired(platform) }
+            return null
+        }
         tokenStore.clear()
         scope.launch { authEventBus.emitSessionExpired() }
         return null

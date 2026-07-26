@@ -7,6 +7,8 @@ import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.model.WorkflowMode
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.api.PlatformAuthApi
+import com.esseanalytics.android.core.network.AuthEvent
+import com.esseanalytics.android.core.network.AuthEventBus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +28,7 @@ class SettingsViewModel @Inject constructor(
     private val tokenStore: TokenStore,
     private val platformAuthApi: PlatformAuthApi,
     private val localPcDiscovery: LocalPcDiscovery,
+    private val authEventBus: AuthEventBus,
 ) : ViewModel() {
 
     val colorTheme: StateFlow<String> = settingsStore.colorTheme
@@ -44,6 +47,17 @@ class SettingsViewModel @Inject constructor(
     val connections: StateFlow<Map<Platform, Boolean>> = _connections
     private val _discoveredPc = kotlinx.coroutines.flow.MutableStateFlow<Pair<String, String>?>(null)
     val discoveredPc: StateFlow<Pair<String, String>?> = _discoveredPc
+
+    init {
+        viewModelScope.launch {
+            authEventBus.events.collect { event ->
+                if (event is AuthEvent.PlatformSessionExpired) {
+                    val platform = Platform.fromApiValue(event.platform) ?: return@collect
+                    _connections.value = _connections.value + (platform to false)
+                }
+            }
+        }
+    }
 
     fun setColorTheme(value: String) {
         viewModelScope.launch { settingsStore.setColorTheme(value) }
