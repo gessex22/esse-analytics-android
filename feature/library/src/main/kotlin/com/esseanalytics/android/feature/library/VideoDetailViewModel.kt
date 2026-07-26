@@ -106,6 +106,7 @@ class VideoDetailViewModel @Inject constructor(
                             platformId = platformId,
                             platformUrl = trimmed,
                             fileName = file.fileName,
+                            remoteLibraryVideoId = file.remoteLibraryVideoId,
                             publishedAt = nowIso,
                         ),
                     )
