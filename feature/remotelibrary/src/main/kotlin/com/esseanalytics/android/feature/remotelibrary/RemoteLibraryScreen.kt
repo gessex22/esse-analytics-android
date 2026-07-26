@@ -93,7 +93,10 @@ fun RemoteLibraryScreen(
             val loaded = (uiState as? RemoteLibraryUiState.Loaded)?.videos
             val match = loaded?.find { it._id == initialVideoId }
             if (match != null) {
-                selectedVideo = match
+                // Desde Videos se llega con initialVideoId; debe abrir el mismo
+                // detalle completo que un toque dentro de Biblioteca remota,
+                // no saltar directamente al formulario de publicación.
+                detailVideo = match
                 consumedInitial = true
             }
         }
