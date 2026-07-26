@@ -85,7 +85,7 @@ class RemoteLibraryViewModel @Inject constructor(
     fun refresh() {
         viewModelScope.launch {
             _uiState.value = RemoteLibraryUiState.Loading
-            runCatching { api.listVideos().videos }
+            runCatching { api.listVideos(limit = 100, skip = 0).videos }
                 .onSuccess { _uiState.value = RemoteLibraryUiState.Loaded(it) }
                 .onFailure { _uiState.value = RemoteLibraryUiState.Error(it.message ?: "No se pudo cargar la cola remota.") }
         }

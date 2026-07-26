@@ -66,6 +66,7 @@ import com.esseanalytics.android.core.designsystem.theme.TiktokPink
 import com.esseanalytics.android.core.designsystem.theme.YoutubeRed
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
+import com.esseanalytics.android.feature.library.RemoteVideoDetailSheet
 
 // Cola de videos que vive físicamente en la central (carpeta /publicados/,
 // owner-only por ahora, ver Parte C del plan) -- a diferencia de Biblioteca
@@ -80,6 +81,7 @@ fun RemoteLibraryScreen(
     val uiState by viewModel.uiState.collectAsState()
     val uploading by viewModel.uploading.collectAsState()
     var selectedVideo by remember { mutableStateOf<RemoteLibraryVideoDto?>(null) }
+    var detailVideo by remember { mutableStateOf<RemoteLibraryVideoDto?>(null) }
     var playingVideo by remember { mutableStateOf<RemoteLibraryVideoDto?>(null) }
     // Llegar acá desde un ítem remoto en Videos (Parte D del plan) abre el
     // formulario de publicar de una, apenas la lista carga y lo encuentra --
@@ -103,7 +105,18 @@ fun RemoteLibraryScreen(
 
     Box(modifier = modifier.fillMaxSize()) {
         val current = selectedVideo
-        if (current != null) {
+        val detail = detailVideo
+        if (detail != null) {
+            RemoteVideoDetailSheet(
+                video = detail,
+                streamUrl = viewModel.streamUrl(detail),
+                onDismiss = { detailVideo = null },
+                onPublish = {
+                    detailVideo = null
+                    selectedVideo = detail
+                },
+            )
+        } else if (current != null) {
             RemotePublishForm(
                 video = current,
                 viewModel = viewModel,
@@ -152,7 +165,7 @@ fun RemoteLibraryScreen(
                                 RemoteVideoRow(
                                     video = video,
                                     thumbnailUrl = viewModel.thumbnailUrl(video),
-                                    onClick = { selectedVideo = video },
+                                    onClick = { detailVideo = video },
                                     onPlayClick = { playingVideo = video },
                                     onDelete = { viewModel.delete(video) },
                                 )

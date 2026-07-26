@@ -1,13 +1,17 @@
 package com.esseanalytics.android.feature.library
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -17,6 +21,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
@@ -29,6 +40,8 @@ import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
 fun RemoteVideoDetailSheet(
     video: RemoteLibraryVideoDto,
     onDismiss: () -> Unit,
+    streamUrl: String? = null,
+    onPublish: () -> Unit = {},
     viewModel: RemoteVideoEditViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(video._id) { viewModel.setInitial(video) }
@@ -36,28 +49,45 @@ fun RemoteVideoDetailSheet(
     val current by viewModel.video.collectAsState()
     val isSaving by viewModel.isSaving.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
-    val sheetState = rememberModalBottomSheetState()
+    val context = LocalContext.current
+    val player = remember(streamUrl) {
+        streamUrl?.let { ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(it))
+            playWhenReady = true
+            prepare()
+        } }
+    }
+    androidx.compose.runtime.DisposableEffect(player) { onDispose { player?.release() } }
 
     var linkEditorPlatform by remember { mutableStateOf<Platform?>(null) }
     var linkEditorText by remember { mutableStateOf("") }
 
     val shownVideo = current ?: video
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp),
-        ) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        androidx.compose.material3.Surface(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                AndroidView(
+                    factory = { PlayerView(context).apply { this.player = player } },
+                    modifier = Modifier.fillMaxWidth().height(280.dp),
+                )
+                androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    item {
             Text(shownVideo.fileName, style = MaterialTheme.typography.titleMedium, maxLines = 2)
             Text(
-                "Marcar publicado a mano y cargar el link real de cada plataforma.",
+                listOfNotNull(shownVideo.resolution, shownVideo.formato).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 2.dp, bottom = 16.dp),
             )
 
+                    }
+                    item { Text("Estado por plataforma", style = MaterialTheme.typography.titleSmall) }
+                    item {
             Platform.publishable.forEach { platform ->
                 VideoDetailPlatformRow(
                     platform = platform,
@@ -82,6 +112,18 @@ fun RemoteVideoDetailSheet(
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(top = 8.dp),
                 )
+            }
+                    }
+                    item {
+                        androidx.compose.material3.TextButton(onClick = onPublish, modifier = Modifier.fillMaxWidth()) {
+                            androidx.compose.material3.Icon(Icons.Outlined.CloudUpload, contentDescription = null)
+                            Text("Publicar")
+                        }
+                        androidx.compose.material3.TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                            Text("Cerrar", modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        }
+                    }
+                }
             }
         }
     }

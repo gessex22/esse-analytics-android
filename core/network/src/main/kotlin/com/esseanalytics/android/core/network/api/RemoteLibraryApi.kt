@@ -8,11 +8,13 @@ import okhttp3.ResponseBody
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.Headers
 import retrofit2.http.Multipart
 import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Part
 import retrofit2.http.Path
+import retrofit2.http.Query
 import retrofit2.http.Streaming
 
 // Biblioteca remota (owner-only, ver Parte C del plan) -- storage real en la
@@ -23,8 +25,12 @@ import retrofit2.http.Streaming
 // miniatura sí sigue siendo multipart simple, aparte, DESPUÉS de crear el
 // video (mismo orden que RemoteLibraryAPI.upload en iOS).
 interface RemoteLibraryApi {
+    @Headers("Cache-Control: no-cache")
     @GET("api/remote-library/videos")
-    suspend fun listVideos(): RemoteLibraryListResponse
+    suspend fun listVideos(
+        @Query("limit") limit: Int = 100,
+        @Query("skip") skip: Int = 0,
+    ): RemoteLibraryListResponse
 
     @Multipart
     @POST("api/remote-library/videos/{id}/thumbnail")

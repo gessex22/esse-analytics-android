@@ -115,17 +115,16 @@ fun VideoDetailSheet(
                 modifier = Modifier.padding(top = 2.dp, bottom = 16.dp),
             )
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                TextButton(onClick = onDismiss) { Text("Cerrar") }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
                 TextButton(onClick = {
                     scope.launch {
                         galleryMessage = saveVideoToGallery(context, file)
                     }
-                }) {
+                }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Outlined.Download, contentDescription = null)
                     Text("Guardar en galería")
                 }
-                TextButton(onClick = onPublish) {
+                TextButton(onClick = onPublish, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Outlined.CloudUpload, contentDescription = null)
                     Text("Publicar")
                 }
@@ -164,6 +163,11 @@ fun VideoDetailSheet(
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
+                    }
+                    item {
+                        TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                            Text("Cerrar", modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        }
                     }
                 }
             }
