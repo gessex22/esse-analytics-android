@@ -77,6 +77,17 @@ class UploadViewModel @Inject constructor(
     private val _importingRemoteId = MutableStateFlow<String?>(null)
     val importingRemoteId: StateFlow<String?> = _importingRemoteId.asStateFlow()
 
+    // Antes un fallo acá (ej. video sin bytes porque el storage dinámico ya
+    // los liberó, ver remote-library-retention.service.ts) volvía onResult(null)
+    // sin ningún rastro visible -- el spinner se apagaba y listo, sin decirle
+    // al usuario qué pasó ni que podía reintentar con otro video.
+    private val _remoteImportError = MutableStateFlow<String?>(null)
+    val remoteImportError: StateFlow<String?> = _remoteImportError.asStateFlow()
+
+    fun clearRemoteImportError() {
+        _remoteImportError.value = null
+    }
+
     // Título (file_name) del "próximo" video a publicar por plataforma según
     // el calendario de la central -- mismo dato que ya usa CalendarViewModel,
     // acá para marcar en la lista cuál de los pendientes toca subir. Matchea
@@ -116,6 +127,7 @@ class UploadViewModel @Inject constructor(
             _importingRemoteId.value = video._id
             val result = importUseCase.importFromRemoteLibrary(video)
             _importingRemoteId.value = null
+            if (result is ImportResult.Error) _remoteImportError.value = result.message
             onResult((result as? ImportResult.Success)?.file)
         }
     }

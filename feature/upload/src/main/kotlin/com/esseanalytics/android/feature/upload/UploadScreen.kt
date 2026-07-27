@@ -84,6 +84,7 @@ fun UploadScreen(
     val files by viewModel.files.collectAsState()
     val remoteVideos by viewModel.remoteVideos.collectAsState()
     val importingRemoteId by viewModel.importingRemoteId.collectAsState()
+    val remoteImportError by viewModel.remoteImportError.collectAsState()
     val nextUploads by viewModel.nextUploads.collectAsState()
     var selectedFile by remember { mutableStateOf<VideoFile?>(null) }
 
@@ -139,6 +140,19 @@ fun UploadScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            // Antes un video de Nube sin bytes (storage dinámico ya los
+            // liberó) fallaba en silencio -- el spinner se apagaba y no
+            // pasaba nada visible. Ahora se muestra el motivo real.
+            remoteImportError?.let { message ->
+                Text(
+                    message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier
+                        .padding(horizontal = 24.dp, vertical = 8.dp)
+                        .clickable { viewModel.clearRemoteImportError() },
                 )
             }
             // Además de lo local, deja elegir un video de Nube como fuente --

@@ -3,6 +3,7 @@ package com.esseanalytics.android.core.network.api
 import com.esseanalytics.android.core.network.dto.CalendarConfigDto
 import com.esseanalytics.android.core.network.dto.ConfirmLinkRequest
 import com.esseanalytics.android.core.network.dto.CrossMatchCandidatesResponseDto
+import com.esseanalytics.android.core.network.dto.GroupStatsItemDto
 import com.esseanalytics.android.core.network.dto.GroupStatsResponse
 import com.esseanalytics.android.core.network.dto.PlatformRecentPageDto
 import com.esseanalytics.android.core.network.dto.RecordPublishRequest
@@ -29,6 +30,16 @@ interface SyncApi {
 
     @GET("api/sync/group-stats")
     suspend fun getGroupStats(@Query("limit") limit: Int = 5): GroupStatsResponse
+
+    // Stats en vivo de UN archivo puntual (por fileId de Mongo o por fileName),
+    // sin exigir que esté cross-posteado a las 3 plataformas -- fallback del
+    // Dashboard cuando el último publicado (history) no aparece en el top-N
+    // "completo" de group-stats (mismo fix aplicado en iOS, DashboardView.swift).
+    @GET("api/sync/file-stats")
+    suspend fun getFileStats(
+        @Query("fileId") fileId: String? = null,
+        @Query("fileName") fileName: String? = null,
+    ): GroupStatsItemDto
 
     @GET("api/sync/history")
     suspend fun getHistory(@Query("limit") limit: Int = 30, @Query("offset") offset: Int = 0): UploadHistoryResponse

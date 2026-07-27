@@ -2,6 +2,7 @@ package com.esseanalytics.android.core.network
 
 import com.esseanalytics.android.core.network.api.SyncApi
 import com.esseanalytics.android.core.network.dto.CalendarConfigDto
+import com.esseanalytics.android.core.network.dto.GroupStatsItemDto
 import com.esseanalytics.android.core.network.dto.GroupStatsResponse
 import com.esseanalytics.android.core.network.dto.UploadHistoryItemDto
 import kotlinx.coroutines.sync.Mutex
@@ -42,6 +43,12 @@ class SyncRepository @Inject constructor(
         if (!force && cached != null && !cached.expired()) return@withLock cached.value
         api.getHistory(limit = limit).items.also { historyCache = Timed(it) }
     }
+
+    // Fallback puntual del Dashboard cuando el último publicado no está en el
+    // top-N "completo" de getGroupStats -- sin cache, se pide una sola vez por
+    // cada video que necesite resolverse así.
+    suspend fun getFileStats(fileId: String? = null, fileName: String? = null): GroupStatsItemDto =
+        api.getFileStats(fileId = fileId, fileName = fileName)
 
     private data class Timed<T>(val value: T, val createdAt: Long = System.currentTimeMillis()) {
         fun expired(): Boolean = System.currentTimeMillis() - createdAt > 30_000L

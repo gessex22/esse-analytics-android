@@ -106,6 +106,7 @@ private val bottomDestinations = listOf(
     BottomDestination(Routes.DASHBOARD, "Inicio", Icons.Outlined.Dashboard),
     BottomDestination(Routes.CALENDAR, "Calendario", Icons.Outlined.CalendarMonth),
     BottomDestination(Routes.UPLOAD, "Subir", Icons.Outlined.CloudUpload),
+    BottomDestination(Routes.LIBRARY, "Videos", Icons.Outlined.VideoLibrary),
     BottomDestination(Routes.STATS, "Estadísticas", Icons.Outlined.QueryStats),
     BottomDestination(Routes.MORE, "Más", Icons.Outlined.MoreHoriz),
 )
