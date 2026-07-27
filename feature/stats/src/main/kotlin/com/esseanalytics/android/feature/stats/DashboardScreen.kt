@@ -71,7 +71,9 @@ fun DashboardScreen(
         ) {
             item {
                 val history = current.data.latestHistory
+                val historyPlatform = history?.platform?.let { Platform.fromApiValue(it) }
                 val statsItem = history?.fileName?.let { name -> current.data.items.firstOrNull { it.fileName == name } }
+                    ?: historyPlatform?.let { platform -> current.data.items.firstOrNull { it.platforms[platform.apiValue]?.platformId == history.platformId } }
                     ?: if (history == null) current.data.items.firstOrNull() else null
                 LatestVideoCard(history, statsItem)
             }
