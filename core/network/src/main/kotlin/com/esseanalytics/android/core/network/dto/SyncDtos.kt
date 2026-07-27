@@ -32,6 +32,24 @@ data class GroupStatsItemDto(
 data class GroupStatsResponse(val items: List<GroupStatsItemDto>)
 
 @Serializable
+data class UploadHistoryItemDto(
+    val id: String,
+    val platform: String,
+    val platformId: String,
+    val platformUrl: String? = null,
+    val publishedAt: String,
+    val title: String? = null,
+    val fileName: String? = null,
+    val linkedFileId: Long? = null,
+    val matchStatus: String = "manual",
+    val deviceId: String? = null,
+    val source: String? = null,
+)
+
+@Serializable
+data class UploadHistoryResponse(val items: List<UploadHistoryItemDto>, val total: Int)
+
+@Serializable
 data class CalendarConfigDto(
     val platform: String,
     val lastPublishedTitle: String,

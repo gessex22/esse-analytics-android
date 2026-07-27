@@ -8,7 +8,7 @@ import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.api.BackupApi
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
-import com.esseanalytics.android.core.network.api.SyncApi
+import com.esseanalytics.android.core.network.SyncRepository
 import com.esseanalytics.android.core.network.di.CentralRetrofit
 import com.esseanalytics.android.core.network.dto.BackupFileDto
 import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
@@ -35,7 +35,7 @@ class LibraryViewModel @Inject constructor(
     private val deleteVideoUseCase: DeleteVideoUseCase,
     private val remoteLibraryApi: RemoteLibraryApi,
     private val backupApi: BackupApi,
-    private val syncApi: SyncApi,
+    private val syncRepository: SyncRepository,
     private val tokenStore: TokenStore,
     @CentralRetrofit private val retrofit: Retrofit,
 ) : ViewModel() {
@@ -76,7 +76,7 @@ class LibraryViewModel @Inject constructor(
 
     fun refreshNextUploads() {
         viewModelScope.launch {
-            runCatching { withContext(Dispatchers.IO) { syncApi.getCalendarConfig() } }
+            runCatching { withContext(Dispatchers.IO) { syncRepository.getCalendarConfig() } }
                 .onSuccess { configs ->
                     _nextUploads.value = configs.mapNotNull { cfg ->
                         val platform = Platform.fromApiValue(cfg.platform)

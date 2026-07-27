@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CloudQueue
 import androidx.compose.material.icons.outlined.CloudUpload
+import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Diamond
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Notifications
@@ -76,6 +77,7 @@ import com.esseanalytics.android.feature.calendar.CalendarScreen
 import com.esseanalytics.android.feature.gems.GemsScreen
 import com.esseanalytics.android.feature.ingest.IngestScreen
 import com.esseanalytics.android.feature.library.LibraryScreen
+import com.esseanalytics.android.feature.stats.DashboardScreen
 import com.esseanalytics.android.feature.remotelibrary.RemoteLibraryScreen
 import com.esseanalytics.android.feature.settings.SettingsScreen
 import com.esseanalytics.android.feature.stats.StatsScreen
@@ -84,6 +86,7 @@ import com.esseanalytics.android.feature.upload.UploadScreen
 import com.esseanalytics.android.feature.users.UsersScreen
 
 private object Routes {
+    const val DASHBOARD = "dashboard"
     const val LIBRARY = "library"
     const val CALENDAR = "calendar"
     const val UPLOAD = "upload"
@@ -100,7 +103,7 @@ private object Routes {
 private data class BottomDestination(val route: String, val label: String, val icon: ImageVector)
 
 private val bottomDestinations = listOf(
-    BottomDestination(Routes.LIBRARY, "Videos", Icons.Outlined.VideoLibrary),
+    BottomDestination(Routes.DASHBOARD, "Inicio", Icons.Outlined.Dashboard),
     BottomDestination(Routes.CALENDAR, "Calendario", Icons.Outlined.CalendarMonth),
     BottomDestination(Routes.UPLOAD, "Subir", Icons.Outlined.CloudUpload),
     BottomDestination(Routes.STATS, "Estadísticas", Icons.Outlined.QueryStats),
@@ -175,9 +178,8 @@ private fun MainAppScaffold(
         topBar = {
             AppTopBar(
                 username = username,
-                scrollBehavior = topBarScrollBehavior,
-                onAvatarClick = { navController.navigate(Routes.SETTINGS) },
-            )
+                scrollBehavior = topBarScrollBehavior
+            ) { navController.navigate(Routes.SETTINGS) }
         },
         bottomBar = {
             val backStackEntry by navController.currentBackStackEntryAsState()
@@ -233,7 +235,7 @@ private fun MainAppScaffold(
         val navOffsetSpec = tween<IntOffset>(220, easing = FastOutSlowInEasing)
         NavHost(
             navController = navController,
-            startDestination = Routes.LIBRARY,
+            startDestination = Routes.DASHBOARD,
             modifier = Modifier.padding(padding),
             enterTransition = {
                 fadeIn(navAnimSpec) + slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, navOffsetSpec) { it / 10 }
@@ -248,6 +250,7 @@ private fun MainAppScaffold(
                 fadeOut(navAnimSpec) + slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, navOffsetSpec) { it / 10 }
             },
         ) {
+            composable(Routes.DASHBOARD) { DashboardScreen() }
             composable(Routes.LIBRARY) {
                 LibraryScreen(
                     onImportClick = { navController.navigate(Routes.INGEST) },
@@ -438,6 +441,13 @@ private fun MoreScreen(navController: NavHostController, isOwner: Boolean, canUs
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         ) {
             Column {
+                MoreItem(
+                    icon = Icons.Outlined.VideoLibrary,
+                    label = "Videos",
+                    description = "Biblioteca de videos locales y remotos",
+                    onClick = { navController.navigate(Routes.LIBRARY) },
+                )
+                HorizontalDivider()
                 MoreItem(
                     icon = Icons.Outlined.Sync,
                     label = "Sincronización",

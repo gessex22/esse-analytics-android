@@ -10,6 +10,7 @@ import com.esseanalytics.android.core.network.dto.ResolveCrossMatchSlotRequest
 import com.esseanalytics.android.core.network.dto.SyncReviewResponseDto
 import com.esseanalytics.android.core.network.dto.SyncStatsDto
 import com.esseanalytics.android.core.network.dto.TriggerSyncResponse
+import com.esseanalytics.android.core.network.dto.UploadHistoryResponse
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.PATCH
@@ -28,6 +29,9 @@ interface SyncApi {
 
     @GET("api/sync/group-stats")
     suspend fun getGroupStats(@Query("limit") limit: Int = 5): GroupStatsResponse
+
+    @GET("api/sync/history")
+    suspend fun getHistory(@Query("limit") limit: Int = 30, @Query("offset") offset: Int = 0): UploadHistoryResponse
 
     @GET("api/sync/stats")
     suspend fun getSyncStats(): SyncStatsDto

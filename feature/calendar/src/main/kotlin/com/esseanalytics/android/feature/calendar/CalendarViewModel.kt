@@ -2,7 +2,7 @@ package com.esseanalytics.android.feature.calendar
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.esseanalytics.android.core.network.api.SyncApi
+import com.esseanalytics.android.core.network.SyncRepository
 import com.esseanalytics.android.core.network.dto.CalendarConfigDto
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,7 +37,7 @@ sealed interface CalendarUiState {
 // consume en modo lectura; drag-drop/edición de fechas queda para Fase 2.
 @HiltViewModel
 class CalendarViewModel @Inject constructor(
-    private val syncApi: SyncApi,
+    private val syncRepository: SyncRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<CalendarUiState>(CalendarUiState.Loading)
@@ -51,7 +51,7 @@ class CalendarViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = CalendarUiState.Loading
             _uiState.value = try {
-                CalendarUiState.Success(syncApi.getCalendarConfig().map { it.toSlot() })
+                CalendarUiState.Success(syncRepository.getCalendarConfig().map { it.toSlot() })
             } catch (e: Exception) {
                 // Boundary real: llamada a la central, puede fallar por red,
                 // rol sin permiso (varios endpoints de /api/sync/* son

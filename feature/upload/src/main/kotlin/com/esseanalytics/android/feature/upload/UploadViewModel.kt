@@ -20,7 +20,7 @@ import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
 import com.esseanalytics.android.core.model.WorkflowMode
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
-import com.esseanalytics.android.core.network.api.SyncApi
+import com.esseanalytics.android.core.network.SyncRepository
 import com.esseanalytics.android.core.network.di.CentralRetrofit
 import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
 import com.esseanalytics.android.core.network.util.remoteLibraryThumbnailUrl
@@ -51,7 +51,7 @@ class UploadViewModel @Inject constructor(
     private val thumbnailGenerator: AndroidFrameThumbnailGenerator,
     private val remoteLibraryApi: RemoteLibraryApi,
     private val importUseCase: ImportUseCase,
-    private val syncApi: SyncApi,
+    private val syncRepository: SyncRepository,
     private val tokenStore: TokenStore,
     @CentralRetrofit private val retrofit: Retrofit,
 ) : ViewModel() {
@@ -86,7 +86,7 @@ class UploadViewModel @Inject constructor(
 
     fun refreshNextUploads() {
         viewModelScope.launch {
-            runCatching { withContext(Dispatchers.IO) { syncApi.getCalendarConfig() } }
+            runCatching { withContext(Dispatchers.IO) { syncRepository.getCalendarConfig() } }
                 .onSuccess { configs ->
                     _nextUploads.value = configs.mapNotNull { cfg ->
                         val platform = Platform.fromApiValue(cfg.platform)

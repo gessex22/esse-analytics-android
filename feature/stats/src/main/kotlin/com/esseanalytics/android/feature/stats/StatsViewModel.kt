@@ -3,7 +3,7 @@ package com.esseanalytics.android.feature.stats
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.esseanalytics.android.core.datastore.TokenStore
-import com.esseanalytics.android.core.network.api.SyncApi
+import com.esseanalytics.android.core.network.SyncRepository
 import com.esseanalytics.android.core.network.di.CentralRetrofit
 import com.esseanalytics.android.core.network.dto.GroupStatsItemDto
 import com.esseanalytics.android.core.network.util.remoteLibraryThumbnailUrl
@@ -27,7 +27,7 @@ sealed interface StatsUiState {
 // archivo, no depende de workflow_mode (simple/avanzado ven lo mismo acá).
 @HiltViewModel
 class StatsViewModel @Inject constructor(
-    private val syncApi: SyncApi,
+    private val syncRepository: SyncRepository,
     private val tokenStore: TokenStore,
     @CentralRetrofit private val retrofit: Retrofit,
 ) : ViewModel() {
@@ -53,7 +53,7 @@ class StatsViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = StatsUiState.Loading
             _uiState.value = try {
-                StatsUiState.Success(syncApi.getGroupStats(limit = 5).items)
+                StatsUiState.Success(syncRepository.getGroupStats(limit = 5, force = true).items)
             } catch (e: Exception) {
                 // Boundary real: llamada a la central, red/rol/caída.
                 StatsUiState.Error(e.message ?: "No se pudieron cargar las estadísticas.")
