@@ -72,6 +72,8 @@ class TiktokUploader @Inject constructor(
             UploadResult.Success(platformId = init.publishId, platformUrl = "")
         } catch (e: IOException) {
             UploadResult.Failure(e.message ?: "Error de red al subir a TikTok.", retryable = true)
+        } catch (e: Exception) {
+            UploadResult.Failure(e.message ?: "Error desconocido en TikTok.", retryable = false)
         }
     }
 

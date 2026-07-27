@@ -53,7 +53,7 @@ class UploadWorker @AssistedInject constructor(
         val platform = inputData.getString(KEY_PLATFORM)?.let { Platform.fromApiValue(it) }
         val title = inputData.getString(KEY_TITLE)
 
-        if (fileId < 0 || platform == null || (title == null || title.isBlank())) {
+        if (fileId < 0 || platform == null || title.isNullOrBlank()) {
             return Result.failure(workDataOf(KEY_ERROR to "Datos de subida incompletos."))
         }
 

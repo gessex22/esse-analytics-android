@@ -119,6 +119,8 @@ class InstagramUploader @Inject constructor(
             UploadResult.Success(platformId = mediaId, platformUrl = permalink, facebookCrossPost = facebookResult)
         } catch (e: IOException) {
             UploadResult.Failure(e.message ?: "Error de red al subir a Instagram.", retryable = true)
+        } catch (e: Exception) {
+            UploadResult.Failure(e.message ?: "Error desconocido en Instagram.", retryable = false)
         } finally {
             tempTrimmed?.delete()
             tempNormalized?.delete()

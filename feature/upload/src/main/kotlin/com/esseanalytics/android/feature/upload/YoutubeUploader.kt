@@ -63,6 +63,8 @@ class YoutubeUploader @Inject constructor(
             UploadResult.Success(platformId = videoId, platformUrl = "https://youtube.com/shorts/$videoId")
         } catch (e: IOException) {
             UploadResult.Failure(e.message ?: "Error de red al subir a YouTube.", retryable = true)
+        } catch (e: Exception) {
+            UploadResult.Failure(e.message ?: "Error desconocido en YouTube.", retryable = false)
         }
     }
 
