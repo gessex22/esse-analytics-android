@@ -18,6 +18,10 @@ dependencies {
     // remoteLibraryThumbnailUrl) -- core:network lo declara `implementation`,
     // no es transitivo.
     implementation(libs.retrofit.core)
+    // Para resolver el link corto de TikTok (VideoDetailViewModel) con el
+    // @PlatformOkHttp inyectado desde core:network -- mismo motivo que
+    // retrofit.core arriba, no es transitivo.
+    implementation(libs.okhttp.core)
     // Reproductor para videos locales -- no existía ninguno (solo miniatura
     // estática), ver LocalVideoPlayerScreen.
     implementation(libs.androidx.media3.exoplayer)

@@ -8,14 +8,20 @@ import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
 import com.esseanalytics.android.core.network.api.SyncApi
+import com.esseanalytics.android.core.network.di.PlatformOkHttp
 import com.esseanalytics.android.core.network.dto.RecordPublishRequest
 import com.esseanalytics.android.core.network.dto.RemoteLibraryPlatformLinkDto
 import com.esseanalytics.android.core.network.dto.UpdateRemoteLibraryPlatformsRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import javax.inject.Inject
@@ -33,6 +39,7 @@ class VideoDetailViewModel @Inject constructor(
     private val platformVideoRepository: PlatformVideoRepository,
     private val remoteLibraryApi: RemoteLibraryApi,
     private val syncApi: SyncApi,
+    @PlatformOkHttp private val platformOkHttpClient: OkHttpClient,
 ) : ViewModel() {
 
     private val _isSaving = MutableStateFlow(false)
@@ -84,7 +91,8 @@ class VideoDetailViewModel @Inject constructor(
                     publishedAt = nowIso,
                 )
             } else {
-                val platformId = extractPlatformId(platform, trimmed)
+                val resolvedUrl = resolveShortLinkIfNeeded(platform, trimmed) ?: trimmed
+                val platformId = extractPlatformId(platform, resolvedUrl)
                 platformVideoRepository.upsertPublished(
                     platform = platform,
                     platformId = platformId,
@@ -99,6 +107,12 @@ class VideoDetailViewModel @Inject constructor(
                     publishedAt = nowIso,
                 )
 
+                // Sin .onFailure acá, un fallo (red, 401, etc.) quedaba mudo:
+                // el archivo local mostraba "Publicado" pero la central nunca
+                // se enteraba del link, y Estadísticas/Dashboard (que leen
+                // PlatformVideoModel, no Room) quedaban en cero para siempre
+                // sin ninguna señal de qué pasó -- mismo bug que ya se
+                // corrigió en la versión de iOS.
                 runCatching {
                     syncApi.recordPublish(
                         RecordPublishRequest(
@@ -110,6 +124,8 @@ class VideoDetailViewModel @Inject constructor(
                             publishedAt = nowIso,
                         ),
                     )
+                }.onFailure {
+                    _errorMessage.value = "El link se guardó en el celular pero no se pudo sincronizar con Estadísticas (${it.message}). Volvé a guardar el link para reintentar."
                 }
             }
 
@@ -141,6 +157,30 @@ class VideoDetailViewModel @Inject constructor(
             )
         }.onFailure {
             _errorMessage.value = it.message ?: "No se pudo sincronizar con la nube."
+        }
+    }
+
+    // TikTok reparte por default un link CORTO al tocar "Compartir" -> "Copiar
+    // enlace" (vm.tiktok.com/XXXX, vt.tiktok.com/XXXX, o tiktok.com/t/XXXX/)
+    // que no trae el id numérico en la URL -- solo aparece tras seguir la
+    // redirección HTTP hacia el link canónico (.../@usuario/video/123...). Sin
+    // esto, extractPlatformId no matcheaba nada y guardaba la URL corta entera
+    // como "id" -- inválido para la API de TikTok, así que las stats quedaban
+    // en 0 para siempre sin ningún error visible (bug real detectado en la
+    // cuenta de producción, mismo fix que en VideoDetailView.swift de iOS).
+    private suspend fun resolveShortLinkIfNeeded(platform: Platform, url: String): String? {
+        if (platform != Platform.TIKTOK) return null
+        val parsed = url.toHttpUrlOrNull() ?: return null
+        val isShortLink = parsed.host.contains("vm.tiktok.com") ||
+            parsed.host.contains("vt.tiktok.com") ||
+            parsed.encodedPath.startsWith("/t/")
+        if (!isShortLink) return null
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                platformOkHttpClient.newCall(Request.Builder().url(parsed).get().build()).execute().use { response ->
+                    response.request.url.toString()
+                }
+            }.getOrNull()
         }
     }
 
