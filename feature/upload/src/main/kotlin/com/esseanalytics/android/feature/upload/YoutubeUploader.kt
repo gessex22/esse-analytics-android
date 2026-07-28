@@ -56,8 +56,19 @@ class YoutubeUploader @Inject constructor(
             // video YA está publicado acá, si esto falla no se reintenta la
             // subida entera por una miniatura -- solo se pierde la portada
             // elegida a mano (queda la que YouTube generó sola).
-            metadata.thumbnailOffsetMs?.let { offsetMs ->
-                setCustomThumbnail(file, offsetMs, videoId)
+            //
+            // CUSTOM_THUMBNAIL_ENABLED = false: la miniatura se captura bien
+            // (frame correcto) pero YouTube la termina mostrando en gris --
+            // no es un bug de este código (pipeline revisado a fondo el
+            // 2026-07-28, thumbnails.set responde 200), sino un delay/quirk
+            // conocido del lado de YouTube al propagar miniaturas custom por
+            // su CDN. Desactivado hasta encontrar una forma confiable de
+            // evitarlo -- el picker de frame sigue disponible, solo se
+            // salta el envío.
+            if (CUSTOM_THUMBNAIL_ENABLED) {
+                metadata.thumbnailOffsetMs?.let { offsetMs ->
+                    setCustomThumbnail(file, offsetMs, videoId)
+                }
             }
 
             UploadResult.Success(platformId = videoId, platformUrl = "https://youtube.com/shorts/$videoId")
@@ -132,6 +143,7 @@ class YoutubeUploader @Inject constructor(
     }
 
     private companion object {
+        const val CUSTOM_THUMBNAIL_ENABLED = false
         const val THUMBNAIL_SET_ATTEMPTS = 3
         const val THUMBNAIL_SET_RETRY_DELAY_MS = 2_500L
     }
