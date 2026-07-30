@@ -51,10 +51,17 @@ class TiktokUploader @Inject constructor(
                 return UploadResult.Failure("TikTok rechazó la subida de uno de los chunks.", retryable = true)
             }
 
+            // NO retryable: acá los bytes YA se terminaron de subir y TikTok
+            // puede seguir procesando/publicando en segundo plano después de
+            // que este poll se rindió -- reintentar desde cero (init nuevo +
+            // resubir todo) puede terminar publicando el mismo video DOS
+            // veces si el original termina de procesar segundos más tarde.
+            // Mejor dejar que el usuario reintente a mano y así vea si
+            // realmente hace falta.
             val finalStatus = pollUntilComplete(token, init.publishId)
                 ?: return UploadResult.Failure(
-                    "TikTok sigue procesando el video después de varios minutos.",
-                    retryable = true,
+                    "TikTok sigue procesando el video después de varios minutos. Revisá en la app de TikTok antes de reintentar.",
+                    retryable = false,
                 )
 
             if (finalStatus.status == "FAILED") {

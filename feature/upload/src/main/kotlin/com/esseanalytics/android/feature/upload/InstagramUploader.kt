@@ -91,9 +91,17 @@ class InstagramUploader @Inject constructor(
                 )
             }
 
+            // NO retryable: el contenedor ya terminó de procesar (FINISHED) y
+            // se llamó a media_publish -- si la respuesta se perdió por un
+            // corte de red pero Meta sí llegó a publicarlo, reintentar desde
+            // cero sube un contenedor nuevo y puede terminar en un segundo
+            // Reel real y público del mismo video.
             val mediaId = withContext(Dispatchers.IO) {
                 publish(igUserId, container.id, token)
-            } ?: return UploadResult.Failure("Instagram no confirmó la publicación.", retryable = true)
+            } ?: return UploadResult.Failure(
+                "Instagram no confirmó la publicación. Revisá tu perfil antes de reintentar.",
+                retryable = false,
+            )
 
             val permalink = withContext(Dispatchers.IO) {
                 fetchPermalink(mediaId, token) ?: ""
