@@ -34,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -77,7 +78,7 @@ fun DashboardScreen(
                     ?: historyPlatform?.let { platform -> current.data.items.firstOrNull { it.platforms[platform.apiValue]?.platformId == history.platformId } }
                     ?: current.data.fallbackItem
                     ?: if (history == null) current.data.items.firstOrNull() else null
-                LatestVideoCard(history, statsItem)
+                LatestVideoCard(history, statsItem, current.data.focusPlatform)
             }
             item { PlatformPodium(current.data.items) }
             item { UpcomingCard(current.data.calendar) }
@@ -85,10 +86,18 @@ fun DashboardScreen(
     }
 }
 
+// focusPlatform (modo avanzado): resalta la plataforma real de la última
+// subida y atenúa las otras dos -- mirror de DashboardView.tsx (escritorio)
+// y DashboardView.swift (iOS). En modo simple queda null y se comporta
+// como antes (suma las 3, ninguna atenuada).
 @Composable
-private fun LatestVideoCard(history: UploadHistoryItemDto?, item: GroupStatsItemDto?) {
+private fun LatestVideoCard(history: UploadHistoryItemDto?, item: GroupStatsItemDto?, focusPlatform: Platform?) {
     DashboardCard {
-        DashboardHeader("Último video publicado", "Rendimiento comparado entre plataformas", Icons.Outlined.QueryStats)
+        DashboardHeader(
+            "Último video publicado",
+            focusPlatform?.let { "Publicado en ${it.displayName}" } ?: "Rendimiento comparado entre plataformas",
+            Icons.Outlined.QueryStats,
+        )
         if (history == null && item == null) {
             DashboardMessage("Todavía no hay videos publicados", "Cuando se sincronicen tus publicaciones aparecerán aquí.")
         } else {
@@ -105,15 +114,23 @@ private fun LatestVideoCard(history: UploadHistoryItemDto?, item: GroupStatsItem
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(history?.fileName ?: history?.title ?: item?.fileName.orEmpty(), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 3)
                     Text(history?.publishedAt ?: item?.fecha_creacion.orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    // Con focusPlatform, el número grande es SU métrica puntual (0 si
+                    // todavía no sincronizó, nunca la suma de las 3) -- sin este
+                    // distingo, un focusSlot nulo caía al total sumado igual.
+                    val focusSlot = focusPlatform?.let { item?.platforms?.get(it.apiValue) }
                     Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.padding(top = 5.dp)) {
-                        Metric(Icons.Outlined.Visibility, item?.total { it.views } ?: 0, emphasized = true)
-                        Metric(Icons.Outlined.Favorite, item?.total { it.likes } ?: 0)
-                        Metric(Icons.Outlined.ChatBubble, item?.total { it.comments } ?: 0)
+                        Metric(Icons.Outlined.Visibility, if (focusPlatform != null) (focusSlot?.views ?: 0) else (item?.total { it.views } ?: 0), emphasized = true)
+                        Metric(Icons.Outlined.Favorite, if (focusPlatform != null) (focusSlot?.likes ?: 0) else (item?.total { it.likes } ?: 0))
+                        Metric(Icons.Outlined.ChatBubble, if (focusPlatform != null) (focusSlot?.comments ?: 0) else (item?.total { it.comments } ?: 0))
                     }
                 }
             }
             Spacer(Modifier.height(12.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) { dashboardPlatforms.forEach { platform -> PlatformMetricRow(platform, item?.platforms?.get(platform.apiValue)) } }
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                dashboardPlatforms.forEach { platform ->
+                    PlatformMetricRow(platform, item?.platforms?.get(platform.apiValue), isDimmed = focusPlatform != null && platform != focusPlatform)
+                }
+            }
         }
     }
 }
@@ -160,8 +177,11 @@ private fun DashboardHeader(title: String, subtitle: String, icon: androidx.comp
 @Composable
 private fun DashboardMessage(title: String, message: String) { Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold); Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
 
+// isDimmed (modo avanzado): no esconde la plataforma que no fue la
+// publicada -- solo baja su opacidad, para que quede claro que no forma
+// parte de ESTE evento de publicación sin ocultar que la plataforma existe.
 @Composable
-private fun PlatformMetricRow(platform: Platform, slot: GroupStatsSlotDto?) { Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().background(platformColor(platform).copy(alpha = .10f), RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 9.dp)) { PlatformMetricLogo(platform); Text(platform.displayName, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium); Spacer(Modifier.weight(1f)); if (slot == null) Text("Pendiente de datos", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) else { Metric(Icons.Outlined.Visibility, slot.views); Metric(Icons.Outlined.Favorite, slot.likes); Metric(Icons.Outlined.ChatBubble, slot.comments) } } }
+private fun PlatformMetricRow(platform: Platform, slot: GroupStatsSlotDto?, isDimmed: Boolean = false) { Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().alpha(if (isDimmed) 0.4f else 1f).background(platformColor(platform).copy(alpha = .10f), RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 9.dp)) { PlatformMetricLogo(platform); Text(platform.displayName, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium); Spacer(Modifier.weight(1f)); if (slot == null) Text("Pendiente de datos", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) else { Metric(Icons.Outlined.Visibility, slot.views); Metric(Icons.Outlined.Favorite, slot.likes); Metric(Icons.Outlined.ChatBubble, slot.comments) } } }
 
 @Composable
 private fun PlatformMetricLogo(platform: Platform?) { if (platform == null) Spacer(Modifier.size(18.dp)) else when (platform) { Platform.YOUTUBE -> Icon(PlatformIcons.YoutubeLogo, null, tint = YoutubeRed, modifier = Modifier.size(18.dp)); Platform.INSTAGRAM -> Icon(PlatformIcons.InstagramLogo, null, tint = InstagramPurple, modifier = Modifier.size(18.dp)); Platform.TIKTOK -> Icon(PlatformIcons.TiktokLogo, null, tint = TiktokPink, modifier = Modifier.size(18.dp)); else -> Spacer(Modifier.size(18.dp)) } }

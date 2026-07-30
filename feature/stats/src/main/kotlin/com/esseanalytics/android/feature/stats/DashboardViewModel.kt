@@ -2,7 +2,9 @@ package com.esseanalytics.android.feature.stats
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.model.Platform
+import com.esseanalytics.android.core.model.WorkflowMode
 import com.esseanalytics.android.core.network.SyncRepository
 import com.esseanalytics.android.core.network.dto.CalendarConfigDto
 import com.esseanalytics.android.core.network.dto.GroupStatsItemDto
@@ -14,6 +16,7 @@ import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 
 data class DashboardData(
@@ -26,6 +29,11 @@ data class DashboardData(
     // mostraba la tarjeta con todo en 0 / "Pendiente de datos" aunque el
     // video sí tuviera métricas reales en al menos una red.
     val fallbackItem: GroupStatsItemDto? = null,
+    // Plataforma real de la última subida, solo cuando el modo es AVANZADO --
+    // mirror de focusPlatform en DashboardView.tsx (escritorio) y
+    // DashboardView.swift (iOS). En modo simple queda null: ahí publicar
+    // cross-postea a las 3 juntas, así que sumar sus métricas tiene sentido.
+    val focusPlatform: Platform? = null,
 )
 
 sealed interface DashboardUiState {
@@ -37,6 +45,7 @@ sealed interface DashboardUiState {
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
     private val syncRepository: SyncRepository,
+    private val settingsStore: SettingsStore,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<DashboardUiState>(DashboardUiState.Loading)
     val uiState: StateFlow<DashboardUiState> = _uiState.asStateFlow()
@@ -50,16 +59,18 @@ class DashboardViewModel @Inject constructor(
                 val stats = async { runCatching { syncRepository.getGroupStats(limit = 5) } }
                 val calendar = async { runCatching { syncRepository.getCalendarConfig() } }
                 val history = async { runCatching { syncRepository.getHistory(limit = 1, force = true) } }
-                Triple(stats.await(), calendar.await(), history.await())
+                val workflowMode = async { runCatching { settingsStore.workflowMode.first() } }
+                Triple(stats.await(), calendar.await(), history.await()) to workflowMode.await()
             }
-            val stats = result.first
+            val (triple, workflowModeResult) = result
+            val stats = triple.first
             if (stats.isFailure) {
                 _uiState.value = DashboardUiState.Error(
                     stats.exceptionOrNull()?.message ?: "No se pudo cargar el dashboard.",
                 )
             } else {
                 val items = stats.getOrThrow().items
-                val latestHistory = result.third.getOrDefault(emptyList()).firstOrNull()
+                val latestHistory = triple.third.getOrDefault(emptyList()).firstOrNull()
                 val historyPlatform = latestHistory?.platform?.let { Platform.fromApiValue(it) }
                 val alreadyMatched = latestHistory == null || items.any { entry ->
                     entry.fileName == latestHistory.fileName ||
@@ -70,12 +81,14 @@ class DashboardViewModel @Inject constructor(
                         runCatching { syncRepository.getFileStats(fileName = fileName) }.getOrNull()
                     }
                 } else null
+                val isSimpleFlow = workflowModeResult.getOrDefault(WorkflowMode.SIMPLE) == WorkflowMode.SIMPLE
                 _uiState.value = DashboardUiState.Success(
                     DashboardData(
                         items = items,
-                        calendar = result.second.getOrDefault(emptyList()),
+                        calendar = triple.second.getOrDefault(emptyList()),
                         latestHistory = latestHistory,
                         fallbackItem = fallbackItem,
+                        focusPlatform = if (isSimpleFlow) null else historyPlatform,
                     ),
                 )
             }
