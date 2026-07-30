@@ -69,7 +69,15 @@ class TiktokUploader @Inject constructor(
             // vacío, igual que Instagram cuando no hay permalink; la
             // resolución real de link pasa por el Sync/cross-match que ya
             // existe en desktop.
-            UploadResult.Success(platformId = init.publishId, platformUrl = "")
+            //
+            // init.publishId es solo el id de la operación de publicar -- NO
+            // sirve para pedir stats después ni para armar el link real. El id
+            // real (si TikTok lo expone) viene en publicaly_available_post_id
+            // dentro del último status/fetch (typo de TikTok: "publicaly", no
+            // "publicly"). Sin él (privacidad SELF_ONLY, por ejemplo) se cae a
+            // publishId como antes.
+            val realVideoId = finalStatus.publiclyAvailablePostId?.firstOrNull()?.toString()
+            UploadResult.Success(platformId = realVideoId ?: init.publishId, platformUrl = "")
         } catch (e: IOException) {
             UploadResult.Failure(e.message ?: "Error de red al subir a TikTok.", retryable = true)
         } catch (e: Exception) {
@@ -213,4 +221,5 @@ private data class TiktokStatusResponse(val data: TiktokStatusData? = null)
 private data class TiktokStatusData(
     val status: String? = null,
     @SerialName("fail_reason") val failReason: String? = null,
+    @SerialName("publicaly_available_post_id") val publiclyAvailablePostId: List<Long>? = null,
 )
