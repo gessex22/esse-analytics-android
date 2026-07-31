@@ -70,6 +70,11 @@ data class NextVideoDto(
     val fileId: String,
     val title: String,
     val duration: String,
+    // Para la miniatura cuando el archivo no vive en ESTE dispositivo (ej. se
+    // grabó en la PC) -- ver getCalendarConfig en sync.controller.ts, mismo
+    // cruce por fileName contra Biblioteca remota que ya usa Estadísticas.
+    val remoteLibraryVideoId: String? = null,
+    val thumbnailStoredFileName: String? = null,
 )
 
 // Mismos DTOs que ya consume frontend/src/components/SyncPanel.tsx --

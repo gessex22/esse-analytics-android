@@ -2,13 +2,19 @@ package com.esseanalytics.android.feature.calendar
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.esseanalytics.android.core.database.FileRepository
+import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.network.SyncRepository
+import com.esseanalytics.android.core.network.di.CentralRetrofit
 import com.esseanalytics.android.core.network.dto.CalendarConfigDto
+import com.esseanalytics.android.core.network.dto.NextVideoDto
+import com.esseanalytics.android.core.network.util.remoteLibraryThumbnailUrl
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import retrofit2.Retrofit
 import java.time.LocalDate
 import javax.inject.Inject
 
@@ -23,6 +29,14 @@ data class CalendarSlot(
     // PublishingQueue.tsx en desktop). null si todavía no hay una fecha base
     // (plataforma sin nada publicado todavía, la central manda "").
     val nextDate: LocalDate?,
+    // El "próximo" puede vivir en ESTE dispositivo (se grabó/importó acá) o
+    // solo en el de otra persona/PC -- local primero (más barato, ya en
+    // disco), Biblioteca remota como respaldo. Mismo criterio que
+    // thumbnailUrl() en StatsViewModel, pero con el paso local que ahí no
+    // existe (group-stats siempre trae videos ya publicados en las 3 redes,
+    // pero "próximo" es justo lo contrario: todavía sin publicar).
+    val localThumbnailPath: String? = null,
+    val remoteThumbnailUrl: String? = null,
 )
 
 sealed interface CalendarUiState {
@@ -38,6 +52,9 @@ sealed interface CalendarUiState {
 @HiltViewModel
 class CalendarViewModel @Inject constructor(
     private val syncRepository: SyncRepository,
+    private val fileRepository: FileRepository,
+    private val tokenStore: TokenStore,
+    @CentralRetrofit private val retrofit: Retrofit,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<CalendarUiState>(CalendarUiState.Loading)
@@ -64,19 +81,31 @@ class CalendarViewModel @Inject constructor(
     // nextVideoId es un ObjectId de Mongo o un título (nunca un id de Room) --
     // la central ya lo resuelve contra FileModel y lo manda listo en
     // nextVideo.title (ver CalendarConfigDto), no hace falta re-resolverlo acá.
-    private fun CalendarConfigDto.toSlot(): CalendarSlot = CalendarSlot(
-        platform = platform,
-        lastPublishedTitle = lastPublishedTitle,
-        lastPublishedDate = lastPublishedDate,
-        intervalDays = intervalDays,
-        nextFileName = nextVideo?.title,
-        // lastPublishedDate llega en "yyyy-MM-dd" (ver
-        // local-backend/backend: new Date().toISOString().slice(0, 10)) o ""
-        // si la plataforma todavía no tiene nada publicado -- ahí no hay
-        // fecha base de la que calcular la próxima.
-        nextDate = lastPublishedDate.takeIf { it.isNotBlank() }
-            ?.runCatching { LocalDate.parse(this) }
-            ?.getOrNull()
-            ?.plusDays(intervalDays.toLong()),
-    )
+    private suspend fun CalendarConfigDto.toSlot(): CalendarSlot {
+        val next = nextVideo
+        val localPath = next?.let { fileRepository.findByName(it.title)?.thumbnailPath }
+        val remoteUrl = if (localPath == null) next?.let(::resolveRemoteThumbnailUrl) else null
+        return CalendarSlot(
+            platform = platform,
+            lastPublishedTitle = lastPublishedTitle,
+            lastPublishedDate = lastPublishedDate,
+            intervalDays = intervalDays,
+            nextFileName = next?.title,
+            localThumbnailPath = localPath,
+            remoteThumbnailUrl = remoteUrl,
+            // lastPublishedDate llega en "yyyy-MM-dd" (ver
+            // local-backend/backend: new Date().toISOString().slice(0, 10)) o ""
+            // si la plataforma todavía no tiene nada publicado -- ahí no hay
+            // fecha base de la que calcular la próxima.
+            nextDate = lastPublishedDate.takeIf { it.isNotBlank() }
+                ?.runCatching { LocalDate.parse(this) }
+                ?.getOrNull()
+                ?.plusDays(intervalDays.toLong()),
+        )
+    }
+
+    private fun resolveRemoteThumbnailUrl(next: NextVideoDto): String? {
+        val videoId = next.remoteLibraryVideoId ?: return null
+        return remoteLibraryThumbnailUrl(retrofit.baseUrl(), videoId, next.thumbnailStoredFileName, tokenStore.token)
+    }
 }
