@@ -78,7 +78,7 @@ fun DashboardScreen(
                     ?: historyPlatform?.let { platform -> current.data.items.firstOrNull { it.platforms[platform.apiValue]?.platformId == history.platformId } }
                     ?: current.data.fallbackItem
                     ?: if (history == null) current.data.items.firstOrNull() else null
-                LatestVideoCard(history, statsItem, current.data.focusPlatform)
+                LatestVideoCard(history, statsItem, current.data.focusPlatform, statsItem?.let(viewModel::thumbnailUrl))
             }
             item { PlatformPodium(current.data.items) }
             item { UpcomingCard(current.data.calendar) }
@@ -91,7 +91,7 @@ fun DashboardScreen(
 // y DashboardView.swift (iOS). En modo simple queda null y se comporta
 // como antes (suma las 3, ninguna atenuada).
 @Composable
-private fun LatestVideoCard(history: UploadHistoryItemDto?, item: GroupStatsItemDto?, focusPlatform: Platform?) {
+private fun LatestVideoCard(history: UploadHistoryItemDto?, item: GroupStatsItemDto?, focusPlatform: Platform?, remoteThumbnailUrl: String?) {
     DashboardCard {
         DashboardHeader(
             "Último video publicado",
@@ -102,7 +102,7 @@ private fun LatestVideoCard(history: UploadHistoryItemDto?, item: GroupStatsItem
             DashboardMessage("Todavía no hay videos publicados", "Cuando se sincronicen tus publicaciones aparecerán aquí.")
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                val thumbnail = remember(item) { item?.let { dashboardPlatforms.firstNotNullOfOrNull { platform -> it.platforms[platform.apiValue]?.thumbnail } } }
+                val thumbnail = remember(item, remoteThumbnailUrl) { remoteThumbnailUrl ?: item?.let { dashboardPlatforms.firstNotNullOfOrNull { platform -> it.platforms[platform.apiValue]?.thumbnail } } }
                 if (thumbnail.isNullOrBlank()) {
                     Box(Modifier.size(86.dp, 116.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
                         Icon(Icons.Outlined.VideoLibrary, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)

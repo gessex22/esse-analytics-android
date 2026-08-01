@@ -3,9 +3,12 @@ package com.esseanalytics.android.feature.stats
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.esseanalytics.android.core.datastore.SettingsStore
+import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.WorkflowMode
 import com.esseanalytics.android.core.network.SyncRepository
+import com.esseanalytics.android.core.network.di.CentralRetrofit
+import com.esseanalytics.android.core.network.util.remoteLibraryThumbnailUrl
 import com.esseanalytics.android.core.network.dto.CalendarConfigDto
 import com.esseanalytics.android.core.network.dto.GroupStatsItemDto
 import com.esseanalytics.android.core.network.dto.UploadHistoryItemDto
@@ -18,6 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
+import retrofit2.Retrofit
 
 data class DashboardData(
     val items: List<GroupStatsItemDto>,
@@ -46,9 +50,16 @@ sealed interface DashboardUiState {
 class DashboardViewModel @Inject constructor(
     private val syncRepository: SyncRepository,
     private val settingsStore: SettingsStore,
+    private val tokenStore: TokenStore,
+    @CentralRetrofit private val retrofit: Retrofit,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<DashboardUiState>(DashboardUiState.Loading)
     val uiState: StateFlow<DashboardUiState> = _uiState.asStateFlow()
+
+    fun thumbnailUrl(item: GroupStatsItemDto): String? {
+        val videoId = item.remoteLibraryVideoId ?: return null
+        return remoteLibraryThumbnailUrl(retrofit.baseUrl(), videoId, item.thumbnailStoredFileName, tokenStore.token)
+    }
 
     init { refresh() }
 
