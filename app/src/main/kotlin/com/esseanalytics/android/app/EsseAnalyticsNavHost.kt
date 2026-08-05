@@ -281,7 +281,22 @@ private fun MainAppScaffold(
                 arguments = listOf(navArgument("fileId") { type = NavType.LongType; defaultValue = -1L }),
             ) { backStackEntry ->
                 val fileId = backStackEntry.arguments?.getLong("fileId")?.takeIf { it >= 0 }
-                UploadScreen(initialFileId = fileId)
+                UploadScreen(
+                    initialFileId = fileId,
+                    // Éxito total (Fase 2 del plan de estabilidad/UX): redirige
+                    // a Inicio. inclusive = true (no saveState/restoreState,
+                    // a diferencia del tap normal del bottom nav) a propósito --
+                    // fuerza una instancia nueva de DashboardViewModel para que
+                    // su init { refresh() } corra de nuevo y muestre la
+                    // publicación recién hecha. Biblioteca no necesita esto:
+                    // observa Room de forma reactiva (ver FileRepository.observeAll).
+                    onPublishedAllSuccess = {
+                        navController.navigate(Routes.DASHBOARD) {
+                            popUpTo(Routes.DASHBOARD) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    },
+                )
             }
             composable(Routes.MORE) { MoreScreen(navController, isOwner, canUseCloudStorage) }
             composable(Routes.INGEST) {
