@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CloudQueue
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Dashboard
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Diamond
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Notifications
@@ -78,6 +79,7 @@ import com.esseanalytics.android.feature.gems.GemsScreen
 import com.esseanalytics.android.feature.ingest.IngestScreen
 import com.esseanalytics.android.feature.library.LibraryScreen
 import com.esseanalytics.android.feature.stats.DashboardScreen
+import com.esseanalytics.android.feature.stats.HistoryScreen
 import com.esseanalytics.android.feature.remotelibrary.RemoteLibraryScreen
 import com.esseanalytics.android.feature.settings.SettingsScreen
 import com.esseanalytics.android.feature.stats.StatsScreen
@@ -98,6 +100,7 @@ private object Routes {
     const val INGEST = "ingest"
     const val SETTINGS = "settings"
     const val REMOTE_LIBRARY = "remote_library"
+    const val HISTORY = "history"
 }
 
 private data class BottomDestination(val route: String, val label: String, val icon: ImageVector)
@@ -313,6 +316,13 @@ private fun MainAppScaffold(
             composable(Routes.STATS) {
                 DetailScaffold("Estadísticas", onBack = navController::popBackStack) { StatsScreen() }
             }
+            // Sin saveState/restoreState a propósito -- entrar de nuevo a
+            // Historial crea una instancia nueva de HistoryViewModel (init
+            // vuelve a cargar), así que siempre se ve al día tras publicar,
+            // sin necesitar un trigger de refresh compartido como Dashboard.
+            composable(Routes.HISTORY) {
+                DetailScaffold("Historial", onBack = navController::popBackStack) { HistoryScreen() }
+            }
             composable(Routes.USERS) {
                 DetailScaffold("Usuarios", onBack = navController::popBackStack) { UsersScreen() }
             }
@@ -476,6 +486,13 @@ private fun MoreScreen(navController: NavHostController, isOwner: Boolean, canUs
                     label = "Estadísticas",
                     description = "Vistas, likes y comentarios por red",
                     onClick = { navController.navigate(Routes.STATS) },
+                )
+                HorizontalDivider()
+                MoreItem(
+                    icon = Icons.Outlined.History,
+                    label = "Historial",
+                    description = "Todas las subidas confirmadas, con filtro por plataforma",
+                    onClick = { navController.navigate(Routes.HISTORY) },
                 )
                 if (isOwner) {
                     HorizontalDivider()

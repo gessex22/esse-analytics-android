@@ -42,7 +42,11 @@ interface SyncApi {
     ): GroupStatsItemDto
 
     @GET("api/sync/history")
-    suspend fun getHistory(@Query("limit") limit: Int = 30, @Query("offset") offset: Int = 0): UploadHistoryResponse
+    suspend fun getHistory(
+        @Query("limit") limit: Int = 30,
+        @Query("offset") offset: Int = 0,
+        @Query("platform") platform: String? = null,
+    ): UploadHistoryResponse
 
     @GET("api/sync/stats")
     suspend fun getSyncStats(): SyncStatsDto

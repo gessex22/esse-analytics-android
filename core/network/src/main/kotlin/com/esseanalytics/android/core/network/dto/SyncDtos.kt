@@ -44,6 +44,9 @@ data class UploadHistoryItemDto(
     val matchStatus: String = "manual",
     val deviceId: String? = null,
     val source: String? = null,
+    // Solo presente si el evento vino de un lote de Fase 2 (PublishBatchState)
+    // -- eventos viejos/de otros callers lo traen null.
+    val operationId: String? = null,
 )
 
 @Serializable
