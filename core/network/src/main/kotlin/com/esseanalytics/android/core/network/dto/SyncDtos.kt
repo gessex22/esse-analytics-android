@@ -191,6 +191,10 @@ data class RecordPublishRequest(
     val remoteLibraryVideoId: String? = null,
     val title: String? = null,
     val publishedAt: String? = null,
+    // UUID del lote que generó esta publicación (ver PublishBatchState, Fase 2)
+    // -- opcional, solo para correlacionar eventos más adelante (Fase 5,
+    // auditoría central). No participa en la idempotencia del servidor.
+    val operationId: String? = null,
 )
 
 @Serializable

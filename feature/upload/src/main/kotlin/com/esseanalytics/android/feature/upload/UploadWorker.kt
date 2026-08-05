@@ -52,6 +52,7 @@ class UploadWorker @AssistedInject constructor(
         val fileId = inputData.getLong(KEY_FILE_ID, -1L)
         val platform = inputData.getString(KEY_PLATFORM)?.let { Platform.fromApiValue(it) }
         val title = inputData.getString(KEY_TITLE)
+        val operationId = inputData.getString(KEY_OPERATION_ID)
 
         if (fileId < 0 || platform == null || title.isNullOrBlank()) {
             return Result.failure(workDataOf(KEY_ERROR to "Datos de subida incompletos."))
@@ -93,7 +94,7 @@ class UploadWorker @AssistedInject constructor(
                         title = title,
                     )
                     fileRepository.onPlatformPublished(fileId, platform, settingsStore.workflowMode.first())
-                    reportPublish(platform, result.platformId, result.platformUrl, videoFile.fileName, title, videoFile.remoteLibraryVideoId)
+                    reportPublish(platform, result.platformId, result.platformUrl, videoFile.fileName, title, videoFile.remoteLibraryVideoId, operationId)
                     videoFile.remoteLibraryVideoId?.let { remoteId ->
                         runCatching {
                             remoteLibraryApi.updatePlatforms(
@@ -124,7 +125,7 @@ class UploadWorker @AssistedInject constructor(
                                 title = title,
                             )
                             fileRepository.addPlatform(fileId, Platform.FACEBOOK)
-                            reportPublish(Platform.FACEBOOK, fb.videoId, fb.url, videoFile.fileName, title, videoFile.remoteLibraryVideoId)
+                            reportPublish(Platform.FACEBOOK, fb.videoId, fb.url, videoFile.fileName, title, videoFile.remoteLibraryVideoId, operationId)
                             workDataOf(KEY_FACEBOOK_URL to fb.url)
                         }
                         is FacebookCrossPostResult.Failed -> workDataOf(KEY_FACEBOOK_ERROR to fb.message)
@@ -157,7 +158,7 @@ class UploadWorker @AssistedInject constructor(
     // Calendario (getCalendarConfig) nunca avanzaba "próximo a publicar" para
     // lo subido desde Android -- solo el escritorio lo actualizaba. Best-effort:
     // si falla, la subida real ya se completó y ya quedó registrada en Room.
-    private suspend fun reportPublish(platform: Platform, platformId: String, platformUrl: String, fileName: String, title: String, remoteId: String?) {
+    private suspend fun reportPublish(platform: Platform, platformId: String, platformUrl: String, fileName: String, title: String, remoteId: String?, operationId: String?) {
         repeat(3) { attempt ->
             val sent = runCatching {
                 syncApi.recordPublish(
@@ -169,6 +170,7 @@ class UploadWorker @AssistedInject constructor(
                         remoteLibraryVideoId = remoteId,
                         title = title,
                         publishedAt = Instant.now().toString(),
+                        operationId = operationId,
                     ),
                 )
             }.isSuccess
