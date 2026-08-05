@@ -13,7 +13,14 @@ import java.io.RandomAccessFile
 import java.io.File
 
 sealed class TUSException(message: String) : Exception(message) {
-    class CreateFailed(status: Int) : TUSException("No se pudo iniciar la subida ($status).")
+    // `detail` es el body de la respuesta de creación -- la central (ver
+    // remote-library-storage.service.ts, tusError()) manda ahí un mensaje
+    // legible (ej. "Alcanzaste el límite de 5 videos en la nube...") cuando
+    // rechaza la subida a propósito, no solo un código. Sin esto, cualquier
+    // rechazo intencional del server (cupo lleno, auth) se veía en la UI como
+    // el genérico "No se pudo iniciar la subida (403)." sin explicar por qué.
+    class CreateFailed(status: Int, detail: String? = null) :
+        TUSException(detail?.takeIf { it.isNotBlank() } ?: "No se pudo iniciar la subida ($status).")
     object MissingLocation : TUSException("El servidor no devolvió la URL de subida.")
     class ChunkFailed(status: Int) : TUSException("Falló el envío de un fragmento del video (código $status).")
     class ChunkNetworkError(detail: String) : TUSException("Falló el envío de un fragmento del video: $detail")
@@ -51,7 +58,7 @@ object TUSUploadClient {
             .build()
 
         val uploadUrl = okHttpClient.newCall(createRequest).execute().use { response ->
-            if (response.code != 201) throw TUSException.CreateFailed(response.code)
+            if (response.code != 201) throw TUSException.CreateFailed(response.code, response.body?.string())
             response.header("Location") ?: throw TUSException.MissingLocation
         }
 

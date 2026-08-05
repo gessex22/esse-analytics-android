@@ -32,8 +32,16 @@ data class RemoteLibraryVideoDto(
     val thumbnailStoredFileName: String? = null,
 )
 
+// total/hasMore existían del lado del backend (listRemoteLibraryVideos) desde
+// siempre pero no estaban modelados acá -- total es justo lo que hace falta
+// para mostrar "X/5" contra MAX_REMOTE_LIBRARY_VIDEOS (ver RemoteLibraryViewModel),
+// sin tener que traer TODA la lista (limit=100) solo para contarla.
 @Serializable
-data class RemoteLibraryListResponse(val videos: List<RemoteLibraryVideoDto>)
+data class RemoteLibraryListResponse(
+    val videos: List<RemoteLibraryVideoDto>,
+    val total: Int = 0,
+    val hasMore: Boolean = false,
+)
 
 @Serializable
 data class RemoteLibraryUploadResponse(val ok: Boolean, val video: RemoteLibraryVideoDto)

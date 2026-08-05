@@ -49,6 +49,11 @@ sealed interface RemoteLibraryUiState {
     data class Error(val message: String) : RemoteLibraryUiState
 }
 
+// Mismo tope que MAX_REMOTE_LIBRARY_VIDEOS en remote-library-quota.service.ts
+// (central) -- la fuente de verdad real es el rechazo del server, esto es
+// solo para no dejar ni intentar la subida desde acá.
+const val MAX_REMOTE_LIBRARY_VIDEOS = 5
+
 @HiltViewModel
 class RemoteLibraryViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -80,13 +85,22 @@ class RemoteLibraryViewModel @Inject constructor(
     private val _uploading = MutableStateFlow(false)
     val uploading: StateFlow<Boolean> = _uploading.asStateFlow()
 
+    // Total real de videos CON bytes en Nube (lo que ya cuenta el backend en
+    // modo normal, ver listRemoteLibraryVideos) -- no videos.size del state,
+    // que solo trae hasta 100 por página. Usado por RemoteLibraryScreen para
+    // el contador "X/5" y deshabilitar el botón de subir de una, sin esperar
+    // el rechazo del server (que sigue siendo la fuente de verdad real, ver
+    // ensureRemoteLibraryCapacity en la central).
+    private val _total = MutableStateFlow(0)
+    val total: StateFlow<Int> = _total.asStateFlow()
+
     init { refresh() }
 
     fun refresh() {
         viewModelScope.launch {
             _uiState.value = RemoteLibraryUiState.Loading
-            runCatching { api.listVideos(limit = 100, skip = 0).videos }
-                .onSuccess { _uiState.value = RemoteLibraryUiState.Loaded(it) }
+            runCatching { api.listVideos(limit = 100, skip = 0) }
+                .onSuccess { _uiState.value = RemoteLibraryUiState.Loaded(it.videos); _total.value = it.total }
                 .onFailure { _uiState.value = RemoteLibraryUiState.Error(it.message ?: "No se pudo cargar la cola remota.") }
         }
     }
@@ -97,6 +111,12 @@ class RemoteLibraryViewModel @Inject constructor(
     // después de esto (a diferencia de ImportUseCase, acá la "biblioteca" en
     // sí vive en la central, no en Room).
     fun uploadVideo(uri: Uri) {
+        if (_total.value >= MAX_REMOTE_LIBRARY_VIDEOS) {
+            _uiState.value = RemoteLibraryUiState.Error(
+                "Alcanzaste el límite de $MAX_REMOTE_LIBRARY_VIDEOS videos en la nube. Borrá alguno para subir uno nuevo.",
+            )
+            return
+        }
         viewModelScope.launch {
             _uploading.value = true
             runCatching { doUpload(uri) }
