@@ -46,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -80,6 +81,8 @@ fun RemoteLibraryScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val uploading by viewModel.uploading.collectAsState()
+    val total by viewModel.total.collectAsState()
+    val atCapacity = total >= MAX_REMOTE_LIBRARY_VIDEOS
     var selectedVideo by remember { mutableStateOf<RemoteLibraryVideoDto?>(null) }
     var detailVideo by remember { mutableStateOf<RemoteLibraryVideoDto?>(null) }
     var playingVideo by remember { mutableStateOf<RemoteLibraryVideoDto?>(null) }
@@ -127,13 +130,27 @@ fun RemoteLibraryScreen(
             )
         } else {
             Column(Modifier.fillMaxSize()) {
-                Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
-                    Text("Biblioteca remota", style = MaterialTheme.typography.titleLarge)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column {
+                        Text("Biblioteca remota", style = MaterialTheme.typography.titleLarge)
+                        Text(
+                            "Cola de videos en la central, publicable desde cualquier dispositivo.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                    // "X/5" -- mismo tope que la central (ver
+                    // remote-library-quota.service.ts), ámbar cuando se llega
+                    // al límite para que el FAB atenuado de abajo tenga
+                    // explicación a simple vista.
                     Text(
-                        "Cola de videos en la central, publicable desde cualquier dispositivo.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 4.dp),
+                        "$total/$MAX_REMOTE_LIBRARY_VIDEOS",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (atCapacity) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
 
@@ -179,10 +196,16 @@ fun RemoteLibraryScreen(
             }
 
             FloatingActionButton(
-                onClick = { pickerLauncher.launch(arrayOf("video/*")) },
+                // FloatingActionButton no tiene parámetro `enabled` -- en el
+                // límite, el click no dispara el picker (nada que subir, el
+                // ViewModel lo rechazaría igual) y queda atenuado a modo de
+                // affordance visual, mismo criterio que el botón deshabilitado
+                // del frontend web.
+                onClick = { if (!atCapacity) pickerLauncher.launch(arrayOf("video/*")) },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(24.dp),
+                    .padding(24.dp)
+                    .alpha(if (atCapacity) 0.4f else 1f),
             ) {
                 if (uploading) {
                     CircularProgressIndicator(
