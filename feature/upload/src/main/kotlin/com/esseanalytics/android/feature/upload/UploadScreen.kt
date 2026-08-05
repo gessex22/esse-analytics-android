@@ -1,6 +1,8 @@
 package com.esseanalytics.android.feature.upload
 
 import android.graphics.Bitmap
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,8 +26,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.VideoLibrary
+import androidx.compose.material.icons.outlined.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -33,9 +40,11 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -79,6 +88,9 @@ import java.io.File
 fun UploadScreen(
     modifier: Modifier = Modifier,
     initialFileId: Long? = null,
+    // Se llama tras un éxito TOTAL (todas las plataformas elegidas
+    // publicadas) -- EsseAnalyticsNavHost lo usa para redirigir a Inicio.
+    onPublishedAllSuccess: () -> Unit = {},
     viewModel: UploadViewModel = hiltViewModel(),
 ) {
     val files by viewModel.files.collectAsState()
@@ -86,7 +98,10 @@ fun UploadScreen(
     val importingRemoteId by viewModel.importingRemoteId.collectAsState()
     val remoteImportError by viewModel.remoteImportError.collectAsState()
     val nextUploads by viewModel.nextUploads.collectAsState()
+    val activeBatch by viewModel.activeBatch.collectAsState()
+    val pendingBatchFileId by viewModel.pendingBatchFileId.collectAsState()
     var selectedFile by remember { mutableStateOf<VideoFile?>(null) }
+    var showSuccessDialog by remember { mutableStateOf(false) }
 
     // Best-effort: si el usuario no tiene el entitlement de Nube, la API
     // devuelve 403 y remoteVideos queda vacío -- la sección de Nube
@@ -106,14 +121,40 @@ fun UploadScreen(
     // no, el pendiente más nuevo (findAll ya ordena por fecha desc), que es
     // el caso común de "el próximo que falta subir". "Elegir otro video"
     // dentro del formulario es la única forma de volver a la lista completa.
-    LaunchedEffect(initialFileId, files) {
+    // pendingBatchFileId manda por encima de todo -- si quedó un lote sin
+    // resolver de una corrida anterior (proceso muerto a mitad de publicar,
+    // ver PendingBatchStore), mostrar ESE archivo es más útil que el
+    // pendiente más nuevo cualquiera.
+    LaunchedEffect(initialFileId, pendingBatchFileId, files) {
         if (selectedFile == null && !browsingList) {
-            selectedFile = if (initialFileId != null) {
-                files.find { it.id == initialFileId }
-            } else {
-                files.firstOrNull()
+            selectedFile = when {
+                pendingBatchFileId != null -> files.find { it.id == pendingBatchFileId }
+                initialFileId != null -> files.find { it.id == initialFileId }
+                else -> files.firstOrNull()
             }
         }
+    }
+
+    // Éxito total -- se muestra el modal, y al cerrarlo se limpia todo
+    // (soltar selectedFile para que la próxima entrada resuelva de nuevo el
+    // siguiente pendiente) y se redirige a Inicio. Biblioteca se refresca
+    // sola (Room es reactivo, ver FileRepository.observeAll); Dashboard lo
+    // refresca EsseAnalyticsNavHost al navegar (ver popUpTo inclusive ahí).
+    LaunchedEffect(activeBatch?.stage) {
+        if (activeBatch?.stage == BatchStage.COMPLETED) showSuccessDialog = true
+    }
+
+    if (showSuccessDialog) {
+        PublishSuccessDialog(
+            batch = activeBatch,
+            onDismiss = {
+                showSuccessDialog = false
+                viewModel.dismissBatch()
+                selectedFile = null
+                browsingList = false
+                onPublishedAllSuccess()
+            },
+        )
     }
 
     if (files.isEmpty() && remoteVideos.isEmpty()) {
@@ -186,9 +227,15 @@ fun UploadScreen(
                 modifier = Modifier.weight(1f),
             )
         } else {
+            // El lote activo solo aplica a ESTE archivo -- si el usuario
+            // volvió a la lista y eligió otro mientras algo publicaba en
+            // segundo plano (WorkManager sigue corriendo igual), la tarjeta
+            // no debe aparecer sobre un video que no tiene nada en curso.
+            val batchForCurrent = activeBatch?.takeIf { it.fileId == current.id }
             PublishForm(
                 file = current,
                 viewModel = viewModel,
+                activeBatch = batchForCurrent,
                 onBackToList = {
                     selectedFile = null
                     browsingList = true
@@ -196,6 +243,41 @@ fun UploadScreen(
             )
         }
     }
+}
+
+// Modal de éxito notorio -- antes un video 100% publicado (todas las
+// plataformas elegidas) solo dejaba un "Subido ✓" chico en cada fila. Este
+// diálogo tapa la pantalla un instante con un check grande y los links
+// reales de cada plataforma.
+@Composable
+private fun PublishSuccessDialog(batch: PublishBatchState?, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+        title = { Text("¡Publicado!") },
+        text = {
+            Column {
+                batch?.platforms.orEmpty().forEach { state ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(state.platform.displayName, modifier = Modifier.weight(1f))
+                        Text(
+                            "Publicado",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Listo") }
+        },
+    )
 }
 
 // Tira horizontal aparte (no mezclada en el LazyColumn de locales) -- son
@@ -384,7 +466,12 @@ private fun pendingPlatformsLabel(file: VideoFile): String =
         .joinToString(", ") { it.apiValue }
 
 @Composable
-private fun PublishForm(file: VideoFile, viewModel: UploadViewModel, onBackToList: () -> Unit) {
+private fun PublishForm(
+    file: VideoFile,
+    viewModel: UploadViewModel,
+    activeBatch: PublishBatchState?,
+    onBackToList: () -> Unit,
+) {
     var title by remember(file.id) { mutableStateOf(file.fileName.substringBeforeLast('.')) }
     var description by remember(file.id) { mutableStateOf("") }
     var selectedPlatforms by remember(file.id) {
@@ -394,6 +481,30 @@ private fun PublishForm(file: VideoFile, viewModel: UploadViewModel, onBackToLis
     }
     var thumbnailOffsetSec by remember(file.id) { mutableFloatStateOf(0f) }
     var crossPostFacebook by remember(file.id) { mutableStateOf(false) }
+    var showExitConfirmation by remember { mutableStateOf(false) }
+    val isPublishing = activeBatch?.isActive == true
+
+    // Mismo criterio que iOS (interactiveDismissDisabled + confirmationDialog):
+    // salir mientras hay un lote en curso pide confirmación, tanto por el
+    // botón "← Elegir otro video" (más abajo) como por el back del sistema.
+    BackHandler(enabled = isPublishing) { showExitConfirmation = true }
+
+    if (showExitConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showExitConfirmation = false },
+            icon = { Icon(Icons.Outlined.Warning, contentDescription = null) },
+            title = { Text("¿Salir mientras se publica?") },
+            text = { Text("La publicación sigue en curso. Si salís ahora, puede quedar interrumpida.") },
+            confirmButton = {
+                TextButton(onClick = { showExitConfirmation = false; onBackToList() }) {
+                    Text("Salir de todos modos")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExitConfirmation = false }) { Text("Seguir acá") }
+            },
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -408,14 +519,38 @@ private fun PublishForm(file: VideoFile, viewModel: UploadViewModel, onBackToLis
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier
                 .padding(top = 4.dp, bottom = 16.dp)
-                .clickable(onClick = onBackToList),
+                .clickable { if (isPublishing) showExitConfirmation = true else onBackToList() },
         )
+
+        AnimatedVisibility(visible = isPublishing) {
+            PublishingBatchCard(
+                batch = activeBatch,
+                onCancel = viewModel::cancelBatch,
+            )
+        }
+
+        if (activeBatch != null && !activeBatch.isActive && activeBatch.stage != BatchStage.COMPLETED) {
+            BatchResultSummary(
+                batch = activeBatch,
+                onRetryFailed = {
+                    viewModel.retryFailedInBatch(
+                        file,
+                        title,
+                        description,
+                        thumbnailOffsetMs = (thumbnailOffsetSec * 1000).toLong(),
+                        crossPostFacebook = crossPostFacebook && Platform.INSTAGRAM in selectedPlatforms,
+                    )
+                },
+                onDismiss = viewModel::dismissBatch,
+            )
+        }
 
         OutlinedTextField(
             value = title,
             onValueChange = { title = it },
             label = { Text("Título") },
             singleLine = true,
+            enabled = !isPublishing,
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
@@ -423,6 +558,7 @@ private fun PublishForm(file: VideoFile, viewModel: UploadViewModel, onBackToLis
             onValueChange = { description = it },
             label = { Text("Descripción") },
             minLines = 2,
+            enabled = !isPublishing,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 8.dp),
@@ -451,7 +587,7 @@ private fun PublishForm(file: VideoFile, viewModel: UploadViewModel, onBackToLis
                 platform = platform,
                 fileId = file.id,
                 checked = platform in selectedPlatforms,
-                enabled = !alreadyDone,
+                enabled = !alreadyDone && !isPublishing,
                 alreadyDone = alreadyDone,
                 onCheckedChange = { checked ->
                     selectedPlatforms = if (checked) selectedPlatforms + platform else selectedPlatforms - platform
@@ -466,7 +602,7 @@ private fun PublishForm(file: VideoFile, viewModel: UploadViewModel, onBackToLis
             if (platform == Platform.INSTAGRAM) {
                 FacebookCrossPostRow(
                     checked = crossPostFacebook,
-                    enabled = Platform.INSTAGRAM in selectedPlatforms,
+                    enabled = Platform.INSTAGRAM in selectedPlatforms && !isPublishing,
                     onCheckedChange = { crossPostFacebook = it },
                 )
             }
@@ -483,11 +619,169 @@ private fun PublishForm(file: VideoFile, viewModel: UploadViewModel, onBackToLis
                     crossPostFacebook = crossPostFacebook && Platform.INSTAGRAM in selectedPlatforms,
                 )
             },
-            enabled = selectedPlatforms.isNotEmpty() && title.isNotBlank(),
+            enabled = !isPublishing && selectedPlatforms.isNotEmpty() && title.isNotBlank(),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 24.dp),
-        ) { Text("Publicar") }
+        ) { Text(if (isPublishing) "Publicando…" else "Publicar") }
+    }
+}
+
+// Tarjeta persistente y visible durante toda la publicación -- reemplaza el
+// feedback chico anterior (un "Subido ✓"/progreso por fila nada más). Mismo
+// vocabulario que iOS: plataforma activa, progreso, aviso de "no cierres la
+// app", botón para cancelar lo que todavía no arrancó.
+@Composable
+private fun PublishingBatchCard(batch: PublishBatchState?, onCancel: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Publicando…", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            batch?.platforms.orEmpty().forEach { state ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(state.platform.displayName, modifier = Modifier.weight(1f))
+                    PlatformBatchStatusLabel(state)
+                }
+                val progress = state.progress
+                if (state.stage == PlatformPublishStage.UPLOADING && progress != null) {
+                    // `progress` capturado en un val local -- Float? no se
+                    // promueve solo a Float dentro del lambda de
+                    // LinearProgressIndicator (evaluado después, no smart-cast).
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Outlined.Warning,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.size(16.dp),
+                )
+                Text(
+                    "Mantené la app abierta hasta que termine. Si salís o la cerrás, la subida puede interrumpirse.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.padding(start = 6.dp),
+                )
+            }
+            OutlinedButton(
+                onClick = onCancel,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+            ) { Text("Cancelar publicación") }
+        }
+    }
+}
+
+@Composable
+private fun PlatformBatchStatusLabel(state: PlatformPublishState) {
+    when (state.stage) {
+        PlatformPublishStage.PENDING -> Text(
+            "En espera",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        PlatformPublishStage.UPLOADING -> Text(
+            "${((state.progress ?: 0f) * 100).toInt()}%",
+            style = MaterialTheme.typography.labelSmall,
+        )
+        PlatformPublishStage.SUCCESS -> Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Filled.CheckCircle,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(14.dp),
+            )
+            Text(
+                "Publicado",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 4.dp),
+            )
+        }
+        PlatformPublishStage.FAILED -> Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Filled.Error,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(14.dp),
+            )
+            Text(
+                state.error ?: "Error",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 4.dp),
+            )
+        }
+        PlatformPublishStage.CANCELLED -> Text(
+            "Cancelado",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+// Resumen post-lote cuando NO fue éxito total -- éxito total lo maneja
+// PublishSuccessDialog (modal notorio en vez de esto). Acá se cubre falla
+// total y parcial: qué salió, qué no, y reintentar solo lo que falta.
+@Composable
+private fun BatchResultSummary(batch: PublishBatchState, onRetryFailed: () -> Unit, onDismiss: () -> Unit) {
+    val hasRetriable = batch.platforms.any {
+        it.stage == PlatformPublishStage.FAILED || it.stage == PlatformPublishStage.CANCELLED
+    }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                if (batch.stage == BatchStage.PARTIAL_FAILURE) "Publicación parcial" else "No se pudo publicar",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            batch.platforms.forEach { state ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(state.platform.displayName, modifier = Modifier.weight(1f))
+                    PlatformBatchStatusLabel(state)
+                }
+            }
+            if (hasRetriable) {
+                Button(
+                    onClick = onRetryFailed,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                ) { Text("Reintentar fallidas") }
+            } else {
+                TextButton(onClick = onDismiss, modifier = Modifier.padding(top = 4.dp)) { Text("Descartar") }
+            }
+        }
     }
 }
 

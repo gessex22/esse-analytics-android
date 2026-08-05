@@ -12,6 +12,8 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.esseanalytics.android.core.database.FileRepository
+import com.esseanalytics.android.core.datastore.PendingBatchStore
+import com.esseanalytics.android.core.datastore.PendingPublishBatch
 import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.media.AndroidFrameThumbnailGenerator
@@ -29,17 +31,20 @@ import com.esseanalytics.android.feature.ingest.ImportUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import retrofit2.Retrofit
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
@@ -48,6 +53,7 @@ class UploadViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val fileRepository: FileRepository,
     private val settingsStore: SettingsStore,
+    private val pendingBatchStore: PendingBatchStore,
     private val thumbnailGenerator: AndroidFrameThumbnailGenerator,
     private val remoteLibraryApi: RemoteLibraryApi,
     private val importUseCase: ImportUseCase,
@@ -95,6 +101,37 @@ class UploadViewModel @Inject constructor(
     private val _nextUploads = MutableStateFlow<Map<Platform, String>>(emptyMap())
     val nextUploads: StateFlow<Map<Platform, String>> = _nextUploads.asStateFlow()
 
+    // Lote de publicación en curso o recién terminado (Fase 2 del plan de
+    // estabilidad/UX) -- agregado a partir de los WorkInfo individuales de
+    // cada plataforma (observeWork), no un estado propio inventado: WorkManager
+    // sigue siendo la única fuente de verdad de qué pasó con cada subida.
+    private val _activeBatch = MutableStateFlow<PublishBatchState?>(null)
+    val activeBatch: StateFlow<PublishBatchState?> = _activeBatch.asStateFlow()
+    private var batchObserverJob: Job? = null
+
+    // Si había un lote en curso cuando el proceso murió, esto trae el fileId
+    // para que UploadScreen lo auto-seleccione en vez de arrancar en la lista
+    // -- sin esto la tarjeta persistente/el resumen de esta fase nunca se
+    // llegaban a mostrar tras reabrir la app a la fuerza.
+    private val _pendingBatchFileId = MutableStateFlow<Long?>(null)
+    val pendingBatchFileId: StateFlow<Long?> = _pendingBatchFileId.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            val pending = pendingBatchStore.currentValue() ?: return@launch
+            val file = fileRepository.findById(pending.fileId)
+            if (file == null) {
+                // El archivo ya no existe (se borró desde otro lado) -- no
+                // hay nada que reconstruir.
+                pendingBatchStore.clear()
+                return@launch
+            }
+            _pendingBatchFileId.value = pending.fileId
+            val platforms = pending.platforms.mapNotNull { Platform.fromApiValue(it) }
+            if (platforms.isNotEmpty()) startBatchObserver(pending.operationId, file, platforms)
+        }
+    }
+
     fun refreshNextUploads() {
         viewModelScope.launch {
             runCatching { withContext(Dispatchers.IO) { syncRepository.getCalendarConfig() } }
@@ -140,6 +177,7 @@ class UploadViewModel @Inject constructor(
         thumbnailOffsetMs: Long? = null,
         crossPostFacebook: Boolean = false,
     ) {
+        if (platforms.isEmpty()) return
         viewModelScope.launch {
             if (settingsStore.workflowMode.first() == WorkflowMode.SIMPLE) {
                 fileRepository.resolvePublicationSelection(file.id, platforms)
@@ -151,10 +189,12 @@ class UploadViewModel @Inject constructor(
                 thumbnailOffsetMs = thumbnailOffsetMs,
                 crossPostFacebook = crossPostFacebook,
             )
+            val operationId = UUID.randomUUID().toString()
+            val platformList = platforms.toList()
 
-            platforms.forEach { platform ->
+            platformList.forEach { platform ->
                 val request = OneTimeWorkRequestBuilder<UploadWorker>()
-                    .setInputData(UploadWorker.buildInputData(file.id, platform, metadata))
+                    .setInputData(UploadWorker.buildInputData(file.id, platform, metadata, operationId))
                     .setConstraints(Constraints.Builder().setRequiredNetworkType(networkType).build())
                     .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                     .build()
@@ -165,6 +205,80 @@ class UploadViewModel @Inject constructor(
                     request,
                 )
             }
+
+            pendingBatchStore.save(
+                PendingPublishBatch(
+                    operationId = operationId,
+                    fileId = file.id,
+                    fileDisplayName = file.fileName,
+                    platforms = platformList.map { it.apiValue },
+                ),
+            )
+            startBatchObserver(operationId, file, platformList)
+        }
+    }
+
+    // No hay forma de abortar de verdad un upload ya en curso en WorkManager
+    // sin dejarlo en un estado ambiguo del lado del servidor -- lo que sí se
+    // puede es cancelar las que todavía están ENQUEUED/BLOCKED (no
+    // arrancaron de verdad). La que está RUNNING sigue hasta que termine;
+    // su resultado real se respeta cuando llegue.
+    fun cancelBatch() {
+        val batch = _activeBatch.value ?: return
+        batch.platforms
+            .filter { it.stage == PlatformPublishStage.PENDING }
+            .forEach { workManager.cancelUniqueWork(uniqueWorkName(batch.fileId, it.platform)) }
+    }
+
+    fun dismissBatch() {
+        batchObserverJob?.cancel()
+        batchObserverJob = null
+        _activeBatch.value = null
+        _pendingBatchFileId.value = null
+        viewModelScope.launch { pendingBatchStore.clear() }
+    }
+
+    fun retryFailedInBatch(
+        file: VideoFile,
+        title: String,
+        description: String,
+        thumbnailOffsetMs: Long? = null,
+        crossPostFacebook: Boolean = false,
+    ) {
+        val batch = _activeBatch.value ?: return
+        val retriable = batch.platforms
+            .filter { it.stage == PlatformPublishStage.FAILED || it.stage == PlatformPublishStage.CANCELLED }
+            .map { it.platform }
+            .toSet()
+        if (retriable.isEmpty()) return
+        publish(file, retriable, title, description, thumbnailOffsetMs, crossPostFacebook)
+    }
+
+    private fun startBatchObserver(operationId: String, file: VideoFile, platforms: List<Platform>) {
+        batchObserverJob?.cancel()
+        batchObserverJob = viewModelScope.launch {
+            combine(platforms.map { platform -> observeWork(file.id, platform).map { platform to it } }) { pairs -> pairs.toList() }
+                .collect { pairs ->
+                    val states = pairs.map { (platform, info) ->
+                        PlatformPublishState(
+                            platform = platform,
+                            stage = info.toPlatformStage(),
+                            progress = info?.takeIf { it.state == WorkInfo.State.RUNNING }
+                                ?.progress?.getFloat(UploadWorker.KEY_PROGRESS, 0f),
+                            finalUrl = info?.takeIf { it.state == WorkInfo.State.SUCCEEDED }
+                                ?.outputData?.getString(UploadWorker.KEY_RESULT_URL),
+                            error = info?.takeIf { it.state == WorkInfo.State.FAILED }
+                                ?.outputData?.getString(UploadWorker.KEY_ERROR),
+                        )
+                    }
+                    val stage = deriveBatchStage(states)
+                    _activeBatch.value = PublishBatchState(operationId, file.id, file.fileName, stage, states)
+                    if (stage != BatchStage.PREPARING && stage != BatchStage.UPLOADING) {
+                        // Lote resuelto (total, parcial o fallido) -- ya no
+                        // hace falta reconstruirlo si el proceso muere ahora.
+                        pendingBatchStore.clear()
+                    }
+                }
         }
     }
 

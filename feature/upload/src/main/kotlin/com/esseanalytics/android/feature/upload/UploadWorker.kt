@@ -210,6 +210,11 @@ class UploadWorker @AssistedInject constructor(
         const val KEY_PRIVACY = "privacy"
         const val KEY_THUMBNAIL_OFFSET_MS = "thumbnailOffsetMs"
         const val KEY_CROSS_POST_FACEBOOK = "crossPostFacebook"
+        // Común a todos los workers de un mismo lote (ver UploadViewModel.publish) --
+        // no cambia nada de la subida en sí, solo viaja para poder correlacionar
+        // eventos más adelante (Fase 5, auditoría central: "operationId opcional
+        // para asociar múltiples eventos de una misma publicación").
+        const val KEY_OPERATION_ID = "operationId"
         const val KEY_PROGRESS = "progress"
         const val KEY_RESULT_URL = "resultUrl"
         const val KEY_FACEBOOK_URL = "facebookUrl"
@@ -217,7 +222,7 @@ class UploadWorker @AssistedInject constructor(
         const val KEY_ERROR = "error"
         private const val MAX_RETRIES = 3
 
-        fun buildInputData(fileId: Long, platform: Platform, metadata: UploadMetadata) = workDataOf(
+        fun buildInputData(fileId: Long, platform: Platform, metadata: UploadMetadata, operationId: String) = workDataOf(
             KEY_FILE_ID to fileId,
             KEY_PLATFORM to platform.apiValue,
             KEY_TITLE to metadata.title,
@@ -228,6 +233,7 @@ class UploadWorker @AssistedInject constructor(
             KEY_THUMBNAIL_OFFSET_MS to (metadata.thumbnailOffsetMs ?: -1L),
             // Solo importa cuando platform == INSTAGRAM, ver UploadMetadata.
             KEY_CROSS_POST_FACEBOOK to metadata.crossPostFacebook,
+            KEY_OPERATION_ID to operationId,
         )
     }
 }
