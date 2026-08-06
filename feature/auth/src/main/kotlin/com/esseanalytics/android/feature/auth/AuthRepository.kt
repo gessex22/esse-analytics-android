@@ -19,7 +19,14 @@ class AuthRepository @Inject constructor(
     private val settingsStore: SettingsStore,
 ) {
     suspend fun login(username: String, password: String): Result<User> = runCatching {
-        saveLogin(authApi.login(LoginRequest(username, password)))
+        val request = LoginRequest(
+            username = username,
+            password = password,
+            installationId = settingsStore.getOrCreateInstallId(),
+            deviceName = settingsStore.getOrCreateDeviceName(),
+            source = "android",
+        )
+        saveLogin(authApi.login(request))
     }
 
     suspend fun register(username: String, password: String, email: String? = null): Result<User> = runCatching {

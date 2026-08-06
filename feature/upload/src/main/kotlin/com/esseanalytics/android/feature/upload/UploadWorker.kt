@@ -159,6 +159,8 @@ class UploadWorker @AssistedInject constructor(
     // lo subido desde Android -- solo el escritorio lo actualizaba. Best-effort:
     // si falla, la subida real ya se completó y ya quedó registrada en Room.
     private suspend fun reportPublish(platform: Platform, platformId: String, platformUrl: String, fileName: String, title: String, remoteId: String?, operationId: String?) {
+        val deviceId = settingsStore.getOrCreateInstallId()
+        val deviceName = settingsStore.getOrCreateDeviceName()
         repeat(3) { attempt ->
             val sent = runCatching {
                 syncApi.recordPublish(
@@ -171,6 +173,8 @@ class UploadWorker @AssistedInject constructor(
                         title = title,
                         publishedAt = Instant.now().toString(),
                         operationId = operationId,
+                        deviceId = deviceId,
+                        deviceName = deviceName,
                     ),
                 )
             }.isSuccess

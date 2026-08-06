@@ -92,16 +92,22 @@ class SettingsViewModel @Inject constructor(
 
     fun disconnect(platform: Platform) {
         viewModelScope.launch {
-            runCatching { platformAuthApi.disconnect(platform.apiValue) }
+            val installationId = settingsStore.getOrCreateInstallId()
+            val deviceName = settingsStore.getOrCreateDeviceName()
+            runCatching {
+                platformAuthApi.disconnect(platform.apiValue, installationId, deviceName, source = "android")
+            }
             refreshConnections()
         }
     }
 
     suspend fun connectUrl(platform: Platform): String? = runCatching {
+        val installationId = settingsStore.getOrCreateInstallId()
+        val deviceName = settingsStore.getOrCreateDeviceName()
         when (platform) {
-            Platform.YOUTUBE -> platformAuthApi.youtubeAuthUrl().url
-            Platform.INSTAGRAM -> platformAuthApi.instagramAuthUrl().url
-            Platform.TIKTOK -> platformAuthApi.tiktokAuthUrl().url
+            Platform.YOUTUBE -> platformAuthApi.youtubeAuthUrl(installationId = installationId, deviceName = deviceName).url
+            Platform.INSTAGRAM -> platformAuthApi.instagramAuthUrl(installationId = installationId, deviceName = deviceName).url
+            Platform.TIKTOK -> platformAuthApi.tiktokAuthUrl(installationId = installationId, deviceName = deviceName).url
             else -> null
         }
     }.getOrNull()
