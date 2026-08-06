@@ -244,8 +244,13 @@ private fun HistoryRow(item: UploadHistoryItemDto) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        if (item.platformUrl != null) {
-            IconButton(onClick = { uriHandler.openUri(item.platformUrl) }) {
+        // item.platformUrl es un val de un DTO declarado en otro módulo
+        // (core:network) -- Kotlin no puede smart-cast String? -> String
+        // ahí (solo funciona con propiedades del mismo módulo), rompía
+        // compileDebugKotlin. Capturar en un val local sí smart-castea.
+        val platformUrl = item.platformUrl
+        if (platformUrl != null) {
+            IconButton(onClick = { uriHandler.openUri(platformUrl) }) {
                 Icon(Icons.Filled.OpenInNew, contentDescription = "Ver", tint = MaterialTheme.colorScheme.primary)
             }
         }
