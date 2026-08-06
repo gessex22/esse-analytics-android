@@ -38,6 +38,9 @@ data class SlotPickerState(
     val loading: Boolean = true,
     val loadingMore: Boolean = false,
     val resolvingId: String? = null,
+    // Fase 4 (plan de estabilidad): error de la carga inicial o de "Cargar
+    // más" -- distinto de "sin resultados" (items vacío + errorMessage null).
+    val errorMessage: String? = null,
 )
 
 sealed interface ReviewUiState {
@@ -123,23 +126,62 @@ class SyncViewModel @Inject constructor(
         loadSlotPage(cursor)
     }
 
+    // Fase 4 (plan de estabilidad): antes el catch se limitaba a apagar los
+    // flags de loading, tragándose cualquier fallo real (token vencido,
+    // error de la API de la plataforma) -- indistinguible de "no hay más
+    // resultados" para la UI. Mismo bug que se corrigió del lado del backend
+    // (sync.controller.ts/tiktok.service.ts/instagram.service.ts, que ahora
+    // tiran en vez de devolver página vacía) y del lado de iOS (misma
+    // función, mismo fix). Acá: error visible + retrySlotLoad() sin perder
+    // lo ya cargado, dedup al concatenar, y el chequeo de "sigue siendo el
+    // mismo slot" ahora compara fileId+platform (antes solo chequeaba
+    // no-nulo, así que una respuesta tardía de un slot YA CERRADO podía
+    // pisar el estado del slot que el usuario haya abierto después).
     private fun loadSlotPage(cursor: String?) {
         val target = _slotPicker.value ?: return
         viewModelScope.launch {
-            _slotPicker.value = target.copy(loading = cursor == null, loadingMore = cursor != null)
+            _slotPicker.value = target.copy(
+                loading = cursor == null,
+                loadingMore = cursor != null,
+                errorMessage = null,
+            )
             try {
                 val page = syncApi.getPlatformRecent(target.platform.apiValue, limit = 10, cursor = cursor)
-                val existing = _slotPicker.value ?: return@launch
+                val existing = _slotPicker.value
+                if (existing == null || existing.fileId != target.fileId || existing.platform != target.platform) return@launch
+                val newItems = if (cursor == null) {
+                    page.items
+                } else {
+                    val existingIds = existing.items.map { it.platformId }.toSet()
+                    existing.items + page.items.filter { it.platformId !in existingIds }
+                }
                 _slotPicker.value = existing.copy(
-                    items = if (cursor == null) page.items else existing.items + page.items,
+                    items = newItems,
                     cursor = page.nextCursor,
                     loading = false,
                     loadingMore = false,
                 )
             } catch (e: Exception) {
-                _slotPicker.value = _slotPicker.value?.copy(loading = false, loadingMore = false)
+                val existing = _slotPicker.value
+                if (existing == null || existing.fileId != target.fileId || existing.platform != target.platform) return@launch
+                // NO se tocan items/cursor -- lo ya cargado se conserva tal
+                // cual para que "Reintentar" no pierda el lugar.
+                _slotPicker.value = existing.copy(
+                    loading = false,
+                    loadingMore = false,
+                    errorMessage = e.message ?: "No se pudo cargar la página.",
+                )
             }
         }
+    }
+
+    // `cursor` solo se pisa en el branch de éxito de loadSlotPage -- si la
+    // llamada en curso falló, sigue apuntando a la misma página que se
+    // estaba por pedir, así reintentar repite exactamente esa página (la
+    // inicial si items todavía está vacío, la siguiente si no).
+    fun retrySlotLoad() {
+        val state = _slotPicker.value ?: return
+        if (state.items.isEmpty()) loadSlotPage(null) else loadSlotPage(state.cursor)
     }
 
     fun resolveSlot(item: PlatformRecentItemDto) {
