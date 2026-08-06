@@ -4,6 +4,15 @@ name: CI
 # a propósito (ver README) — por eso este workflow instala Gradle directo con
 # gradle/actions/setup-gradle en vez de invocar ./gradlew. Cuando el wrapper
 # jar exista en el repo, cambiar los pasos de "gradle ..." a "./gradlew ...".
+#
+# Fase 6 del plan de estabilidad (2026-08): Lint venía corriendo ANTES de
+# Assemble debug y sin continue-on-error -- confirmado en el historial de
+# runs (#69 a #73 y otros anteriores, ej. #19/#20) que Lint falla con
+# frecuencia y bloqueaba TODO lo que seguía, así que "Assemble debug" (la
+# única señal real de "¿compila?") nunca llegaba a correr en esos runs. Se
+# invierte el orden: compilar primero (bloqueante de verdad, es la señal que
+# importa), lint después con continue-on-error para que sus warnings sigan
+# siendo visibles (annotation + reporte) sin tapar si el código compila.
 
 on:
   push:
@@ -26,11 +35,12 @@ jobs:
         with:
           gradle-version: "8.11.1"
 
-      - name: Lint
-        run: gradle lint --stacktrace
-
       - name: Assemble debug
         run: gradle assembleDebug --stacktrace
+
+      - name: Lint
+        continue-on-error: true
+        run: gradle lint --stacktrace
 
       - name: Subir reporte de lint
         if: always()
