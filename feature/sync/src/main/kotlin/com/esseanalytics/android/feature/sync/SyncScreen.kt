@@ -95,6 +95,7 @@ fun SyncScreen(modifier: Modifier = Modifier, viewModel: SyncViewModel = hiltVie
                             onCloseSlot = viewModel::closeSlotPicker,
                             onUseSlot = viewModel::resolveSlot,
                             onLoadMoreSlots = viewModel::loadMoreSlots,
+                            onRetrySlot = viewModel::retrySlotLoad,
                         )
                     }
                     if (current.page < current.totalPages) {
@@ -236,6 +237,7 @@ private fun CandidateCard(
     onCloseSlot: () -> Unit,
     onUseSlot: (PlatformRecentItemDto) -> Unit,
     onLoadMoreSlots: () -> Unit,
+    onRetrySlot: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -278,7 +280,7 @@ private fun CandidateCard(
             }
 
             if (openSlot != null) {
-                SlotPickerPanel(openSlot, onClose = onCloseSlot, onUse = onUseSlot, onLoadMore = onLoadMoreSlots)
+                SlotPickerPanel(openSlot, onClose = onCloseSlot, onUse = onUseSlot, onLoadMore = onLoadMoreSlots, onRetry = onRetrySlot)
             }
         }
     }
@@ -315,6 +317,7 @@ private fun SlotPickerPanel(
     onClose: () -> Unit,
     onUse: (PlatformRecentItemDto) -> Unit,
     onLoadMore: () -> Unit,
+    onRetry: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -337,6 +340,10 @@ private fun SlotPickerPanel(
 
         if (state.loading) {
             LoadingRow()
+        } else if (state.errorMessage != null && state.items.isEmpty()) {
+            // Falló la carga inicial -- no hay nada previo que mostrar, a
+            // diferencia de un fallo de "Cargar más" (ver abajo).
+            RetryRow(state.errorMessage, onRetry)
         } else if (state.items.isEmpty()) {
             EmptyRow("Sin resultados", "No se encontraron videos recientes en esta plataforma.")
         } else {
@@ -353,10 +360,27 @@ private fun SlotPickerPanel(
                     }
                 }
             }
-            if (state.cursor != null) {
+            if (state.errorMessage != null) {
+                // Falló "Cargar más" -- lo ya cargado arriba se conserva,
+                // solo se ofrece reintentar la página siguiente.
+                RetryRow(state.errorMessage, onRetry)
+            } else if (state.cursor != null) {
                 LoadMoreButton(loading = state.loadingMore, onClick = onLoadMore)
             }
         }
+    }
+}
+
+@Composable
+private fun RetryRow(message: String, onRetry: () -> Unit) {
+    // loading/loadingMore se pisan a true en el mismo update que limpia
+    // errorMessage al empezar un reintento -- este composable nunca queda
+    // visible mientras la llamada está en vuelo (LoadingRow, o el "Cargando…"
+    // del botón normal, lo reemplazan antes), así que el botón acá no
+    // necesita su propio estado disabled/"cargando".
+    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+        Text(message, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+        TextButton(onClick = onRetry, contentPadding = PaddingValues(0.dp)) { Text("Reintentar") }
     }
 }
 
