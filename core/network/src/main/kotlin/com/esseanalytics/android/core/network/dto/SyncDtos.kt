@@ -198,6 +198,11 @@ data class RecordPublishRequest(
     // -- opcional, solo para correlacionar eventos más adelante (Fase 5,
     // auditoría central). No participa en la idempotencia del servidor.
     val operationId: String? = null,
+    // Identidad del dispositivo (Fase 5) -- alimenta UploadHistoryModel y el
+    // evento publish_confirmed de auditoría. Antes Android no mandaba nada
+    // acá tampoco (mismo hueco que tenía iOS).
+    val deviceId: String? = null,
+    val deviceName: String? = null,
 )
 
 @Serializable

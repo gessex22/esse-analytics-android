@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.esseanalytics.android.core.database.FileRepository
 import com.esseanalytics.android.core.database.PlatformVideoRepository
+import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
@@ -39,6 +40,7 @@ class VideoDetailViewModel @Inject constructor(
     private val platformVideoRepository: PlatformVideoRepository,
     private val remoteLibraryApi: RemoteLibraryApi,
     private val syncApi: SyncApi,
+    private val settingsStore: SettingsStore,
     @PlatformOkHttp private val platformOkHttpClient: OkHttpClient,
 ) : ViewModel() {
 
@@ -122,6 +124,8 @@ class VideoDetailViewModel @Inject constructor(
                             fileName = file.fileName,
                             remoteLibraryVideoId = file.remoteLibraryVideoId,
                             publishedAt = nowIso,
+                            deviceId = settingsStore.getOrCreateInstallId(),
+                            deviceName = settingsStore.getOrCreateDeviceName(),
                         ),
                     )
                 }.onFailure {

@@ -6,6 +6,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.ListenableWorker.Result
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
 import com.esseanalytics.android.core.network.api.SyncApi
@@ -36,6 +37,7 @@ class RemoteUploadWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val remoteLibraryApi: RemoteLibraryApi,
     private val syncApi: SyncApi,
+    private val settingsStore: SettingsStore,
     private val youtubeUploader: YoutubeUploader,
     private val instagramUploader: InstagramUploader,
     private val tiktokUploader: TiktokUploader,
@@ -96,6 +98,8 @@ class RemoteUploadWorker @AssistedInject constructor(
                                 remoteLibraryVideoId = videoId,
                                 title = title,
                                 publishedAt = Instant.now().toString(),
+                                deviceId = settingsStore.getOrCreateInstallId(),
+                                deviceName = settingsStore.getOrCreateDeviceName(),
                             ),
                         )
                     }

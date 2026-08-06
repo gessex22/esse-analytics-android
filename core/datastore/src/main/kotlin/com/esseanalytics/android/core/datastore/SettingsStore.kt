@@ -1,6 +1,7 @@
 package com.esseanalytics.android.core.datastore
 
 import android.content.Context
+import android.os.Build
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -69,12 +70,31 @@ class SettingsStore @Inject constructor(
     }
 
     // UUID persistido una sola vez — ≥16 chars, como pide POST /api/auth/link-install.
+    // Reusado también como installationId de auditoría central (Fase 5) -- no
+    // tiene sentido un segundo identificador de instalación en la misma app.
     suspend fun getOrCreateInstallId(): String {
         val existing = context.dataStore.data.map { it[KEY_INSTALL_ID] }.first()
         if (existing != null) return existing
         val generated = UUID.randomUUID().toString()
         context.dataStore.edit { it[KEY_INSTALL_ID] = generated }
         return generated
+    }
+
+    // Nombre de este dispositivo (Fase 5, auditoría central) -- a diferencia
+    // de iOS (que ya tiene un nombre elegido por el usuario en Ajustes del
+    // sistema, UIDevice.current.name) Android no tiene un equivalente
+    // accesible sin permisos extra, así que arranca en fabricante+modelo
+    // (mismo default que desktop usa el hostname) y queda editable.
+    suspend fun getOrCreateDeviceName(): String {
+        val existing = context.dataStore.data.map { it[KEY_DEVICE_NAME] }.first()
+        if (existing != null) return existing
+        val generated = "${Build.MANUFACTURER} ${Build.MODEL}".trim().ifBlank { "Este dispositivo" }
+        context.dataStore.edit { it[KEY_DEVICE_NAME] = generated }
+        return generated
+    }
+
+    suspend fun setDeviceName(value: String) {
+        context.dataStore.edit { it[KEY_DEVICE_NAME] = value.trim() }
     }
 
     private companion object {
@@ -84,5 +104,6 @@ class SettingsStore @Inject constructor(
         val KEY_INSTALL_ID = stringPreferencesKey("install_id")
         val KEY_DELETE_ORIGINAL = booleanPreferencesKey("delete_original_after_import")
         val KEY_COLOR_THEME = stringPreferencesKey("color_theme")
+        val KEY_DEVICE_NAME = stringPreferencesKey("device_name")
     }
 }
