@@ -205,6 +205,24 @@ data class RecordPublishRequest(
     val deviceName: String? = null,
 )
 
+// POST /api/sync/file-platforms -- sincroniza el estado COMPLETO de
+// publicado/descartado hacia la central. Antes solo RecordPublishRequest
+// (arriba) llegaba ahí; "descartar" era 100% local (Room), y solo
+// sincronizaba a RemoteLibraryVideoModel si el archivo pasaba por Biblioteca
+// remota (ver VideoDetailViewModel.syncToRemoteIfNeeded) -- si no, un video
+// descartado desde el celular nunca se enteraba en desktop (bug real
+// reportado 2026-08-06). Manda los arrays enteros (no un delta), mismo shape
+// que UpdateRemoteLibraryPlatformsRequest -- el caller ya los tiene
+// calculados tras el toggle.
+@Serializable
+data class UpdateFilePlatformsRequest(
+    val fileName: String,
+    val contentId: String? = null,
+    val remoteLibraryVideoId: String? = null,
+    val platforms: List<String>,
+    val platformsDiscarded: List<String>,
+)
+
 @Serializable
 data class TriggerSyncResponse(val ok: Boolean, val total: Int, val upserted: Int)
 
