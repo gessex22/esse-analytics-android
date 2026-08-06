@@ -8,6 +8,7 @@ import com.esseanalytics.android.core.network.dto.GroupStatsResponse
 import com.esseanalytics.android.core.network.dto.PlatformRecentPageDto
 import com.esseanalytics.android.core.network.dto.RecordPublishRequest
 import com.esseanalytics.android.core.network.dto.ResolveCrossMatchSlotRequest
+import com.esseanalytics.android.core.network.dto.UpdateFilePlatformsRequest
 import com.esseanalytics.android.core.network.dto.SyncReviewResponseDto
 import com.esseanalytics.android.core.network.dto.SyncStatsDto
 import com.esseanalytics.android.core.network.dto.TriggerSyncResponse
@@ -87,4 +88,9 @@ interface SyncApi {
     // Registro central puntual de una publicación -- ver RecordPublishRequest.
     @POST("api/sync/record-publish")
     suspend fun recordPublish(@Body body: RecordPublishRequest)
+
+    // Sincroniza el estado COMPLETO publicado/descartado de un archivo hacia
+    // la central -- ver UpdateFilePlatformsRequest.
+    @POST("api/sync/file-platforms")
+    suspend fun updateFilePlatforms(@Body body: UpdateFilePlatformsRequest)
 }

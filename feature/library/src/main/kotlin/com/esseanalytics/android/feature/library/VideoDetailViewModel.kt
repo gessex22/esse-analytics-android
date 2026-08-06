@@ -12,6 +12,7 @@ import com.esseanalytics.android.core.network.api.SyncApi
 import com.esseanalytics.android.core.network.di.PlatformOkHttp
 import com.esseanalytics.android.core.network.dto.RecordPublishRequest
 import com.esseanalytics.android.core.network.dto.RemoteLibraryPlatformLinkDto
+import com.esseanalytics.android.core.network.dto.UpdateFilePlatformsRequest
 import com.esseanalytics.android.core.network.dto.UpdateRemoteLibraryPlatformsRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -53,13 +54,38 @@ class VideoDetailViewModel @Inject constructor(
     suspend fun existingLink(fileId: Long, platform: Platform): String? =
         platformVideoRepository.findByLinkedFileAndPlatform(fileId, platform)?.platformUrl
 
-    // Ciclo pendiente -> publicado -> descartado -> pendiente. 100% local
-    // (Room) -- si el archivo está vinculado a Nube, se sincroniza best-effort
-    // de vuelta, sin bloquear el toggle si la red falla.
+    // Ciclo pendiente -> publicado -> descartado -> pendiente. Room primero
+    // (la UI nunca espera la red) -- en paralelo se sincroniza a la central
+    // (best-effort en los dos casos, ver los dos syncXIfNeeded de abajo).
     fun togglePlatform(file: VideoFile, platform: Platform) {
         viewModelScope.launch {
             fileRepository.cyclePlatformStatus(file.id, platform)
+            syncPlatformsToCentralIfNeeded(file.id, file.remoteLibraryVideoId)
             syncToRemoteIfNeeded(file.id, file.remoteLibraryVideoId)
+        }
+    }
+
+    // Antes SOLO "publicar" llegaba a la central (syncApi.recordPublish) --
+    // "descartar" era 100% local, sin ningún rastro fuera del teléfono, así
+    // que desktop nunca se enteraba y había que repetirlo a mano ahí (bug
+    // real reportado 2026-08-06). GET /api/backup/files en la central ya
+    // mergea este mismo dato sobre lo que sube el push de desktop (ver
+    // updateFilePlatforms en backup.controller.ts del backend), así que
+    // alcanza con mandarlo -- el próximo pull() de desktop ya sabe traerlo
+    // de vuelta sin ningún cambio ahí. Relee de Room en vez de confiar en el
+    // `file` del caller -- mismo motivo que syncToRemoteIfNeeded de abajo,
+    // el toggle ya escribió el estado nuevo antes de llegar acá.
+    private suspend fun syncPlatformsToCentralIfNeeded(fileId: Long, remoteLibraryVideoId: String?) {
+        val current = fileRepository.findById(fileId) ?: return
+        runCatching {
+            syncApi.updateFilePlatforms(
+                UpdateFilePlatformsRequest(
+                    fileName = current.fileName,
+                    remoteLibraryVideoId = remoteLibraryVideoId,
+                    platforms = current.platforms.map { it.apiValue },
+                    platformsDiscarded = current.platformsDiscarded.map { it.apiValue },
+                ),
+            )
         }
     }
 
