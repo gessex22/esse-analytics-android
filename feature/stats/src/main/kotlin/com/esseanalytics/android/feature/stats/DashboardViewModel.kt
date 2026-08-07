@@ -38,7 +38,11 @@ data class DashboardData(
     // DashboardView.swift (iOS). En modo simple queda null: ahí publicar
     // cross-postea a las 3 juntas, así que sumar sus métricas tiene sentido.
     val focusPlatform: Platform? = null,
+    val individualItems: List<GroupStatsItemDto> = emptyList(),
+    val podiumMode: DashboardPodiumMode = DashboardPodiumMode.COMBINED,
 )
+
+enum class DashboardPodiumMode { COMBINED, INDIVIDUAL }
 
 sealed interface DashboardUiState {
     data object Loading : DashboardUiState
@@ -65,15 +69,20 @@ class DashboardViewModel @Inject constructor(
 
     fun refresh() {
         viewModelScope.launch {
+            val podiumMode = (_uiState.value as? DashboardUiState.Success)?.data?.podiumMode ?: DashboardPodiumMode.COMBINED
             _uiState.value = DashboardUiState.Loading
             val result = supervisorScope {
                 val stats = async { runCatching { syncRepository.getGroupStats(limit = 5) } }
+                val individualStats = Platform.publishable.map { platform ->
+                    async { runCatching { syncRepository.getGroupStats(limit = 5, platform = platform.apiValue) } }
+                }
                 val calendar = async { runCatching { syncRepository.getCalendarConfig() } }
                 val history = async { runCatching { syncRepository.getHistory(limit = 1, force = true) } }
                 val workflowMode = async { runCatching { settingsStore.workflowMode.first() } }
-                Triple(stats.await(), calendar.await(), history.await()) to workflowMode.await()
+                Triple(stats.await(), calendar.await(), history.await()) to Pair(workflowMode.await(), individualStats.map { it.await() })
             }
-            val (triple, workflowModeResult) = result
+            val (triple, supplementary) = result
+            val (workflowModeResult, individualStats) = supplementary
             val stats = triple.first
             if (stats.isFailure) {
                 _uiState.value = DashboardUiState.Error(
@@ -100,9 +109,17 @@ class DashboardViewModel @Inject constructor(
                         latestHistory = latestHistory,
                         fallbackItem = fallbackItem,
                         focusPlatform = if (isSimpleFlow) null else historyPlatform,
+                        individualItems = individualStats.flatMap { it.getOrNull()?.items.orEmpty() },
+                        podiumMode = podiumMode,
                     ),
                 )
             }
         }
+    }
+
+    fun setPodiumMode(mode: DashboardPodiumMode) {
+        val current = _uiState.value as? DashboardUiState.Success ?: return
+        if (current.data.podiumMode == mode) return
+        _uiState.value = DashboardUiState.Success(current.data.copy(podiumMode = mode))
     }
 }

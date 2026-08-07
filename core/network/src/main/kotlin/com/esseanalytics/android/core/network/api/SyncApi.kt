@@ -30,7 +30,10 @@ interface SyncApi {
     suspend fun updateCalendarConfig(@Path("platform") platform: String, @Body body: Map<String, String>)
 
     @GET("api/sync/group-stats")
-    suspend fun getGroupStats(@Query("limit") limit: Int = 5): GroupStatsResponse
+    suspend fun getGroupStats(
+        @Query("limit") limit: Int = 5,
+        @Query("platform") platform: String? = null,
+    ): GroupStatsResponse
 
     // Stats en vivo de UN archivo puntual (por fileId de Mongo o por fileName),
     // sin exigir que esté cross-posteado a las 3 plataformas -- fallback del

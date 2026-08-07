@@ -24,6 +24,8 @@ import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -80,7 +82,7 @@ fun DashboardScreen(
                     ?: if (history == null) current.data.items.firstOrNull() else null
                 LatestVideoCard(history, statsItem, current.data.focusPlatform, statsItem?.let(viewModel::thumbnailUrl))
             }
-            item { PlatformPodium(current.data.items) }
+            item { PlatformPodium(current.data.items, current.data.individualItems, current.data.podiumMode, viewModel::setPodiumMode) }
             item { UpcomingCard(current.data.calendar) }
         }
     }
@@ -136,10 +138,20 @@ private fun LatestVideoCard(history: UploadHistoryItemDto?, item: GroupStatsItem
 }
 
 @Composable
-private fun PlatformPodium(items: List<GroupStatsItemDto>) {
+private fun PlatformPodium(
+    combinedItems: List<GroupStatsItemDto>,
+    individualItems: List<GroupStatsItemDto>,
+    mode: DashboardPodiumMode,
+    onModeChange: (DashboardPodiumMode) -> Unit,
+) {
+    val items = if (mode == DashboardPodiumMode.COMBINED) combinedItems else individualItems
     val ranking = remember(items) { dashboardPlatforms.map { platform -> platform to items.sumOf { it.platforms[platform.apiValue]?.views ?: 0 } }.sortedByDescending { it.second } }
     DashboardCard {
-        DashboardHeader("Plataforma líder", "Podio de vistas recientes", Icons.Outlined.QueryStats)
+        DashboardHeader("Plataforma líder", if (mode == DashboardPodiumMode.COMBINED) "Vistas de videos comparados" else "Vistas de los últimos videos por red", Icons.Outlined.QueryStats)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = mode == DashboardPodiumMode.COMBINED, onClick = { onModeChange(DashboardPodiumMode.COMBINED) }, label = { Text("Conjunto") }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.surfaceVariant))
+            FilterChip(selected = mode == DashboardPodiumMode.INDIVIDUAL, onClick = { onModeChange(DashboardPodiumMode.INDIVIDUAL) }, label = { Text("Individual") }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.surfaceVariant))
+        }
         if (ranking.none { it.second > 0 }) {
             Text("Pendiente de datos", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth())
         } else {

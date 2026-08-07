@@ -20,10 +20,12 @@ class SyncRepository @Inject constructor(
     private val api: SyncApi,
 ) {
     private val calendarMutex = Mutex()
-    private val statsMutex = Mutex()
+    private val statsMutexes = mutableMapOf<String?, Mutex>()
     private val historyMutex = Mutex()
     private var calendarCache: Timed<List<CalendarConfigDto>>? = null
-    private var statsCache: Timed<GroupStatsResponse>? = null
+    // Cada filtro devuelve un conjunto distinto; un único slot podía mostrar
+    // el resultado combinado al cambiar a una plataforma (o viceversa).
+    private val statsCache = mutableMapOf<String?, Timed<GroupStatsResponse>>()
     private var historyCache: Timed<List<UploadHistoryItemDto>>? = null
 
     suspend fun getCalendarConfig(force: Boolean = false): List<CalendarConfigDto> = calendarMutex.withLock {
@@ -32,10 +34,16 @@ class SyncRepository @Inject constructor(
         api.getCalendarConfig().also { calendarCache = Timed(it) }
     }
 
-    suspend fun getGroupStats(limit: Int = 5, force: Boolean = false): GroupStatsResponse = statsMutex.withLock {
-        val cached = statsCache
+    suspend fun getGroupStats(limit: Int = 5, platform: String? = null, force: Boolean = false): GroupStatsResponse = statsMutexFor(platform).withLock {
+        val cached = synchronized(statsCache) { statsCache[platform] }
         if (!force && cached != null && !cached.expired()) return@withLock cached.value
-        api.getGroupStats(limit).also { statsCache = Timed(it) }
+        api.getGroupStats(limit, platform).also { response ->
+            synchronized(statsCache) { statsCache[platform] = Timed(response) }
+        }
+    }
+
+    private fun statsMutexFor(platform: String?): Mutex = synchronized(statsMutexes) {
+        statsMutexes.getOrPut(platform) { Mutex() }
     }
 
     suspend fun getHistory(limit: Int = 1, force: Boolean = false): List<UploadHistoryItemDto> = historyMutex.withLock {

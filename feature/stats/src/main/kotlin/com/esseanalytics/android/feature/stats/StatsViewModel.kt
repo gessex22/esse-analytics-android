@@ -21,6 +21,17 @@ sealed interface StatsUiState {
     data class Error(val message: String) : StatsUiState
 }
 
+enum class StatsFilter(val apiValue: String?) {
+    COMPARED(null), YOUTUBE("youtube"), INSTAGRAM("instagram"), TIKTOK("tiktok");
+
+    val label: String get() = when (this) {
+        COMPARED -> "Comparadas"
+        YOUTUBE -> "YouTube"
+        INSTAGRAM -> "Instagram"
+        TIKTOK -> "TikTok"
+    }
+}
+
 // GET /api/sync/group-stats(limit=5) -- mismo dato y misma vista que
 // frontend/src/components/StatsView.tsx: los últimos videos ya vinculados en
 // las 3 plataformas, comparados lado a lado. El matching es siempre por
@@ -34,6 +45,8 @@ class StatsViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow<StatsUiState>(StatsUiState.Loading)
     val uiState: StateFlow<StatsUiState> = _uiState.asStateFlow()
+    private val _filter = MutableStateFlow(StatsFilter.COMPARED)
+    val filter: StateFlow<StatsFilter> = _filter.asStateFlow()
 
     // Mirror de RemoteLibraryAPI.thumbnailURL(id:thumbnailStoredFileName:) en
     // iOS -- pide la miniatura de ESE video puntual (group-stats ya manda el
@@ -53,11 +66,17 @@ class StatsViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = StatsUiState.Loading
             _uiState.value = try {
-                StatsUiState.Success(syncRepository.getGroupStats(limit = 5, force = true).items)
+                StatsUiState.Success(syncRepository.getGroupStats(limit = 5, platform = _filter.value.apiValue, force = true).items)
             } catch (e: Exception) {
                 // Boundary real: llamada a la central, red/rol/caída.
                 StatsUiState.Error(e.message ?: "No se pudieron cargar las estadísticas.")
             }
         }
+    }
+
+    fun setFilter(filter: StatsFilter) {
+        if (_filter.value == filter) return
+        _filter.value = filter
+        refresh()
     }
 }

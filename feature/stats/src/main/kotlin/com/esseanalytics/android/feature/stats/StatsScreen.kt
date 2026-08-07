@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -32,6 +33,8 @@ import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -118,6 +121,7 @@ private fun platformIcon(platform: Platform): ImageVector? = when (platform) {
 @Composable
 fun StatsScreen(modifier: Modifier = Modifier, viewModel: StatsViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
+    val filter by viewModel.filter.collectAsState()
     var showExpandedChart by remember { mutableStateOf(false) }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -126,8 +130,18 @@ fun StatsScreen(modifier: Modifier = Modifier, viewModel: StatsViewModel = hiltV
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 4.dp),
         ) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(StatsFilter.entries) { option ->
+                    FilterChip(
+                        selected = filter == option,
+                        onClick = { viewModel.setFilter(option) },
+                        label = { Text(option.label) },
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    )
+                }
+            }
             Text(
-                "Los últimos videos publicados en las 3 redes, comparados lado a lado.",
+                statsDescription(filter),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(end = 8.dp),
@@ -155,8 +169,8 @@ fun StatsScreen(modifier: Modifier = Modifier, viewModel: StatsViewModel = hiltV
 
             is StatsUiState.Success -> if (current.items.isEmpty()) {
                 PlaceholderScreen(
-                    title = "Todavía no hay videos matcheados en las 3 redes",
-                    note = "Completá los links en Ajustes → Sincronización → \"Emparejar entre plataformas\".",
+                    title = statsEmptyTitle(filter),
+                    note = statsEmptyNote(filter),
                     icon = Icons.Outlined.QueryStats,
                 )
             } else {
@@ -183,6 +197,21 @@ fun StatsScreen(modifier: Modifier = Modifier, viewModel: StatsViewModel = hiltV
             }
         }
     }
+}
+
+private fun statsDescription(filter: StatsFilter): String = when (filter) {
+    StatsFilter.COMPARED -> "Los últimos videos publicados en las 3 redes, comparados lado a lado."
+    else -> "Los últimos videos publicados en ${filter.label}."
+}
+
+private fun statsEmptyTitle(filter: StatsFilter): String = when (filter) {
+    StatsFilter.COMPARED -> "Todavía no hay videos matcheados en las 3 redes"
+    else -> "Todavía no hay videos publicados en ${filter.label}"
+}
+
+private fun statsEmptyNote(filter: StatsFilter): String = when (filter) {
+    StatsFilter.COMPARED -> "Completá los links en Ajustes → Sincronización → \"Emparejar entre plataformas\"."
+    else -> "Cuando se sincronicen publicaciones de ${filter.label}, aparecerán acá."
 }
 
 @Composable
