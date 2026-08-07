@@ -8,6 +8,7 @@ import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.PlatformVideo
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.time.Instant
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -41,6 +42,7 @@ class PlatformVideoRepository @Inject constructor(
         platformUrl: String?,
         linkedFileId: Long,
         title: String? = null,
+        publishedAt: Instant = Instant.now(),
     ) = db.withTransaction {
         dao.unlinkOthersForFile(platform.apiValue, linkedFileId)
         dao.upsert(
@@ -48,7 +50,7 @@ class PlatformVideoRepository @Inject constructor(
                 platform = platform.apiValue,
                 platformId = platformId,
                 platformUrl = platformUrl,
-                publishedAtEpochMs = System.currentTimeMillis(),
+                publishedAtEpochMs = publishedAt.toEpochMilli(),
                 linkedFileId = linkedFileId,
                 matchStatus = "manual",
                 title = title,

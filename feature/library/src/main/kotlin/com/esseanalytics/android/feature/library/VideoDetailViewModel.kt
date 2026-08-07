@@ -121,18 +121,25 @@ class VideoDetailViewModel @Inject constructor(
             } else {
                 val resolvedUrl = resolveShortLinkIfNeeded(platform, trimmed) ?: trimmed
                 val platformId = extractPlatformId(platform, resolvedUrl)
+                val previousPublication = platformVideoRepository.findByLinkedFileAndPlatform(file.id, platform)
+                // Editar un link ya asociado no es una nueva publicación: usa
+                // la fecha original tanto localmente como al reportar a la
+                // central, para no alterar Historial ni el calendario.
+                val publishedAt = previousPublication?.publishedAt ?: Instant.now().truncatedTo(ChronoUnit.MILLIS)
+                val publishedAtIso = publishedAt.truncatedTo(ChronoUnit.MILLIS).toString()
                 platformVideoRepository.upsertPublished(
                     platform = platform,
                     platformId = platformId,
                     platformUrl = trimmed,
                     linkedFileId = file.id,
+                    publishedAt = publishedAt,
                 )
                 fileRepository.addPlatform(file.id, platform)
                 remoteLink = RemoteLibraryPlatformLinkDto(
                     platform = platform.apiValue,
                     platformId = platformId,
                     platformUrl = trimmed,
-                    publishedAt = nowIso,
+                    publishedAt = publishedAtIso,
                 )
 
                 // Sin .onFailure acá, un fallo (red, 401, etc.) quedaba mudo:
@@ -149,7 +156,7 @@ class VideoDetailViewModel @Inject constructor(
                             platformUrl = trimmed,
                             fileName = file.fileName,
                             remoteLibraryVideoId = file.remoteLibraryVideoId,
-                            publishedAt = nowIso,
+                            publishedAt = publishedAtIso,
                             deviceId = settingsStore.getOrCreateInstallId(),
                             deviceName = settingsStore.getOrCreateDeviceName(),
                         ),
