@@ -1,6 +1,7 @@
 package com.esseanalytics.android.feature.stats
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -155,44 +156,49 @@ fun StatsScreen(modifier: Modifier = Modifier, viewModel: StatsViewModel = hiltV
             }
         }
 
-        when (val current = state) {
-            is StatsUiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-
-            is StatsUiState.Error -> PlaceholderScreen(
-                title = "No se pudo cargar",
-                note = current.message,
-                icon = Icons.Outlined.ErrorOutline,
-                iconTint = MaterialTheme.colorScheme.error,
-            )
-
-            is StatsUiState.Success -> if (current.items.isEmpty()) {
-                PlaceholderScreen(
-                    title = statsEmptyTitle(filter),
-                    note = statsEmptyNote(filter),
-                    icon = Icons.Outlined.QueryStats,
-                )
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    // Mismo orden que StatsView.swift (iOS): gráfico primero,
-                    // totales debajo -- pedido explícito del usuario (antes en
-                    // iOS los totales estaban arriba del gráfico).
-                    item(key = "chart") {
-                        StatsChartCard(current.items, onExpand = { showExpandedChart = true })
-                    }
-                    item(key = "totals") { StatsTotalsCard(current.items) }
-                    items(current.items, key = { it.fileId }) { item ->
-                        GroupStatsCard(item, thumbnailUrl = viewModel.thumbnailUrl(item))
-                    }
+        // Crossfade en vez de un when() directo -- sin esto, cambiar de pestaña
+        // cortaba en seco de un estado al otro (vacío -> spinner -> contenido),
+        // se sentía como una recarga brusca de toda la pantalla.
+        Crossfade(targetState = state, label = "statsContent") { targetState ->
+            when (targetState) {
+                is StatsUiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
                 }
 
-                if (showExpandedChart) {
-                    ExpandedStatsChartDialog(items = current.items, onDismiss = { showExpandedChart = false })
+                is StatsUiState.Error -> PlaceholderScreen(
+                    title = "No se pudo cargar",
+                    note = targetState.message,
+                    icon = Icons.Outlined.ErrorOutline,
+                    iconTint = MaterialTheme.colorScheme.error,
+                )
+
+                is StatsUiState.Success -> if (targetState.items.isEmpty()) {
+                    PlaceholderScreen(
+                        title = statsEmptyTitle(filter),
+                        note = statsEmptyNote(filter),
+                        icon = Icons.Outlined.QueryStats,
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        // Mismo orden que StatsView.swift (iOS): gráfico primero,
+                        // totales debajo -- pedido explícito del usuario (antes en
+                        // iOS los totales estaban arriba del gráfico).
+                        item(key = "chart") {
+                            StatsChartCard(targetState.items, onExpand = { showExpandedChart = true })
+                        }
+                        item(key = "totals") { StatsTotalsCard(targetState.items) }
+                        items(targetState.items, key = { it.fileId }) { item ->
+                            GroupStatsCard(item, thumbnailUrl = viewModel.thumbnailUrl(item))
+                        }
+                    }
+
+                    if (showExpandedChart) {
+                        ExpandedStatsChartDialog(items = targetState.items, onDismiss = { showExpandedChart = false })
+                    }
                 }
             }
         }
