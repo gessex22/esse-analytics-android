@@ -3,6 +3,7 @@ package com.esseanalytics.android.feature.stats
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.esseanalytics.android.core.datastore.TokenStore
+import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.SyncRepository
 import com.esseanalytics.android.core.network.di.CentralRetrofit
 import com.esseanalytics.android.core.network.dto.GroupStatsItemDto
@@ -29,6 +30,17 @@ enum class StatsFilter(val apiValue: String?) {
         YOUTUBE -> "YouTube"
         INSTAGRAM -> "Instagram"
         TIKTOK -> "TikTok"
+    }
+
+    // Comparadas trae los 3 links en el mismo item (null = sumar las 3 en el
+    // gráfico/totales). En cualquier otro filtro el item ya viene con SOLO
+    // esa plataforma poblada, así que el gráfico/totales tienen que acotarse
+    // a ella -- si no, las otras 2 quedan como una línea plana en 0.
+    val platform: Platform? get() = when (this) {
+        COMPARED -> null
+        YOUTUBE -> Platform.YOUTUBE
+        INSTAGRAM -> Platform.INSTAGRAM
+        TIKTOK -> Platform.TIKTOK
     }
 }
 

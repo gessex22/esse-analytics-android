@@ -188,16 +188,16 @@ fun StatsScreen(modifier: Modifier = Modifier, viewModel: StatsViewModel = hiltV
                         // totales debajo -- pedido explícito del usuario (antes en
                         // iOS los totales estaban arriba del gráfico).
                         item(key = "chart") {
-                            StatsChartCard(targetState.items, onExpand = { showExpandedChart = true })
+                            StatsChartCard(targetState.items, platform = filter.platform, onExpand = { showExpandedChart = true })
                         }
-                        item(key = "totals") { StatsTotalsCard(targetState.items) }
+                        item(key = "totals") { StatsTotalsCard(targetState.items, platform = filter.platform) }
                         items(targetState.items, key = { it.fileId }) { item ->
                             GroupStatsCard(item, thumbnailUrl = viewModel.thumbnailUrl(item))
                         }
                     }
 
                     if (showExpandedChart) {
-                        ExpandedStatsChartDialog(items = targetState.items, onDismiss = { showExpandedChart = false })
+                        ExpandedStatsChartDialog(items = targetState.items, platform = filter.platform, onDismiss = { showExpandedChart = false })
                     }
                 }
             }
@@ -511,28 +511,31 @@ private fun parseDateOrEpoch(iso: String): Instant = runCatching { Instant.parse
 // aprieta los puntos según cuán separados estén en el tiempo.
 private data class ViewsPoint(val platform: Platform, val videoLabel: String, val views: Int)
 
-private fun viewsData(items: List<GroupStatsItemDto>): List<ViewsPoint> {
+private fun viewsData(items: List<GroupStatsItemDto>, platform: Platform? = null): List<ViewsPoint> {
     val sorted = items.sortedBy { parseDateOrEpoch(it.fecha_creacion) }
+    val platforms = platform?.let { listOf(it) } ?: PLATFORM_ORDER
     val points = mutableListOf<ViewsPoint>()
-    for (platform in PLATFORM_ORDER) {
+    for (p in platforms) {
         sorted.forEachIndexed { index, item ->
-            points += ViewsPoint(platform, "V${index + 1}", item.platforms[platform.apiValue]?.views ?: 0)
+            points += ViewsPoint(p, "V${index + 1}", item.platforms[p.apiValue]?.views ?: 0)
         }
     }
     return points
 }
 
-private fun totalMetric(items: List<GroupStatsItemDto>, selector: (GroupStatsSlotDto) -> Int): Int =
-    items.sumOf { item -> PLATFORM_ORDER.sumOf { platform -> item.platforms[platform.apiValue]?.let(selector) ?: 0 } }
+private fun totalMetric(items: List<GroupStatsItemDto>, platform: Platform? = null, selector: (GroupStatsSlotDto) -> Int): Int {
+    val platforms = platform?.let { listOf(it) } ?: PLATFORM_ORDER
+    return items.sumOf { item -> platforms.sumOf { p -> item.platforms[p.apiValue]?.let(selector) ?: 0 } }
+}
 
 // Card propia con los totales -- mismo lenguaje visual que GroupStatsCard,
 // mirror de StatsTotalsCard en iOS. Va DEBAJO del gráfico (StatsChartCard),
 // no arriba -- orden pedido explícitamente, distinto del primer diseño.
 @Composable
-private fun StatsTotalsCard(items: List<GroupStatsItemDto>) {
-    val totalViews = totalMetric(items) { it.views }
-    val totalLikes = totalMetric(items) { it.likes }
-    val totalComments = totalMetric(items) { it.comments }
+private fun StatsTotalsCard(items: List<GroupStatsItemDto>, platform: Platform? = null) {
+    val totalViews = totalMetric(items, platform) { it.views }
+    val totalLikes = totalMetric(items, platform) { it.likes }
+    val totalComments = totalMetric(items, platform) { it.comments }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -569,8 +572,8 @@ private fun TotalStat(icon: ImageVector, value: String, label: String) {
 // Card propia con el gráfico -- mirror de StatsChartCard en iOS. Se mueve con
 // el resto del scroll, no queda fijo arriba.
 @Composable
-private fun StatsChartCard(items: List<GroupStatsItemDto>, onExpand: () -> Unit) {
-    val chartData = remember(items) { viewsData(items) }
+private fun StatsChartCard(items: List<GroupStatsItemDto>, platform: Platform? = null, onExpand: () -> Unit) {
+    val chartData = remember(items, platform) { viewsData(items, platform) }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -604,6 +607,11 @@ private fun ViewsChart(data: List<ViewsPoint>, modifier: Modifier = Modifier, yA
     if (data.isEmpty()) return
 
     val grouped = remember(data) { data.groupBy { it.platform } }
+    // Con un filtro de plataforma activo, `data` ya viene acotada a esa
+    // única plataforma -- la leyenda tiene que reflejar eso, no mostrar
+    // siempre las 3 (antes PLATFORM_ORDER fijo hacía que las otras 2
+    // aparecieran igual, aunque no tuvieran ninguna línea dibujada).
+    val legendPlatforms = remember(grouped) { PLATFORM_ORDER.filter { it in grouped } }
     val videoCount = remember(data) { data.map { it.videoLabel }.distinct().size }
     val maxViews = remember(data) { chartAxisMax(data.maxOfOrNull { it.views } ?: 0) }
     val textMeasurer = rememberTextMeasurer()
@@ -658,7 +666,7 @@ private fun ViewsChart(data: List<ViewsPoint>, modifier: Modifier = Modifier, yA
                 .padding(top = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            PLATFORM_ORDER.forEach { platform ->
+            legendPlatforms.forEach { platform ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
@@ -684,8 +692,9 @@ private fun ViewsChart(data: List<ViewsPoint>, modifier: Modifier = Modifier, yA
 // en pantalla, no una sección propia de la app.
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-private fun ExpandedStatsChartDialog(items: List<GroupStatsItemDto>, onDismiss: () -> Unit) {
-    val chartData = remember(items) { viewsData(items) }
+private fun ExpandedStatsChartDialog(items: List<GroupStatsItemDto>, platform: Platform? = null, onDismiss: () -> Unit) {
+    val chartData = remember(items, platform) { viewsData(items, platform) }
+    val breakdownPlatforms = platform?.let { listOf(it) } ?: PLATFORM_ORDER
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
@@ -714,7 +723,7 @@ private fun ExpandedStatsChartDialog(items: List<GroupStatsItemDto>, onDismiss: 
                     yAxisTickCount = 6,
                 )
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PLATFORM_ORDER.forEach { platform ->
+                    breakdownPlatforms.forEach { platform ->
                         val views = items.sumOf { it.platforms[platform.apiValue]?.views ?: 0 }
                         Row(
                             modifier = Modifier
