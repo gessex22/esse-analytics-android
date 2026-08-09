@@ -41,6 +41,17 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.launch
 import com.esseanalytics.android.core.model.WorkflowMode
 
+// Preset de Ajustes → Servidor, SOLO en builds DEBUG (buildFeatures.buildConfig
+// habilitado en build.gradle.kts de este módulo -- nunca compila en Release/
+// Play Store). Desde el emulador, 10.0.2.2 es el alias fijo de Android para
+// "localhost de la máquina host" (127.0.0.1 desde el emulador apunta al
+// EMULADOR mismo, no a tu PC -- trampa de entorno distinta a la de iOS/
+// Electron, confirmado en UIEssePanel/CLAUDE.md). Desde un teléfono físico
+// hay que editar el campo a mano con la IP LAN de la PC que corre lab-backend,
+// igual que ya hace falta para "PC local".
+private const val LAB_PRESET_URL = "http://10.0.2.2:5055"
+private const val CENTRAL_PRESET_URL = ""
+
 // Junta los settings que ya existían sueltos (workflowMode, wifiOnlyUploads)
 // más el selector de tema Rojo/Ámbar -- ver SettingsViewModel.
 @Composable
@@ -66,9 +77,12 @@ fun SettingsScreen(modifier: Modifier = Modifier, viewModel: SettingsViewModel =
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
+        val isLabMode by viewModel.isLabMode.collectAsState()
+
         LaunchedEffect(Unit) {
             viewModel.refreshConnections()
             viewModel.discoverPc()
+            viewModel.refreshLabMode()
         }
         SettingsSection(title = "Tema") {
             ThemeOptionRow(
@@ -119,6 +133,19 @@ fun SettingsScreen(modifier: Modifier = Modifier, viewModel: SettingsViewModel =
                 Text("PC encontrada: $name", color = MaterialTheme.colorScheme.primary)
                 TextButton(onClick = { serverUrlDraft = url }) { Text("Usar esta PC ($url)") }
             }
+            if (BuildConfig.DEBUG) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(onClick = { serverUrlDraft = CENTRAL_PRESET_URL }) { Text("Central") }
+                    OutlinedButton(
+                        onClick = { discoveredPc?.let { (_, url) -> serverUrlDraft = url } },
+                        enabled = discoveredPc != null,
+                    ) { Text("PC local") }
+                    OutlinedButton(onClick = { serverUrlDraft = LAB_PRESET_URL }) { Text("Laboratorio") }
+                }
+            }
             OutlinedTextField(
                 value = serverUrlDraft,
                 onValueChange = { serverUrlDraft = it },
@@ -143,6 +170,20 @@ fun SettingsScreen(modifier: Modifier = Modifier, viewModel: SettingsViewModel =
                 onClick = { viewModel.setServerUrl(serverUrlDraft) },
                 modifier = Modifier.padding(top = 8.dp),
             ) { Text("Guardar servidor") }
+            if (isLabMode) {
+                Row(
+                    modifier = Modifier.padding(top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("🧪", modifier = Modifier.padding(end = 6.dp))
+                    Text(
+                        "Laboratorio · Datos simulados",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color(0xFF7C3AED),
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
         }
 
         SettingsSection(title = "Cuentas conectadas") {

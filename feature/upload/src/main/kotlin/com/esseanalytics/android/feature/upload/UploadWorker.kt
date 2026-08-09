@@ -12,6 +12,7 @@ import com.esseanalytics.android.core.database.FileRepository
 import com.esseanalytics.android.core.database.PlatformVideoRepository
 import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.model.Platform
+import com.esseanalytics.android.core.network.LabModeStatus
 import com.esseanalytics.android.core.network.api.SyncApi
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
 import com.esseanalytics.android.core.network.dto.RemoteLibraryPlatformLinkDto
@@ -46,6 +47,10 @@ class UploadWorker @AssistedInject constructor(
     private val youtubeUploader: YoutubeUploader,
     private val instagramUploader: InstagramUploader,
     private val tiktokUploader: TiktokUploader,
+    private val mockYoutubeUploader: MockYoutubeUploader,
+    private val mockInstagramUploader: MockInstagramUploader,
+    private val mockTiktokUploader: MockTiktokUploader,
+    private val labModeStatus: LabModeStatus,
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
@@ -58,12 +63,19 @@ class UploadWorker @AssistedInject constructor(
             return Result.failure(workDataOf(KEY_ERROR to "Datos de subida incompletos."))
         }
 
+        // En Laboratorio (confirmado en vivo por LabModeStatus, nunca por
+        // heurística) se usa el uploader mock en vez del real -- único punto
+        // de rama, el resto de doWork() (Room, reportPublish, Biblioteca
+        // remota) sigue exactamente igual sea cual sea el resultado. Ver
+        // Core/Network/LabModeStatus.swift (iOS) para el mismo criterio.
+        val isLabMode = labModeStatus.isActive()
+
         // Facebook es crossposting (Fase 3, ver el plan), no un uploader
         // directo -- no debería llegar acá nunca, pero se cubre el caso.
         val uploader = when (platform) {
-            Platform.YOUTUBE -> youtubeUploader
-            Platform.INSTAGRAM -> instagramUploader
-            Platform.TIKTOK -> tiktokUploader
+            Platform.YOUTUBE -> if (isLabMode) mockYoutubeUploader else youtubeUploader
+            Platform.INSTAGRAM -> if (isLabMode) mockInstagramUploader else instagramUploader
+            Platform.TIKTOK -> if (isLabMode) mockTiktokUploader else tiktokUploader
             Platform.FACEBOOK -> return Result.failure(workDataOf(KEY_ERROR to "Facebook no es una subida directa."))
         }
 

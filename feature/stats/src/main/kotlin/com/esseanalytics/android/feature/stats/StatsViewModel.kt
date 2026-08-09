@@ -44,7 +44,7 @@ enum class StatsFilter(val apiValue: String?) {
     }
 }
 
-// GET /api/sync/group-stats(limit=5) -- mismo dato y misma vista que
+// GET /api/sync/group-stats(limit=10) -- mismo dato y misma vista que
 // frontend/src/components/StatsView.tsx: los últimos videos ya vinculados en
 // las 3 plataformas, comparados lado a lado. El matching es siempre por
 // archivo, no depende de workflow_mode (simple/avanzado ven lo mismo acá).
@@ -78,7 +78,7 @@ class StatsViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = StatsUiState.Loading
             _uiState.value = try {
-                StatsUiState.Success(syncRepository.getGroupStats(limit = 5, platform = _filter.value.apiValue, force = true).items)
+                StatsUiState.Success(syncRepository.getGroupStats(limit = 10, platform = _filter.value.apiValue, force = true).items)
             } catch (e: Exception) {
                 // Boundary real: llamada a la central, red/rol/caída.
                 StatsUiState.Error(e.message ?: "No se pudieron cargar las estadísticas.")

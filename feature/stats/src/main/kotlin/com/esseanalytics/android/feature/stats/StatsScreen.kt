@@ -507,7 +507,7 @@ private fun parseDateOrEpoch(iso: String): Instant = runCatching { Instant.parse
 // Punto de datos para el gráfico de vistas acumuladas -- mirror de
 // AccumulatedViewsPoint en iOS (StatsView.swift): una serie por plataforma,
 // sumando views video a video en orden cronológico. El eje X es por video
-// (V1..Vn), no por fecha -- con solo 5 videos, una fecha real deja huecos o
+// (V1..Vn), no por fecha -- aun con 10 videos, una fecha real deja huecos o
 // aprieta los puntos según cuán separados estén en el tiempo.
 private data class ViewsPoint(val platform: Platform, val videoLabel: String, val views: Int)
 
@@ -599,8 +599,8 @@ private fun StatsChartCard(items: List<GroupStatsItemDto>, platform: Platform? =
 
 // Dibujado a mano con Canvas -- mismo criterio que ViewsDonut arriba, un
 // gráfico de líneas simple no amerita sumar una librería de charts entera.
-// Ejes: Y en notación compacta (1K/2K/1M) a la izquierda con grid horizontal,
-// X implícito (un punto por video, sin labels -- con 5 videos el eje X real
+// Ejes: Y en notación compacta (1K/2K/1M) a la izquierda, sin cuadrícula;
+// X implícito (un punto por video, sin labels -- con 10 videos el eje X real
 // no aporta nada que el orden ya no diga). Leyenda de plataformas debajo.
 @Composable
 private fun ViewsChart(data: List<ViewsPoint>, modifier: Modifier = Modifier, yAxisTickCount: Int = 4) {
@@ -615,7 +615,6 @@ private fun ViewsChart(data: List<ViewsPoint>, modifier: Modifier = Modifier, yA
     val videoCount = remember(data) { data.map { it.videoLabel }.distinct().size }
     val maxViews = remember(data) { chartAxisMax(data.maxOfOrNull { it.views } ?: 0) }
     val textMeasurer = rememberTextMeasurer()
-    val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
     val labelStyle = TextStyle(fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     val platformColors = PLATFORM_ORDER.associateWith { platformColor(it) }
 
@@ -632,7 +631,6 @@ private fun ViewsChart(data: List<ViewsPoint>, modifier: Modifier = Modifier, yA
             for (i in 0..yAxisTickCount) {
                 val fraction = i.toFloat() / yAxisTickCount
                 val y = chartBottom - fraction * chartHeight
-                drawLine(gridColor, Offset(chartLeft, y), Offset(chartRight, y), strokeWidth = 1.dp.toPx())
                 val label = formatNum((maxViews * fraction).roundToInt())
                 val measured = textMeasurer.measure(AnnotatedString(label), style = labelStyle)
                 drawText(measured, topLeft = Offset(0f, (y - measured.size.height / 2).coerceAtLeast(0f)))

@@ -56,6 +56,7 @@ import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.painterResource
@@ -137,6 +138,7 @@ fun EsseAnalyticsNavHost(
         // la Biblioteca remota de la cuenta anterior.
         is AuthState.LoggedIn -> key(current.user.id) {
             val navController = rememberNavController()
+            val isLabMode by sessionViewModel.isLabMode.collectAsState()
             MainAppScaffold(
                 navController,
                 pendingImportUris,
@@ -144,6 +146,7 @@ fun EsseAnalyticsNavHost(
                 isOwner = current.user.isOwner,
                 canUseCloudStorage = current.user.canUseCloudStorage,
                 username = current.user.username,
+                isLabMode = isLabMode,
             )
         }
     }
@@ -158,6 +161,7 @@ private fun MainAppScaffold(
     isOwner: Boolean,
     canUseCloudStorage: Boolean,
     username: String,
+    isLabMode: Boolean,
 ) {
     // Un video compartido desde otra app (Galería, Archivos) llega acá vía
     // MainActivity — si la app estaba en cualquier otra pantalla, la manda a
@@ -237,10 +241,15 @@ private fun MainAppScaffold(
         // en vez de repetirlo en cada composable(...).
         val navAnimSpec = tween<Float>(220, easing = FastOutSlowInEasing)
         val navOffsetSpec = tween<IntOffset>(220, easing = FastOutSlowInEasing)
+        // Column con TODO el padding del Scaffold de una sola vez -- el banner
+        // (si está) y el NavHost quedan uno arriba del otro, sin repartir
+        // PaddingValues a mano entre los dos.
+        Column(modifier = Modifier.padding(padding)) {
+        if (isLabMode) LabModeBanner()
         NavHost(
             navController = navController,
             startDestination = Routes.DASHBOARD,
-            modifier = Modifier.padding(padding),
+            modifier = Modifier.weight(1f),
             enterTransition = {
                 fadeIn(navAnimSpec) + slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, navOffsetSpec) { it / 10 }
             },
@@ -342,6 +351,7 @@ private fun MainAppScaffold(
                 }
             }
         }
+        }
     }
 }
 
@@ -416,6 +426,29 @@ private fun AppTopBar(
             UserAvatar(username = username, onClick = onAvatarClick)
         },
     )
+}
+
+// Persistente en las 4 pestañas del bottom nav (mismo Scaffold que AppTopBar,
+// arriba) -- mirror de AppTopBarModifier.swift (iOS) y el banner de App.tsx
+// (desktop). isLabMode viaja desde SessionViewModel, que ya lo confirmó en
+// vivo contra GET /api/health (ver LabModeStatus.kt) -- nunca por heurística.
+@Composable
+private fun LabModeBanner(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Color(0x267C3AED))
+            .padding(vertical = 6.dp, horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("🧪", modifier = Modifier.padding(end = 6.dp))
+        Text(
+            "Laboratorio · Datos simulados",
+            style = MaterialTheme.typography.labelMedium,
+            color = Color(0xFF7C3AED),
+            fontWeight = FontWeight.Medium,
+        )
+    }
 }
 
 @Composable

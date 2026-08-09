@@ -3,6 +3,7 @@ package com.esseanalytics.android.core.network.di
 import android.content.Context
 import com.esseanalytics.android.core.network.api.AuthApi
 import com.esseanalytics.android.core.network.api.BackupApi
+import com.esseanalytics.android.core.network.api.HealthApi
 import com.esseanalytics.android.core.network.api.PlatformAuthApi
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
 import com.esseanalytics.android.core.network.api.SyncApi
@@ -128,4 +129,8 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideBackupApi(@CentralRetrofit retrofit: Retrofit): BackupApi = retrofit.create(BackupApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideHealthApi(@CentralRetrofit retrofit: Retrofit): HealthApi = retrofit.create(HealthApi::class.java)
 }
