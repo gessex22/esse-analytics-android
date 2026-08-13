@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.esseanalytics.android.core.designsystem.component.PlaceholderScreen
+import com.esseanalytics.android.core.designsystem.component.RefreshErrorBanner
 import com.esseanalytics.android.core.designsystem.icon.InstagramLogo
 import com.esseanalytics.android.core.designsystem.icon.PlatformIcons
 import com.esseanalytics.android.core.designsystem.icon.TiktokLogo
@@ -93,6 +94,11 @@ fun CalendarScreen(modifier: Modifier = Modifier, viewModel: CalendarViewModel =
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                // Spinner de refresh: en AppTopBar (izquierda del avatar),
+                // no acá -- ver RefreshActivityTracker.
+                current.refreshError?.let { message ->
+                    item(key = "refreshError") { RefreshErrorBanner(message) }
+                }
                 items(current.slots, key = { it.platform }) { slot -> CalendarSlotCard(slot) }
             }
         }

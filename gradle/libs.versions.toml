@@ -5,13 +5,13 @@
 # siempre sigue andando) a AGP 9.x (recién salido en 2026, rompe compatibilidad
 # con org.jetbrains.kotlin.android). Al abrir en Android Studio, dejate llevar
 # por el Upgrade Assistant si querés subir de versión más adelante.
-agp = "8.9.0"
-kotlin = "2.1.0"
-ksp = "2.1.0-1.0.29"
+agp = "9.2.1"
+kotlin = "2.2.10"
+ksp = "2.3.11"
 composeBom = "2025.01.00"
 hilt = "2.57.1"
 hiltNavigationCompose = "1.2.0"
-room = "2.6.1"
+room = "2.8.4"
 retrofit = "2.11.0"
 okhttp = "4.12.0"
 kotlinxSerializationJson = "1.7.3"

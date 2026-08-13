@@ -2,6 +2,7 @@ package com.esseanalytics.android.feature.stats
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.esseanalytics.android.core.datastore.RefreshActivityTracker
 import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.SyncRepository
@@ -16,9 +17,15 @@ import kotlinx.coroutines.launch
 import retrofit2.Retrofit
 import javax.inject.Inject
 
+// Feature B (ver UIEssePanel/PLAN_SWIPE_Y_CARGA_SUAVE.md): isRefreshing/
+// refreshError dentro de Success -- mismo criterio que DashboardUiState.
 sealed interface StatsUiState {
     data object Loading : StatsUiState
-    data class Success(val items: List<GroupStatsItemDto>) : StatsUiState
+    data class Success(
+        val items: List<GroupStatsItemDto>,
+        val isRefreshing: Boolean = false,
+        val refreshError: String? = null,
+    ) : StatsUiState
     data class Error(val message: String) : StatsUiState
 }
 
@@ -52,6 +59,7 @@ enum class StatsFilter(val apiValue: String?) {
 class StatsViewModel @Inject constructor(
     private val syncRepository: SyncRepository,
     private val tokenStore: TokenStore,
+    private val refreshTracker: RefreshActivityTracker,
     @CentralRetrofit private val retrofit: Retrofit,
 ) : ViewModel() {
 
@@ -76,12 +84,25 @@ class StatsViewModel @Inject constructor(
 
     fun refresh() {
         viewModelScope.launch {
-            _uiState.value = StatsUiState.Loading
+            // Ver comentario igual en DashboardViewModel.refresh() -- previous
+            // capturado una vez, es la señal de "ya hay datos" para todo el
+            // intento (cambio de filtro incluido: los items previos son del
+            // filtro anterior, se quedan visibles con un spinner chico hasta
+            // que llegan los nuevos, en vez de vaciar la lista en el medio).
+            val previous = _uiState.value as? StatsUiState.Success
+            _uiState.value = previous?.copy(isRefreshing = true, refreshError = null) ?: StatsUiState.Loading
+            // Señal para AppTopBar -- ver RefreshActivityTracker.
+            refreshTracker.setRefreshing("stats", true)
             _uiState.value = try {
                 StatsUiState.Success(syncRepository.getGroupStats(limit = 5, platform = _filter.value.apiValue, force = true).items)
             } catch (e: Exception) {
-                // Boundary real: llamada a la central, red/rol/caída.
-                StatsUiState.Error(e.message ?: "No se pudieron cargar las estadísticas.")
+                // Boundary real: llamada a la central, red/rol/caída. Con
+                // datos previos: banner no bloqueante, no se pierde lo último
+                // bueno. Sin datos previos: Error, pantalla completa.
+                val message = e.message ?: "No se pudieron cargar las estadísticas."
+                previous?.copy(isRefreshing = false, refreshError = message) ?: StatsUiState.Error(message)
+            } finally {
+                refreshTracker.setRefreshing("stats", false)
             }
         }
     }

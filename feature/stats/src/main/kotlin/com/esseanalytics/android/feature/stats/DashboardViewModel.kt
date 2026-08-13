@@ -2,6 +2,7 @@ package com.esseanalytics.android.feature.stats
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.esseanalytics.android.core.datastore.RefreshActivityTracker
 import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.model.Platform
@@ -44,9 +45,19 @@ data class DashboardData(
 
 enum class DashboardPodiumMode { COMBINED, INDIVIDUAL }
 
+// Feature B (ver UIEssePanel/PLAN_SWIPE_Y_CARGA_SUAVE.md): isRefreshing/
+// refreshError viven DENTRO de Success, no como un 4to caso del sealed
+// interface -- así el compilador obliga a que solo puedan existir cuando ya
+// hay `data` para mostrar. Antes cada refresh() pisaba todo con `Loading`
+// incondicionalmente, vaciando la pantalla en cada pull-to-refresh o tras
+// publicar, no solo en la carga inicial.
 sealed interface DashboardUiState {
     data object Loading : DashboardUiState
-    data class Success(val data: DashboardData) : DashboardUiState
+    data class Success(
+        val data: DashboardData,
+        val isRefreshing: Boolean = false,
+        val refreshError: String? = null,
+    ) : DashboardUiState
     data class Error(val message: String) : DashboardUiState
 }
 
@@ -55,6 +66,7 @@ class DashboardViewModel @Inject constructor(
     private val syncRepository: SyncRepository,
     private val settingsStore: SettingsStore,
     private val tokenStore: TokenStore,
+    private val refreshTracker: RefreshActivityTracker,
     @CentralRetrofit private val retrofit: Retrofit,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<DashboardUiState>(DashboardUiState.Loading)
@@ -69,8 +81,20 @@ class DashboardViewModel @Inject constructor(
 
     fun refresh() {
         viewModelScope.launch {
-            val podiumMode = (_uiState.value as? DashboardUiState.Success)?.data?.podiumMode ?: DashboardPodiumMode.COMBINED
-            _uiState.value = DashboardUiState.Loading
+            // `previous` capturado UNA vez acá -- es la señal de "ya hay
+            // datos en pantalla" para todo este intento, sin importar cómo
+            // termine. No puede desincronizarse porque es un val local, no
+            // se relee mid-flight.
+            val previous = _uiState.value as? DashboardUiState.Success
+            val podiumMode = previous?.data?.podiumMode ?: DashboardPodiumMode.COMBINED
+            _uiState.value = if (previous != null) {
+                previous.copy(isRefreshing = true, refreshError = null)
+            } else {
+                DashboardUiState.Loading
+            }
+            // Señal para AppTopBar (pedido del usuario: spinner en la barra
+            // compartida, no en el contenido) -- ver RefreshActivityTracker.
+            refreshTracker.setRefreshing("dashboard", true)
             val result = supervisorScope {
                 val stats = async { runCatching { syncRepository.getGroupStats(limit = 5) } }
                 val individualStats = Platform.publishable.map { platform ->
@@ -85,9 +109,12 @@ class DashboardViewModel @Inject constructor(
             val (workflowModeResult, individualStats) = supplementary
             val stats = triple.first
             if (stats.isFailure) {
-                _uiState.value = DashboardUiState.Error(
-                    stats.exceptionOrNull()?.message ?: "No se pudo cargar el dashboard.",
-                )
+                val message = stats.exceptionOrNull()?.message ?: "No se pudo cargar el dashboard."
+                // Con datos previos: banner no bloqueante, se mantiene lo
+                // último bueno en pantalla. Sin datos previos: Error, que sí
+                // gatea la pantalla completa (ver DashboardScreen.kt).
+                _uiState.value = previous?.copy(isRefreshing = false, refreshError = message)
+                    ?: DashboardUiState.Error(message)
             } else {
                 val items = stats.getOrThrow().items
                 val latestHistory = triple.third.getOrDefault(emptyList()).firstOrNull()
@@ -114,6 +141,7 @@ class DashboardViewModel @Inject constructor(
                     ),
                 )
             }
+            refreshTracker.setRefreshing("dashboard", false)
         }
     }
 

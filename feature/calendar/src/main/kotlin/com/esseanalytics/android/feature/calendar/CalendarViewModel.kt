@@ -3,6 +3,7 @@ package com.esseanalytics.android.feature.calendar
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.esseanalytics.android.core.database.FileRepository
+import com.esseanalytics.android.core.datastore.RefreshActivityTracker
 import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.network.SyncRepository
 import com.esseanalytics.android.core.network.di.CentralRetrofit
@@ -39,9 +40,15 @@ data class CalendarSlot(
     val remoteThumbnailUrl: String? = null,
 )
 
+// Feature B (ver UIEssePanel/PLAN_SWIPE_Y_CARGA_SUAVE.md): isRefreshing/
+// refreshError dentro de Success -- mismo criterio que Dashboard/Stats.
 sealed interface CalendarUiState {
     data object Loading : CalendarUiState
-    data class Success(val slots: List<CalendarSlot>) : CalendarUiState
+    data class Success(
+        val slots: List<CalendarSlot>,
+        val isRefreshing: Boolean = false,
+        val refreshError: String? = null,
+    ) : CalendarUiState
     data class Error(val message: String) : CalendarUiState
 }
 
@@ -54,6 +61,7 @@ class CalendarViewModel @Inject constructor(
     private val syncRepository: SyncRepository,
     private val fileRepository: FileRepository,
     private val tokenStore: TokenStore,
+    private val refreshTracker: RefreshActivityTracker,
     @CentralRetrofit private val retrofit: Retrofit,
 ) : ViewModel() {
 
@@ -66,14 +74,23 @@ class CalendarViewModel @Inject constructor(
 
     fun refresh() {
         viewModelScope.launch {
-            _uiState.value = CalendarUiState.Loading
+            // Ver comentario igual en DashboardViewModel.refresh().
+            val previous = _uiState.value as? CalendarUiState.Success
+            _uiState.value = previous?.copy(isRefreshing = true, refreshError = null) ?: CalendarUiState.Loading
+            // Señal para AppTopBar -- ver RefreshActivityTracker.
+            refreshTracker.setRefreshing("calendar", true)
             _uiState.value = try {
                 CalendarUiState.Success(syncRepository.getCalendarConfig().map { it.toSlot() })
             } catch (e: Exception) {
                 // Boundary real: llamada a la central, puede fallar por red,
                 // rol sin permiso (varios endpoints de /api/sync/* son
-                // todopoderoso-only), o estar caída.
-                CalendarUiState.Error(e.message ?: "No se pudo cargar el calendario.")
+                // todopoderoso-only), o estar caída. Con datos previos:
+                // banner no bloqueante, se mantiene lo último bueno. Sin
+                // datos previos: Error, pantalla completa.
+                val message = e.message ?: "No se pudo cargar el calendario."
+                previous?.copy(isRefreshing = false, refreshError = message) ?: CalendarUiState.Error(message)
+            } finally {
+                refreshTracker.setRefreshing("calendar", false)
             }
         }
     }

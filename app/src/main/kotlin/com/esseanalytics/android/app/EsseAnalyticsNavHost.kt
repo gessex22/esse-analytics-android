@@ -8,6 +8,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -35,6 +37,7 @@ import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -53,11 +56,20 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.input.pointer.changedToUp
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
@@ -86,6 +98,7 @@ import com.esseanalytics.android.feature.stats.StatsScreen
 import com.esseanalytics.android.feature.sync.SyncScreen
 import com.esseanalytics.android.feature.upload.UploadScreen
 import com.esseanalytics.android.feature.users.UsersScreen
+import kotlin.math.abs
 
 private object Routes {
     const val DASHBOARD = "dashboard"
@@ -113,6 +126,74 @@ private val bottomDestinations = listOf(
     BottomDestination(Routes.STATS, "Estadísticas", Icons.Outlined.QueryStats),
     BottomDestination(Routes.MORE, "Más", Icons.Outlined.MoreHoriz),
 )
+
+// Feature A -- swipe global entre pestañas (arrastrar desde cualquier punto
+// de la pantalla, no solo tocar la barra inferior). Decisiones cerradas con
+// el usuario, ver UIEssePanel/PLAN_SWIPE_Y_CARGA_SUAVE.md: sin loop en los
+// bordes, "Más" queda fuera del carrusel -- por eso esta lista es
+// bottomDestinations menos MORE, en el mismo orden.
+private val swipeableTabs = listOf(Routes.DASHBOARD, Routes.CALENDAR, Routes.UPLOAD, Routes.LIBRARY, Routes.STATS)
+
+// Misma navegación exacta que ya usaba el tap de la barra inferior
+// (popUpTo+saveState+restoreState) -- reusada ahora también por el swipe
+// global, para que las dos formas de cambiar de tab se comporten idéntico.
+private fun NavHostController.navigateToMainTab(route: String) {
+    navigate(route) {
+        popUpTo(graph.findStartDestination().id) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
+    }
+}
+
+// Escucha el drag en pass Initial (antes que cualquier hijo) SIN consumir
+// nada -- así el scroll vertical de listas y los ScrollView/LazyRow
+// horizontales ya existentes (chips de Library, filtros de Stats/
+// RemoteLibrary) lo siguen recibiendo con normalidad en su propio pass
+// Main, sin robarles el gesto. Decide recién al soltar (no sigue el dedo en
+// vivo), igual que iOS -- no migramos NavHost a HorizontalPager a
+// propósito: hubiera significado reescribir cómo Subir recibe su fileId
+// opcional (hoy argumento de ruta, ver composable de Routes.UPLOAD abajo) y
+// cómo Inicio se refresca tras publicar (hoy fuerza una instancia nueva del
+// ViewModel con popUpTo(inclusive=true), ver onPublishedAllSuccess). Riesgo
+// conocido y no resoluble sin dispositivo real (este entorno no puede
+// compilar Android, ver UIEssePanel/CLAUDE.md): si el arrastre empieza
+// justo sobre un LazyRow horizontal, este detector también lo ve y puede
+// disparar cambio de tab en simultáneo con el scroll de los chips -- a
+// afinar (ej. NestedScrollConnection) cuando se pueda probar en un
+// dispositivo real.
+//
+// earlyExitVerticalPx -- corte temprano: la primera versión de esto seguía
+// despertando esta coroutine (awaitPointerEvent) para CADA evento de touch
+// hasta soltar el dedo, sin importar si el gesto ya se veía claramente
+// vertical (ej. scrollear una lista larga o un gráfico de Stats, con MUCHOS
+// eventos de movimiento durante todo el arrastre) -- trabajo de más
+// corriendo en paralelo a CUALQUIER scroll de la app, no solo a los swipes
+// horizontales reales. Sospecha de freeze reportada en pruebas (ver
+// UIEssePanel/PLAN_SWIPE_Y_CARGA_SUAVE.md, "Feedback de prueba real"): apenas
+// el desplazamiento vertical acumulado supera este umbral Y domina claramente
+// al horizontal, se corta el gesto entero (return, no break) y se deja de
+// escuchar el resto de ese touch -- ya no puede ser un swipe de página.
+private suspend fun PointerInputScope.awaitTabSwipeGesture(
+    earlyExitVerticalPx: Float,
+    onSwipeEnd: (Offset) -> Unit,
+) {
+    awaitEachGesture {
+        val down = awaitFirstDown(pass = PointerEventPass.Initial)
+        val pointerId = down.id
+        var last = down.position
+        while (true) {
+            val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+            val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+            last = change.position
+            val delta = last - down.position
+            if (abs(delta.y) > earlyExitVerticalPx && abs(delta.y) > abs(delta.x) * 1.5f) {
+                return@awaitEachGesture
+            }
+            if (change.changedToUp()) break
+        }
+        onSwipeEnd(last - down.position)
+    }
+}
 
 @Composable
 fun EsseAnalyticsNavHost(
@@ -176,18 +257,29 @@ private fun MainAppScaffold(
     // (Biblioteca, Calendario, Subir) hace que colapse, sin repetir el cable
     // en cada una.
     val topBarScrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+    // Hoisteado acá (antes vivía solo dentro de bottomBar) -- lo necesita
+    // también el pointerInput del swipe global (Feature A), para saber en
+    // qué tab está parado el usuario cuando suelta el gesto.
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val currentDestination = backStackEntry?.destination
+    // Feature B (pedido del usuario): spinner de refresh en la barra
+    // compartida, a la izquierda del avatar -- ver TopBarViewModel/
+    // RefreshActivityTracker. AppTopBar es UNA sola instancia acá (a
+    // diferencia de iOS, donde cada pantalla tiene la suya), así que no
+    // puede leer isLoading directo de cada ViewModel de tab.
+    val topBarViewModel: TopBarViewModel = hiltViewModel()
+    val isAnyRefreshing by topBarViewModel.isAnyRefreshing.collectAsState()
 
     Scaffold(
         modifier = Modifier.nestedScroll(topBarScrollBehavior.nestedScrollConnection),
         topBar = {
             AppTopBar(
                 username = username,
-                scrollBehavior = topBarScrollBehavior
+                scrollBehavior = topBarScrollBehavior,
+                isRefreshing = isAnyRefreshing,
             ) { navController.navigate(Routes.SETTINGS) }
         },
         bottomBar = {
-            val backStackEntry by navController.currentBackStackEntryAsState()
-            val currentDestination = backStackEntry?.destination
             // El contenido scrolleable (Column/LazyColumn, sin background propio)
             // se ve en Scaffold.containerColor = background, mientras el
             // NavigationBar usa surfaceContainer (= surface acá, ver Theme.kt)
@@ -208,13 +300,7 @@ private fun MainAppScaffold(
                         val selected = currentDestination?.hierarchy?.any { it.route?.startsWith(dest.route) == true } == true
                         NavigationBarItem(
                             selected = selected,
-                            onClick = {
-                                navController.navigate(dest.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
+                            onClick = { navController.navigateToMainTab(dest.route) },
                             icon = { Icon(dest.icon, contentDescription = dest.label) },
                             label = { Text(dest.label) },
                             colors = NavigationBarItemDefaults.colors(
@@ -237,10 +323,56 @@ private fun MainAppScaffold(
         // en vez de repetirlo en cada composable(...).
         val navAnimSpec = tween<Float>(220, easing = FastOutSlowInEasing)
         val navOffsetSpec = tween<IntOffset>(220, easing = FastOutSlowInEasing)
+        val haptic = LocalHapticFeedback.current
+        val density = LocalDensity.current
+        // Mismo umbral (en dp, no px crudos) y misma exigencia de dirección
+        // dominante que iOS -- ver MainTabsView.swift. Ajustable en pruebas
+        // reales, no bloquea el arranque (decisión técnica ya cerrada en el
+        // plan).
+        val swipeMinTranslationPx = remember(density) { with(density) { 60.dp.toPx() } }
+        // Corte temprano del detector (ver awaitTabSwipeGesture) -- más chico
+        // que el umbral de swipe: apenas un scroll vertical normal se define
+        // como tal, se deja de escuchar ese touch en vez de seguir corriendo
+        // hasta soltar el dedo.
+        val swipeEarlyExitVerticalPx = remember(density) { with(density) { 24.dp.toPx() } }
         NavHost(
             navController = navController,
             startDestination = Routes.DASHBOARD,
-            modifier = Modifier.padding(padding),
+            modifier = Modifier
+                .padding(padding)
+                // pointerInput con key = ruta actual: si el usuario cambia de
+                // tab por cualquier vía (tap, back del sistema), el detector
+                // arranca de cero en vez de arrastrar estado de un gesto
+                // anterior sobre la pantalla nueva.
+                .pointerInput(currentDestination?.route) {
+                    awaitTabSwipeGesture(earlyExitVerticalPx = swipeEarlyExitVerticalPx) { total ->
+                        val horizontal = total.x
+                        val vertical = total.y
+                        if (abs(horizontal) <= abs(vertical) * 1.5f || abs(horizontal) <= swipeMinTranslationPx) {
+                            return@awaitTabSwipeGesture
+                        }
+                        val currentIndex = swipeableTabs.indexOfFirst { tab ->
+                            currentDestination?.hierarchy?.any { it.route?.startsWith(tab) == true } == true
+                        }
+                        // No es ninguna de las 5 pestañas swipeables (ej. una
+                        // pantalla de "Más" como Historial/Usuarios/Ajustes)
+                        // -- el swipe global no aplica ahí.
+                        if (currentIndex < 0) return@awaitTabSwipeGesture
+                        when {
+                            horizontal < 0 && currentIndex < swipeableTabs.lastIndex ->
+                                navController.navigateToMainTab(swipeableTabs[currentIndex + 1])
+                            horizontal > 0 && currentIndex > 0 ->
+                                navController.navigateToMainTab(swipeableTabs[currentIndex - 1])
+                            else ->
+                                // Borde (Inicio hacia atrás o Estadísticas
+                                // hacia adelante): sin loop, "Más" no entra
+                                // por swipe -- decisión cerrada. Feedback
+                                // háptico para que quede claro que el gesto
+                                // se registró aunque no haya a dónde ir.
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        }
+                    }
+                },
             enterTransition = {
                 fadeIn(navAnimSpec) + slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, navOffsetSpec) { it / 10 }
             },
@@ -282,8 +414,8 @@ private fun MainAppScaffold(
             composable(
                 route = "${Routes.UPLOAD}?fileId={fileId}",
                 arguments = listOf(navArgument("fileId") { type = NavType.LongType; defaultValue = -1L }),
-            ) { backStackEntry ->
-                val fileId = backStackEntry.arguments?.getLong("fileId")?.takeIf { it >= 0 }
+            ) { uploadEntry ->
+                val fileId = uploadEntry.arguments?.getLong("fileId")?.takeIf { it >= 0 }
                 UploadScreen(
                     initialFileId = fileId,
                     // Éxito total (Fase 2 del plan de estabilidad/UX): redirige
@@ -335,8 +467,8 @@ private fun MainAppScaffold(
             composable(
                 route = "${Routes.REMOTE_LIBRARY}?videoId={videoId}",
                 arguments = listOf(navArgument("videoId") { type = NavType.StringType; nullable = true; defaultValue = null }),
-            ) { backStackEntry ->
-                val videoId = backStackEntry.arguments?.getString("videoId")
+            ) { remoteLibraryEntry ->
+                val videoId = remoteLibraryEntry.arguments?.getString("videoId")
                 DetailScaffold("Biblioteca remota", onBack = navController::popBackStack) {
                     RemoteLibraryScreen(initialVideoId = videoId)
                 }
@@ -357,6 +489,7 @@ private fun MainAppScaffold(
 private fun AppTopBar(
     username: String,
     scrollBehavior: TopAppBarScrollBehavior,
+    isRefreshing: Boolean,
     onAvatarClick: () -> Unit,
 ) {
     TopAppBar(
@@ -412,6 +545,18 @@ private fun AppTopBar(
                 BadgedBox(badge = { Badge() }) {
                     Icon(Icons.Outlined.Notifications, contentDescription = "Notificaciones")
                 }
+            }
+            // Feature B (pedido del usuario): spinner de refresh acá, a la
+            // izquierda del avatar -- señal compartida entre las 5 pestañas
+            // (ver RefreshActivityTracker), no el estado de una pantalla
+            // puntual.
+            if (isRefreshing) {
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .padding(horizontal = 4.dp)
+                        .size(18.dp),
+                    strokeWidth = 2.dp,
+                )
             }
             UserAvatar(username = username, onClick = onAvatarClick)
         },

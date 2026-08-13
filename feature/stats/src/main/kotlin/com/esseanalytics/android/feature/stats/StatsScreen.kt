@@ -74,6 +74,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.esseanalytics.android.core.designsystem.component.PlaceholderScreen
+import com.esseanalytics.android.core.designsystem.component.RefreshErrorBanner
 import com.esseanalytics.android.core.designsystem.icon.InstagramLogo
 import com.esseanalytics.android.core.designsystem.icon.PlatformIcons
 import com.esseanalytics.android.core.designsystem.icon.TiktokLogo
@@ -119,6 +120,17 @@ private fun platformIcon(platform: Platform): ImageVector? = when (platform) {
     Platform.FACEBOOK -> null
 }
 
+// Feature B (ver UIEssePanel/PLAN_SWIPE_Y_CARGA_SUAVE.md): fase GRUESA para
+// el Crossfade de más abajo -- no el StatsUiState completo. Success es data
+// class, así que activar isRefreshing/refreshError generaba un valor de
+// estado DISTINTO en cada refresh, y Crossfade lo tomaba como una
+// transición nueva, desvaneciendo y volviendo a aparecer TODA la lista en
+// cada pull-to-refresh o cambio de filtro -- justo el bug que esto arregla.
+// Con esta fase, solo se cruza entre transiciones reales (cargar/error/
+// vacío/contenido); dentro de "contenido" los items se actualizan en el
+// lugar sin fundido, leyendo el StatsUiState real directo (no la fase).
+private enum class StatsPhase { LOADING, ERROR, EMPTY, CONTENT }
+
 @Composable
 fun StatsScreen(modifier: Modifier = Modifier, viewModel: StatsViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
@@ -156,48 +168,69 @@ fun StatsScreen(modifier: Modifier = Modifier, viewModel: StatsViewModel = hiltV
             }
         }
 
+        val phase = when {
+            state is StatsUiState.Loading -> StatsPhase.LOADING
+            state is StatsUiState.Error -> StatsPhase.ERROR
+            (state as? StatsUiState.Success)?.items?.isEmpty() == true -> StatsPhase.EMPTY
+            else -> StatsPhase.CONTENT
+        }
+
         // Crossfade en vez de un when() directo -- sin esto, cambiar de pestaña
         // cortaba en seco de un estado al otro (vacío -> spinner -> contenido),
-        // se sentía como una recarga brusca de toda la pantalla.
-        Crossfade(targetState = state, label = "statsContent") { targetState ->
-            when (targetState) {
-                is StatsUiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        // se sentía como una recarga brusca de toda la pantalla. Cruza sobre
+        // `phase` (fase gruesa, ver comentario arriba), no sobre `state`
+        // completo -- así un refresh con datos ya en pantalla no dispara un
+        // fundido de ida y vuelta.
+        Crossfade(targetState = phase, label = "statsContent") { targetPhase ->
+            when (targetPhase) {
+                StatsPhase.LOADING -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
 
-                is StatsUiState.Error -> PlaceholderScreen(
+                StatsPhase.ERROR -> PlaceholderScreen(
                     title = "No se pudo cargar",
-                    note = targetState.message,
+                    note = (state as? StatsUiState.Error)?.message.orEmpty(),
                     icon = Icons.Outlined.ErrorOutline,
                     iconTint = MaterialTheme.colorScheme.error,
                 )
 
-                is StatsUiState.Success -> if (targetState.items.isEmpty()) {
-                    PlaceholderScreen(
-                        title = statsEmptyTitle(filter),
-                        note = statsEmptyNote(filter),
-                        icon = Icons.Outlined.QueryStats,
-                    )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        // Mismo orden que StatsView.swift (iOS): gráfico primero,
-                        // totales debajo -- pedido explícito del usuario (antes en
-                        // iOS los totales estaban arriba del gráfico).
-                        item(key = "chart") {
-                            StatsChartCard(targetState.items, platform = filter.platform, onExpand = { showExpandedChart = true })
-                        }
-                        item(key = "totals") { StatsTotalsCard(targetState.items, platform = filter.platform) }
-                        items(targetState.items, key = { it.fileId }) { item ->
-                            GroupStatsCard(item, thumbnailUrl = viewModel.thumbnailUrl(item))
-                        }
-                    }
+                StatsPhase.EMPTY -> PlaceholderScreen(
+                    title = statsEmptyTitle(filter),
+                    note = statsEmptyNote(filter),
+                    icon = Icons.Outlined.QueryStats,
+                )
 
-                    if (showExpandedChart) {
-                        ExpandedStatsChartDialog(items = targetState.items, platform = filter.platform, onDismiss = { showExpandedChart = false })
+                StatsPhase.CONTENT -> {
+                    // Se relee `state` (no `targetPhase`) para que items/
+                    // isRefreshing/refreshError se actualicen en el lugar en
+                    // cada recomposición, sin pasar de nuevo por Crossfade.
+                    val success = state as? StatsUiState.Success
+                    if (success != null) {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            // Spinner de refresh: en AppTopBar (izquierda del
+                            // avatar), no acá -- ver RefreshActivityTracker.
+                            success.refreshError?.let { message ->
+                                item(key = "refreshError") { RefreshErrorBanner(message) }
+                            }
+                            // Mismo orden que StatsView.swift (iOS): gráfico primero,
+                            // totales debajo -- pedido explícito del usuario (antes en
+                            // iOS los totales estaban arriba del gráfico).
+                            item(key = "chart") {
+                                StatsChartCard(success.items, platform = filter.platform, onExpand = { showExpandedChart = true })
+                            }
+                            item(key = "totals") { StatsTotalsCard(success.items, platform = filter.platform) }
+                            items(success.items, key = { it.fileId }) { item ->
+                                GroupStatsCard(item, thumbnailUrl = viewModel.thumbnailUrl(item))
+                            }
+                        }
+
+                        if (showExpandedChart) {
+                            ExpandedStatsChartDialog(items = success.items, platform = filter.platform, onDismiss = { showExpandedChart = false })
+                        }
                     }
                 }
             }
@@ -504,23 +537,24 @@ private fun formatDate(iso: String): String = runCatching {
 
 private fun parseDateOrEpoch(iso: String): Instant = runCatching { Instant.parse(iso) }.getOrDefault(Instant.EPOCH)
 
-// Punto de datos para el gráfico de vistas acumuladas -- mirror de
-// AccumulatedViewsPoint en iOS (StatsView.swift): una serie por plataforma,
-// sumando views video a video en orden cronológico. El eje X es por video
-// (V1..Vn), no por fecha -- con solo 5 videos, una fecha real deja huecos o
-// aprieta los puntos según cuán separados estén en el tiempo.
-private data class ViewsPoint(val platform: Platform, val videoLabel: String, val views: Int)
+// Punto de datos para el gráfico de vistas: UN punto por video (no una serie
+// por plataforma) -- en "Comparadas" el valor es la suma de YouTube+Instagram
+// +TikTok de ESE video, no 3 líneas separadas (mismo criterio ya aplicado en
+// desktop, ver frontend/src/components/StatsView.tsx::statsChartData, y en
+// iOS, ver StatsView.swift::viewsData -- la fuente de verdad). Con un filtro
+// de una sola plataforma activo, "sumar" sobre 1 plataforma es simplemente
+// sus propias vistas -- misma función sirve para los dos casos. El eje X es
+// por video (V1..Vn), no por fecha -- con solo 5 videos, una fecha real deja
+// huecos o aprieta los puntos según cuán separados estén en el tiempo.
+private data class ViewsPoint(val videoLabel: String, val views: Int)
 
 private fun viewsData(items: List<GroupStatsItemDto>, platform: Platform? = null): List<ViewsPoint> {
     val sorted = items.sortedBy { parseDateOrEpoch(it.fecha_creacion) }
-    val platforms = platform?.let { listOf(it) } ?: PLATFORM_ORDER
-    val points = mutableListOf<ViewsPoint>()
-    for (p in platforms) {
-        sorted.forEachIndexed { index, item ->
-            points += ViewsPoint(p, "V${index + 1}", item.platforms[p.apiValue]?.views ?: 0)
-        }
+    val visiblePlatforms = platform?.let { listOf(it) } ?: PLATFORM_ORDER
+    return sorted.mapIndexed { index, item ->
+        val views = visiblePlatforms.sumOf { item.platforms[it.apiValue]?.views ?: 0 }
+        ViewsPoint("V${index + 1}", views)
     }
-    return points
 }
 
 private fun totalMetric(items: List<GroupStatsItemDto>, platform: Platform? = null, selector: (GroupStatsSlotDto) -> Int): Int {
@@ -583,7 +617,7 @@ private fun StatsChartCard(items: List<GroupStatsItemDto>, platform: Platform? =
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Vistas por video y plataforma",
+                    chartTitle(platform),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
@@ -597,90 +631,64 @@ private fun StatsChartCard(items: List<GroupStatsItemDto>, platform: Platform? =
     }
 }
 
+// "Vistas totales por video" sin filtro, "Vistas por video en <Plataforma>"
+// con un filtro activo -- mismo texto/criterio que StatsView.tsx (desktop) y
+// StatsChartCard/ExpandedStatsChartView (iOS).
+private fun chartTitle(platform: Platform? = null): String =
+    platform?.let { "Vistas por video en ${it.displayName}" } ?: "Vistas totales por video"
+
 // Dibujado a mano con Canvas -- mismo criterio que ViewsDonut arriba, un
 // gráfico de líneas simple no amerita sumar una librería de charts entera.
 // Ejes: Y en notación compacta (1K/2K/1M) a la izquierda con grid horizontal,
 // X implícito (un punto por video, sin labels -- con 5 videos el eje X real
-// no aporta nada que el orden ya no diga). Leyenda de plataformas debajo.
+// no aporta nada que el orden ya no diga). Una sola línea (nunca una serie
+// por plataforma, ver ViewsPoint/viewsData arriba) -- así que no hace falta
+// leyenda: el título del card ya dice qué se está midiendo (mismo criterio
+// que iOS, ver el comentario sobre viewsChart en StatsView.swift).
 @Composable
 private fun ViewsChart(data: List<ViewsPoint>, modifier: Modifier = Modifier, yAxisTickCount: Int = 4) {
     if (data.isEmpty()) return
 
-    val grouped = remember(data) { data.groupBy { it.platform } }
-    // Con un filtro de plataforma activo, `data` ya viene acotada a esa
-    // única plataforma -- la leyenda tiene que reflejar eso, no mostrar
-    // siempre las 3 (antes PLATFORM_ORDER fijo hacía que las otras 2
-    // aparecieran igual, aunque no tuvieran ninguna línea dibujada).
-    val legendPlatforms = remember(grouped) { PLATFORM_ORDER.filter { it in grouped } }
-    val videoCount = remember(data) { data.map { it.videoLabel }.distinct().size }
     val maxViews = remember(data) { chartAxisMax(data.maxOfOrNull { it.views } ?: 0) }
     val textMeasurer = rememberTextMeasurer()
     val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
     val labelStyle = TextStyle(fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    val platformColors = PLATFORM_ORDER.associateWith { platformColor(it) }
+    val lineColor = MaterialTheme.colorScheme.primary
 
-    Column(modifier = modifier) {
-        Canvas(modifier = Modifier.fillMaxWidth().weight(1f)) {
-            val yAxisWidth = 34.dp.toPx()
-            val chartLeft = yAxisWidth
-            val chartRight = size.width
-            val chartTop = 6.dp.toPx()
-            val chartBottom = size.height - 6.dp.toPx()
-            val chartWidth = (chartRight - chartLeft).coerceAtLeast(1f)
-            val chartHeight = (chartBottom - chartTop).coerceAtLeast(1f)
+    Canvas(modifier = modifier) {
+        val yAxisWidth = 34.dp.toPx()
+        val chartLeft = yAxisWidth
+        val chartRight = size.width
+        val chartTop = 6.dp.toPx()
+        val chartBottom = size.height - 6.dp.toPx()
+        val chartWidth = (chartRight - chartLeft).coerceAtLeast(1f)
+        val chartHeight = (chartBottom - chartTop).coerceAtLeast(1f)
 
-            for (i in 0..yAxisTickCount) {
-                val fraction = i.toFloat() / yAxisTickCount
-                val y = chartBottom - fraction * chartHeight
-                drawLine(gridColor, Offset(chartLeft, y), Offset(chartRight, y), strokeWidth = 1.dp.toPx())
-                val label = formatNum((maxViews * fraction).roundToInt())
-                val measured = textMeasurer.measure(AnnotatedString(label), style = labelStyle)
-                drawText(measured, topLeft = Offset(0f, (y - measured.size.height / 2).coerceAtLeast(0f)))
-            }
-
-            if (videoCount > 0) {
-                fun xFor(index: Int) = if (videoCount == 1) chartLeft + chartWidth / 2f else chartLeft + (index.toFloat() / (videoCount - 1)) * chartWidth
-                fun yFor(views: Int) = chartBottom - (views.toFloat() / maxViews) * chartHeight
-
-                grouped.forEach { (platform, points) ->
-                    val sortedPoints = points.sortedBy { it.videoLabel }
-                    val color = platformColors.getValue(platform)
-                    if (sortedPoints.size > 1) {
-                        val path = Path()
-                        sortedPoints.forEachIndexed { index, point ->
-                            val x = xFor(index)
-                            val y = yFor(point.views)
-                            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                        }
-                        drawPath(path, color = color, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
-                    }
-                    sortedPoints.forEachIndexed { index, point ->
-                        drawCircle(color, radius = 3.dp.toPx(), center = Offset(xFor(index), yFor(point.views)))
-                    }
-                }
-            }
+        for (i in 0..yAxisTickCount) {
+            val fraction = i.toFloat() / yAxisTickCount
+            val y = chartBottom - fraction * chartHeight
+            drawLine(gridColor, Offset(chartLeft, y), Offset(chartRight, y), strokeWidth = 1.dp.toPx())
+            val label = formatNum((maxViews * fraction).roundToInt())
+            val measured = textMeasurer.measure(AnnotatedString(label), style = labelStyle)
+            drawText(measured, topLeft = Offset(0f, (y - measured.size.height / 2).coerceAtLeast(0f)))
         }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            legendPlatforms.forEach { platform ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(platformColor(platform)),
-                    )
-                    Text(
-                        platformShortLabel(platform),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 4.dp),
-                    )
+
+        val videoCount = data.size
+        if (videoCount > 0) {
+            fun xFor(index: Int) = if (videoCount == 1) chartLeft + chartWidth / 2f else chartLeft + (index.toFloat() / (videoCount - 1)) * chartWidth
+            fun yFor(views: Int) = chartBottom - (views.toFloat() / maxViews) * chartHeight
+
+            if (videoCount > 1) {
+                val path = Path()
+                data.forEachIndexed { index, point ->
+                    val x = xFor(index)
+                    val y = yFor(point.views)
+                    if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
                 }
+                drawPath(path, color = lineColor, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+            }
+            data.forEachIndexed { index, point ->
+                drawCircle(lineColor, radius = 3.dp.toPx(), center = Offset(xFor(index), yFor(point.views)))
             }
         }
     }
@@ -713,7 +721,7 @@ private fun ExpandedStatsChartDialog(items: List<GroupStatsItemDto>, platform: P
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 Text(
-                    "Vistas por video y plataforma",
+                    chartTitle(platform),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )

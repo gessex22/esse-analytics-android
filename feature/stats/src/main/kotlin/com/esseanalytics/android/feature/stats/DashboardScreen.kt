@@ -43,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.esseanalytics.android.core.designsystem.component.RefreshErrorBanner
 import com.esseanalytics.android.core.designsystem.icon.InstagramLogo
 import com.esseanalytics.android.core.designsystem.icon.PlatformIcons
 import com.esseanalytics.android.core.designsystem.icon.TiktokLogo
@@ -72,6 +73,12 @@ fun DashboardScreen(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            // El spinner de refresh (pull-to-refresh, dashboardRefreshTrigger
+            // tras publicar) ya no va acá -- pedido del usuario: vive en
+            // AppTopBar (izquierda del avatar), ver RefreshActivityTracker.
+            current.refreshError?.let { message ->
+                item { RefreshErrorBanner(message) }
+            }
             item {
                 val history = current.data.latestHistory
                 val historyPlatform = history?.platform?.let { Platform.fromApiValue(it) }
