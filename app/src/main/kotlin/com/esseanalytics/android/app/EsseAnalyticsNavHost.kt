@@ -2,6 +2,8 @@ package com.esseanalytics.android.app
 
 import android.net.Uri
 import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -133,6 +135,20 @@ private val bottomDestinations = listOf(
 // bordes, "Más" queda fuera del carrusel -- por eso esta lista es
 // bottomDestinations menos MORE, en el mismo orden.
 private val swipeableTabs = listOf(Routes.DASHBOARD, Routes.CALENDAR, Routes.UPLOAD, Routes.LIBRARY, Routes.STATS)
+
+// Diagnóstico real en dispositivo (OPPO CPH2565, ver
+// UIEssePanel/PLAN_SWIPE_Y_CARGA_SUAVE.md): 220ms de fade+slide en TODA
+// navegación compositaba dos pantallas completas a la vez en cada cambio de
+// tab -- candidato principal al lag reportado "al intercambiar entre
+// prácticamente todas las pestañas" (gfxinfo real: p95=61ms, p99=250ms,
+// clúster de frames en la banda 150-250ms). Cambiar entre las 6 pestañas
+// del bottom nav es un salto entre HERMANAS, no navegación jerárquica --
+// mismo criterio que Instagram/Twitter (cambio de tab instantáneo, sin
+// transición). El fade+slide se queda para las pantallas de detalle
+// colgadas de "Más" (Sync/Users/Gems/Historial/Ajustes/Biblioteca remota),
+// donde sí comunica "entrar en profundidad".
+private fun isMainTabRoute(route: String?): Boolean =
+    route != null && bottomDestinations.any { route.startsWith(it.route) }
 
 // Misma navegación exacta que ya usaba el tap de la barra inferior
 // (popUpTo+saveState+restoreState) -- reusada ahora también por el swipe
@@ -269,12 +285,28 @@ private fun MainAppScaffold(
     // puede leer isLoading directo de cada ViewModel de tab.
     val topBarViewModel: TopBarViewModel = hiltViewModel()
     val isAnyRefreshing by topBarViewModel.isAnyRefreshing.collectAsState()
+    // Pedido del usuario (mismo criterio ya aplicado en iOS, ver AppTopBar.swift
+    // allá): repetir el logo + "EsseAnalytics" en las 5 pestañas era redundante
+    // -- acá AppTopBar es UNA sola instancia compartida (no una por pantalla
+    // como en iOS), así que en vez de que cada pantalla decida su propio
+    // título, se deriva acá de `currentDestination` -- null en Inicio (marca
+    // completa), el label de bottomDestinations en el resto. Detail routes
+    // (Sync/Users/Gems/Historial/Ajustes/Biblioteca remota, alcanzadas desde
+    // "Más") no matchean ningún bottomDestination -- se quedan con la marca
+    // por default, tienen su propio DetailScaffold con título+volver encima.
+    val screenTitle = bottomDestinations
+        .firstOrNull { dest ->
+            currentDestination?.hierarchy?.any { it.route?.startsWith(dest.route) == true } == true
+        }
+        ?.takeIf { it.route != Routes.DASHBOARD }
+        ?.label
 
     Scaffold(
         modifier = Modifier.nestedScroll(topBarScrollBehavior.nestedScrollConnection),
         topBar = {
             AppTopBar(
                 username = username,
+                screenTitle = screenTitle,
                 scrollBehavior = topBarScrollBehavior,
                 isRefreshing = isAnyRefreshing,
             ) { navController.navigate(Routes.SETTINGS) }
@@ -373,17 +405,36 @@ private fun MainAppScaffold(
                         }
                     }
                 },
+            // Ver isMainTabRoute -- sin animación entre pestañas hermanas del
+            // bottom nav, fade+slide se conserva para todo lo demás (entrar/
+            // salir de las pantallas de detalle de "Más").
             enterTransition = {
-                fadeIn(navAnimSpec) + slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, navOffsetSpec) { it / 10 }
+                if (isMainTabRoute(initialState.destination.route) && isMainTabRoute(targetState.destination.route)) {
+                    EnterTransition.None
+                } else {
+                    fadeIn(navAnimSpec) + slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, navOffsetSpec) { it / 10 }
+                }
             },
             exitTransition = {
-                fadeOut(navAnimSpec) + slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Start, navOffsetSpec) { it / 10 }
+                if (isMainTabRoute(initialState.destination.route) && isMainTabRoute(targetState.destination.route)) {
+                    ExitTransition.None
+                } else {
+                    fadeOut(navAnimSpec) + slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Start, navOffsetSpec) { it / 10 }
+                }
             },
             popEnterTransition = {
-                fadeIn(navAnimSpec) + slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.End, navOffsetSpec) { it / 10 }
+                if (isMainTabRoute(initialState.destination.route) && isMainTabRoute(targetState.destination.route)) {
+                    EnterTransition.None
+                } else {
+                    fadeIn(navAnimSpec) + slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.End, navOffsetSpec) { it / 10 }
+                }
             },
             popExitTransition = {
-                fadeOut(navAnimSpec) + slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, navOffsetSpec) { it / 10 }
+                if (isMainTabRoute(initialState.destination.route) && isMainTabRoute(targetState.destination.route)) {
+                    ExitTransition.None
+                } else {
+                    fadeOut(navAnimSpec) + slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, navOffsetSpec) { it / 10 }
+                }
             },
         ) {
             composable(Routes.DASHBOARD) { DashboardScreen() }
@@ -488,6 +539,10 @@ private fun MainAppScaffold(
 @Composable
 private fun AppTopBar(
     username: String,
+    // null = Inicio (logo + "EsseAnalytics" completo). Con valor = el resto
+    // de las pestañas, muestra su propio nombre en vez de repetir la marca
+    // -- mismo criterio que AppTopBarScreenTitle en iOS.
+    screenTitle: String?,
     scrollBehavior: TopAppBarScrollBehavior,
     isRefreshing: Boolean,
     onAvatarClick: () -> Unit,
@@ -506,37 +561,46 @@ private fun AppTopBar(
             scrolledContainerColor = MaterialTheme.colorScheme.background,
         ),
         title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // ic_launcher_foreground.png tiene el padding de "safe zone"
-                // de ícono adaptativo (el dibujo real ocupa ~60% del lienzo,
-                // pensado para que el SO lo recorte con una máscara) -- acá
-                // se muestra tal cual, sin ese recorte, así que hace falta
-                // un tamaño bastante más grande que el de un ícono normal
-                // para que el trazo se lea a simple vista.
-                Icon(
-                    painterResource(R.drawable.ic_launcher_foreground),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(40.dp),
+            if (screenTitle != null) {
+                Text(
+                    screenTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold,
                 )
-                // Split en dos Text, no un string único: la web (App.tsx,
-                // Sidebar.tsx, LoginPage.tsx, LandingPage.tsx) siempre pinta
-                // "Esse" en --foreground y "Analytics" en --primary (rojo o
-                // ámbar según el tema activo), nunca las dos palabras del
-                // mismo color.
-                Row(modifier = Modifier.padding(start = 8.dp)) {
-                    Text(
-                        "Esse",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontWeight = FontWeight.Bold,
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // ic_launcher_foreground.png tiene el padding de "safe zone"
+                    // de ícono adaptativo (el dibujo real ocupa ~60% del lienzo,
+                    // pensado para que el SO lo recorte con una máscara) -- acá
+                    // se muestra tal cual, sin ese recorte, así que hace falta
+                    // un tamaño bastante más grande que el de un ícono normal
+                    // para que el trazo se lea a simple vista.
+                    Icon(
+                        painterResource(R.drawable.ic_launcher_foreground),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(40.dp),
                     )
-                    Text(
-                        "Analytics",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    // Split en dos Text, no un string único: la web (App.tsx,
+                    // Sidebar.tsx, LoginPage.tsx, LandingPage.tsx) siempre pinta
+                    // "Esse" en --foreground y "Analytics" en --primary (rojo o
+                    // ámbar según el tema activo), nunca las dos palabras del
+                    // mismo color.
+                    Row(modifier = Modifier.padding(start = 8.dp)) {
+                        Text(
+                            "Esse",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "Analytics",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
                 }
             }
         },
