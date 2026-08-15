@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.essenalytics.android.application)
     alias(libs.plugins.essenalytics.android.hilt)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.androidx.baselineprofile)
 }
 
 android {
@@ -19,7 +20,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false // se activa junto con las reglas de ProGuard/R8, no en Fase 0
+            // La versión distribuible usa las optimizaciones reales de producción.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
@@ -66,6 +69,10 @@ dependencies {
     // los workers en sí vive en feature:upload, que ya los declara.
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.hilt.work)
+    // Instala el Baseline Profile incluido también en APKs distribuidos fuera
+    // de Play Store, como las pruebas físicas que hacemos por ADB.
+    implementation(libs.androidx.profileinstaller)
+    baselineProfile(project(":baselineprofile"))
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

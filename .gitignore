@@ -1,4 +1,7 @@
 *.iml
+# Artefactos sueltos de correr la generación del baseline profile a mano
+# (gradlew :baselineprofile:...) -- no son fuente, se regeneran solos.
+baselineprofile-generation.*
 .gradle/
 .idea/
 .kotlin/

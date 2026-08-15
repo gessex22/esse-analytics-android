@@ -2,23 +2,27 @@ package com.esseanalytics.android.app
 
 import android.net.Uri
 import androidx.compose.animation.AnimatedContentTransitionScope
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
@@ -45,10 +49,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -58,25 +60,18 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.PointerInputScope
-import androidx.compose.ui.input.pointer.changedToUp
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.NavDestination
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -100,7 +95,6 @@ import com.esseanalytics.android.feature.stats.StatsScreen
 import com.esseanalytics.android.feature.sync.SyncScreen
 import com.esseanalytics.android.feature.upload.UploadScreen
 import com.esseanalytics.android.feature.users.UsersScreen
-import kotlin.math.abs
 
 private object Routes {
     const val DASHBOARD = "dashboard"
@@ -129,12 +123,7 @@ private val bottomDestinations = listOf(
     BottomDestination(Routes.MORE, "Más", Icons.Outlined.MoreHoriz),
 )
 
-// Feature A -- swipe global entre pestañas (arrastrar desde cualquier punto
-// de la pantalla, no solo tocar la barra inferior). Decisiones cerradas con
-// el usuario, ver UIEssePanel/PLAN_SWIPE_Y_CARGA_SUAVE.md: sin loop en los
-// bordes, "Más" queda fuera del carrusel -- por eso esta lista es
-// bottomDestinations menos MORE, en el mismo orden.
-private val swipeableTabs = listOf(Routes.DASHBOARD, Routes.CALENDAR, Routes.UPLOAD, Routes.LIBRARY, Routes.STATS)
+private val floatingMainDestinations = bottomDestinations.filter { it.route != Routes.MORE }
 
 // Diagnóstico real en dispositivo (OPPO CPH2565, ver
 // UIEssePanel/PLAN_SWIPE_Y_CARGA_SUAVE.md): 220ms de fade+slide en TODA
@@ -150,9 +139,7 @@ private val swipeableTabs = listOf(Routes.DASHBOARD, Routes.CALENDAR, Routes.UPL
 private fun isMainTabRoute(route: String?): Boolean =
     route != null && bottomDestinations.any { route.startsWith(it.route) }
 
-// Misma navegación exacta que ya usaba el tap de la barra inferior
-// (popUpTo+saveState+restoreState) -- reusada ahora también por el swipe
-// global, para que las dos formas de cambiar de tab se comporten idéntico.
+// Navegación de la barra inferior: conserva el estado de cada pestaña.
 private fun NavHostController.navigateToMainTab(route: String) {
     navigate(route) {
         popUpTo(graph.findStartDestination().id) { saveState = true }
@@ -161,53 +148,84 @@ private fun NavHostController.navigateToMainTab(route: String) {
     }
 }
 
-// Escucha el drag en pass Initial (antes que cualquier hijo) SIN consumir
-// nada -- así el scroll vertical de listas y los ScrollView/LazyRow
-// horizontales ya existentes (chips de Library, filtros de Stats/
-// RemoteLibrary) lo siguen recibiendo con normalidad en su propio pass
-// Main, sin robarles el gesto. Decide recién al soltar (no sigue el dedo en
-// vivo), igual que iOS -- no migramos NavHost a HorizontalPager a
-// propósito: hubiera significado reescribir cómo Subir recibe su fileId
-// opcional (hoy argumento de ruta, ver composable de Routes.UPLOAD abajo) y
-// cómo Inicio se refresca tras publicar (hoy fuerza una instancia nueva del
-// ViewModel con popUpTo(inclusive=true), ver onPublishedAllSuccess). Riesgo
-// conocido y no resoluble sin dispositivo real (este entorno no puede
-// compilar Android, ver UIEssePanel/CLAUDE.md): si el arrastre empieza
-// justo sobre un LazyRow horizontal, este detector también lo ve y puede
-// disparar cambio de tab en simultáneo con el scroll de los chips -- a
-// afinar (ej. NestedScrollConnection) cuando se pueda probar en un
-// dispositivo real.
-//
-// earlyExitVerticalPx -- corte temprano: la primera versión de esto seguía
-// despertando esta coroutine (awaitPointerEvent) para CADA evento de touch
-// hasta soltar el dedo, sin importar si el gesto ya se veía claramente
-// vertical (ej. scrollear una lista larga o un gráfico de Stats, con MUCHOS
-// eventos de movimiento durante todo el arrastre) -- trabajo de más
-// corriendo en paralelo a CUALQUIER scroll de la app, no solo a los swipes
-// horizontales reales. Sospecha de freeze reportada en pruebas (ver
-// UIEssePanel/PLAN_SWIPE_Y_CARGA_SUAVE.md, "Feedback de prueba real"): apenas
-// el desplazamiento vertical acumulado supera este umbral Y domina claramente
-// al horizontal, se corta el gesto entero (return, no break) y se deja de
-// escuchar el resto de ese touch -- ya no puede ser un swipe de página.
-private suspend fun PointerInputScope.awaitTabSwipeGesture(
-    earlyExitVerticalPx: Float,
-    onSwipeEnd: (Offset) -> Unit,
+@Composable
+private fun FloatingBottomNavigation(
+    currentDestination: NavDestination?,
+    onDestinationClick: (String) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    awaitEachGesture {
-        val down = awaitFirstDown(pass = PointerEventPass.Initial)
-        val pointerId = down.id
-        var last = down.position
-        while (true) {
-            val event = awaitPointerEvent(pass = PointerEventPass.Initial)
-            val change = event.changes.firstOrNull { it.id == pointerId } ?: break
-            last = change.position
-            val delta = last - down.position
-            if (abs(delta.y) > earlyExitVerticalPx && abs(delta.y) > abs(delta.x) * 1.5f) {
-                return@awaitEachGesture
+    // Misma composición de iOS: cinco accesos en una cápsula centrada y
+    // "Más" como acción circular separada. La separación deja ver el fondo
+    // y hace que la navegación flote, en vez de formar una franja opaca.
+    Row(
+        modifier = Modifier
+            .then(modifier)
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            // Apenas separada del área de gestos: antes el margen vertical de
+            // 10.dp la dejaba demasiado arriba para una barra flotante.
+            .padding(start = 16.dp, end = 16.dp, bottom = 2.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(
+            shape = RoundedCornerShape(31.dp),
+            // Material translúcido: deja percibir el fondo sin sacrificar la
+            // legibilidad de los iconos, como la barra flotante de Telegram.
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+            tonalElevation = 3.dp,
+            shadowElevation = 6.dp,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                floatingMainDestinations.forEach { dest ->
+                    val selected = currentDestination?.hierarchy?.any {
+                        it.route?.startsWith(dest.route) == true
+                    } == true
+                    Box(
+                        modifier = Modifier
+                            .size(54.dp, 50.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent,
+                            )
+                            .clickable { onDestinationClick(dest.route) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            dest.icon,
+                            contentDescription = dest.label,
+                            tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
-            if (change.changedToUp()) break
         }
-        onSwipeEnd(last - down.position)
+        Box(modifier = Modifier.width(10.dp))
+        val more = bottomDestinations.last { it.route == Routes.MORE }
+        Surface(
+            onClick = { onDestinationClick(more.route) },
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+            tonalElevation = 3.dp,
+            shadowElevation = 6.dp,
+            modifier = Modifier.size(56.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    more.icon,
+                    contentDescription = more.label,
+                    tint = if (currentDestination?.hierarchy?.any { it.route?.startsWith(more.route) == true } == true) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+        }
     }
 }
 
@@ -311,42 +329,6 @@ private fun MainAppScaffold(
                 isRefreshing = isAnyRefreshing,
             ) { navController.navigate(Routes.SETTINGS) }
         },
-        bottomBar = {
-            // El contenido scrolleable (Column/LazyColumn, sin background propio)
-            // se ve en Scaffold.containerColor = background, mientras el
-            // NavigationBar usa surfaceContainer (= surface acá, ver Theme.kt)
-            // -- esa diferencia es la misma que --background vs --card en la
-            // web, y ahí se resuelve con un borde superior sutil (MobileNav en
-            // Sidebar.tsx: "border-t border-border"), no ocultándola. Sin este
-            // HorizontalDivider la transición se veía como un bloque oscuro
-            // pegado contra la barra en vez de un borde de barra intencional.
-            Column {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-                NavigationBar {
-                    bottomDestinations.forEach { dest ->
-                        // startsWith, no == : Subir ahora es una ruta con
-                        // argumento opcional ("upload?fileId={fileId}"), no el
-                        // literal "upload" -- ver la ruta de Routes.UPLOAD más
-                        // abajo. Ninguna otra ruta de la app es prefijo de otra,
-                        // así que esto no genera falsos positivos.
-                        val selected = currentDestination?.hierarchy?.any { it.route?.startsWith(dest.route) == true } == true
-                        NavigationBarItem(
-                            selected = selected,
-                            onClick = { navController.navigateToMainTab(dest.route) },
-                            icon = { Icon(dest.icon, contentDescription = dest.label) },
-                            label = { Text(dest.label) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                indicatorColor = MaterialTheme.colorScheme.surfaceVariant,
-                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            ),
-                        )
-                    }
-                }
-            }
-        },
     ) { padding ->
         // duration=220 + FastOutSlowInEasing == el cubic-bezier [0.4,0,0.2,1]
         // que motion/react usa en la web para transiciones de panel/vista
@@ -355,88 +337,47 @@ private fun MainAppScaffold(
         // en vez de repetirlo en cada composable(...).
         val navAnimSpec = tween<Float>(220, easing = FastOutSlowInEasing)
         val navOffsetSpec = tween<IntOffset>(220, easing = FastOutSlowInEasing)
-        val haptic = LocalHapticFeedback.current
-        val density = LocalDensity.current
-        // Mismo umbral (en dp, no px crudos) y misma exigencia de dirección
-        // dominante que iOS -- ver MainTabsView.swift. Ajustable en pruebas
-        // reales, no bloquea el arranque (decisión técnica ya cerrada en el
-        // plan).
-        val swipeMinTranslationPx = remember(density) { with(density) { 60.dp.toPx() } }
-        // Corte temprano del detector (ver awaitTabSwipeGesture) -- más chico
-        // que el umbral de swipe: apenas un scroll vertical normal se define
-        // como tal, se deja de escuchar ese touch en vez de seguir corriendo
-        // hasta soltar el dedo.
-        val swipeEarlyExitVerticalPx = remember(density) { with(density) { 24.dp.toPx() } }
-        NavHost(
+        // Las pestañas hermanas usan un fundido corto: evita el corte seco de
+        // una transición de 1 ms sin volver al fade+slide de 220 ms que
+        // duplicaba el trabajo de composición durante demasiado tiempo.
+        val tabAnimSpec = tween<Float>(120, easing = FastOutSlowInEasing)
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            NavHost(
             navController = navController,
             startDestination = Routes.DASHBOARD,
-            modifier = Modifier
-                .padding(padding)
-                // pointerInput con key = ruta actual: si el usuario cambia de
-                // tab por cualquier vía (tap, back del sistema), el detector
-                // arranca de cero en vez de arrastrar estado de un gesto
-                // anterior sobre la pantalla nueva.
-                .pointerInput(currentDestination?.route) {
-                    awaitTabSwipeGesture(earlyExitVerticalPx = swipeEarlyExitVerticalPx) { total ->
-                        val horizontal = total.x
-                        val vertical = total.y
-                        if (abs(horizontal) <= abs(vertical) * 1.5f || abs(horizontal) <= swipeMinTranslationPx) {
-                            return@awaitTabSwipeGesture
-                        }
-                        val currentIndex = swipeableTabs.indexOfFirst { tab ->
-                            currentDestination?.hierarchy?.any { it.route?.startsWith(tab) == true } == true
-                        }
-                        // No es ninguna de las 5 pestañas swipeables (ej. una
-                        // pantalla de "Más" como Historial/Usuarios/Ajustes)
-                        // -- el swipe global no aplica ahí.
-                        if (currentIndex < 0) return@awaitTabSwipeGesture
-                        when {
-                            horizontal < 0 && currentIndex < swipeableTabs.lastIndex ->
-                                navController.navigateToMainTab(swipeableTabs[currentIndex + 1])
-                            horizontal > 0 && currentIndex > 0 ->
-                                navController.navigateToMainTab(swipeableTabs[currentIndex - 1])
-                            else ->
-                                // Borde (Inicio hacia atrás o Estadísticas
-                                // hacia adelante): sin loop, "Más" no entra
-                                // por swipe -- decisión cerrada. Feedback
-                                // háptico para que quede claro que el gesto
-                                // se registró aunque no haya a dónde ir.
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        }
-                    }
-                },
+            modifier = Modifier.fillMaxSize(),
             // Ver isMainTabRoute -- sin animación entre pestañas hermanas del
             // bottom nav, fade+slide se conserva para todo lo demás (entrar/
             // salir de las pantallas de detalle de "Más").
             enterTransition = {
                 if (isMainTabRoute(initialState.destination.route) && isMainTabRoute(targetState.destination.route)) {
-                    EnterTransition.None
+                    fadeIn(tabAnimSpec)
                 } else {
                     fadeIn(navAnimSpec) + slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, navOffsetSpec) { it / 10 }
                 }
             },
             exitTransition = {
                 if (isMainTabRoute(initialState.destination.route) && isMainTabRoute(targetState.destination.route)) {
-                    ExitTransition.None
+                    fadeOut(tabAnimSpec)
                 } else {
                     fadeOut(navAnimSpec) + slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Start, navOffsetSpec) { it / 10 }
                 }
             },
             popEnterTransition = {
                 if (isMainTabRoute(initialState.destination.route) && isMainTabRoute(targetState.destination.route)) {
-                    EnterTransition.None
+                    fadeIn(tabAnimSpec)
                 } else {
                     fadeIn(navAnimSpec) + slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.End, navOffsetSpec) { it / 10 }
                 }
             },
             popExitTransition = {
                 if (isMainTabRoute(initialState.destination.route) && isMainTabRoute(targetState.destination.route)) {
-                    ExitTransition.None
+                    fadeOut(tabAnimSpec)
                 } else {
                     fadeOut(navAnimSpec) + slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, navOffsetSpec) { it / 10 }
                 }
             },
-        ) {
+            ) {
             composable(Routes.DASHBOARD) { DashboardScreen() }
             composable(Routes.LIBRARY) {
                 LibraryScreen(
@@ -496,9 +437,9 @@ private fun MainAppScaffold(
             composable(Routes.SYNC) {
                 DetailScaffold("Sincronización", onBack = navController::popBackStack) { SyncScreen() }
             }
-            composable(Routes.STATS) {
-                DetailScaffold("Estadísticas", onBack = navController::popBackStack) { StatsScreen() }
-            }
+            // Estadísticas ya es una pestaña principal: usar directamente la
+            // pantalla evita apilar otro TopAppBar con el mismo título.
+            composable(Routes.STATS) { StatsScreen() }
             // Sin saveState/restoreState a propósito -- entrar de nuevo a
             // Historial crea una instancia nueva de HistoryViewModel (init
             // vuelve a cargar), así que siempre se ve al día tras publicar,
@@ -524,6 +465,14 @@ private fun MainAppScaffold(
                     RemoteLibraryScreen(initialVideoId = videoId)
                 }
             }
+            }
+            // Overlay real, no bottomBar de Scaffold: el contenido queda por
+            // debajo y los huecos alrededor de la cápsula son transparentes.
+            FloatingBottomNavigation(
+                currentDestination = currentDestination,
+                onDestinationClick = navController::navigateToMainTab,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
     }
 }
@@ -662,14 +611,10 @@ private fun UserAvatar(username: String, onClick: () -> Unit) {
 private fun MoreScreen(navController: NavHostController, isOwner: Boolean, canUseCloudStorage: Boolean) {
     Column(
         modifier = Modifier
-            .fillMaxWidth()
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp),
     ) {
-        Text(
-            "Más",
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(start = 4.dp, bottom = 12.dp),
-        )
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),

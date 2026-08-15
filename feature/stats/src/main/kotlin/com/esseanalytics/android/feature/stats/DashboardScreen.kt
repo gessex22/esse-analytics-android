@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -19,6 +20,7 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.ChatBubble
 import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.material.icons.outlined.QueryStats
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.Card
@@ -29,6 +31,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -65,32 +68,48 @@ fun DashboardScreen(
     viewModel: DashboardViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
-    when (val current = state) {
-        DashboardUiState.Loading -> Box(modifier.fillMaxWidth().height(240.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-        is DashboardUiState.Error -> DashboardMessage("No se pudo cargar", current.message)
-        is DashboardUiState.Success -> LazyColumn(
-            modifier = modifier,
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+    Column(modifier = modifier.fillMaxSize()) {
+        // A diferencia de iOS/web (gesto de pull-to-refresh), esta app no usa
+        // swipe-to-refresh en ningún lado -- se sigue la misma convención que
+        // ya tiene StatsScreen.kt: un botón "Actualizar" explícito. Sin esto,
+        // Dashboard solo se refrescaba con el init{} inicial del ViewModel,
+        // sin ninguna forma de que el usuario lo dispare a mano.
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.End,
         ) {
-            // El spinner de refresh (pull-to-refresh, dashboardRefreshTrigger
-            // tras publicar) ya no va acá -- pedido del usuario: vive en
-            // AppTopBar (izquierda del avatar), ver RefreshActivityTracker.
-            current.refreshError?.let { message ->
-                item { RefreshErrorBanner(message) }
+            TextButton(onClick = viewModel::refresh) {
+                Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text("Actualizar", modifier = Modifier.padding(start = 4.dp))
             }
-            item {
-                val history = current.data.latestHistory
-                val historyPlatform = history?.platform?.let { Platform.fromApiValue(it) }
-                val statsItem = history?.fileName?.let { name -> current.data.items.firstOrNull { it.fileName == name } }
-                    ?: history?.linkedFileId?.let { fileId -> current.data.items.firstOrNull { it.fileId == fileId.toString() } }
-                    ?: historyPlatform?.let { platform -> current.data.items.firstOrNull { it.platforms[platform.apiValue]?.platformId == history.platformId } }
-                    ?: current.data.fallbackItem
-                    ?: if (history == null) current.data.items.firstOrNull() else null
-                LatestVideoCard(history, statsItem, current.data.focusPlatform, statsItem?.let(viewModel::thumbnailUrl))
+        }
+        when (val current = state) {
+            DashboardUiState.Loading -> Box(Modifier.fillMaxWidth().height(240.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            is DashboardUiState.Error -> DashboardMessage("No se pudo cargar", current.message)
+            is DashboardUiState.Success -> LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                // El spinner de refresh (pull-to-refresh, dashboardRefreshTrigger
+                // tras publicar) ya no va acá -- pedido del usuario: vive en
+                // AppTopBar (izquierda del avatar), ver RefreshActivityTracker.
+                current.refreshError?.let { message ->
+                    item { RefreshErrorBanner(message) }
+                }
+                item {
+                    val history = current.data.latestHistory
+                    val historyPlatform = history?.platform?.let { Platform.fromApiValue(it) }
+                    val statsItem = history?.fileName?.let { name -> current.data.items.firstOrNull { it.fileName == name } }
+                        ?: history?.linkedFileId?.let { fileId -> current.data.items.firstOrNull { it.fileId == fileId.toString() } }
+                        ?: historyPlatform?.let { platform -> current.data.items.firstOrNull { it.platforms[platform.apiValue]?.platformId == history.platformId } }
+                        ?: current.data.fallbackItem
+                        ?: if (history == null) current.data.items.firstOrNull() else null
+                    LatestVideoCard(history, statsItem, current.data.focusPlatform, statsItem?.let(viewModel::thumbnailUrl))
+                }
+                item { PlatformPodium(current.data.items, current.data.individualItems, current.data.podiumMode, viewModel::setPodiumMode) }
+                item { UpcomingCard(current.data.calendar) }
             }
-            item { PlatformPodium(current.data.items, current.data.individualItems, current.data.podiumMode, viewModel::setPodiumMode) }
-            item { UpcomingCard(current.data.calendar) }
         }
     }
 }

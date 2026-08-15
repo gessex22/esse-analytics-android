@@ -24,6 +24,7 @@ dependencyResolutionManagement {
 rootProject.name = "essenalytics-android"
 
 include(":app")
+include(":baselineprofile")
 
 include(":core:model")
 include(":core:common")
