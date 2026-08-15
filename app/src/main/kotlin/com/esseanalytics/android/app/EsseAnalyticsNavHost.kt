@@ -252,6 +252,7 @@ fun EsseAnalyticsNavHost(
         // la Biblioteca remota de la cuenta anterior.
         is AuthState.LoggedIn -> key(current.user.id) {
             val navController = rememberNavController()
+            val isLabMode by sessionViewModel.isLabMode.collectAsState()
             MainAppScaffold(
                 navController,
                 pendingImportUris,
@@ -259,6 +260,7 @@ fun EsseAnalyticsNavHost(
                 isOwner = current.user.isOwner,
                 canUseCloudStorage = current.user.canUseCloudStorage,
                 username = current.user.username,
+                isLabMode = isLabMode,
             )
         }
     }
@@ -273,6 +275,7 @@ private fun MainAppScaffold(
     isOwner: Boolean,
     canUseCloudStorage: Boolean,
     username: String,
+    isLabMode: Boolean,
 ) {
     // Un video compartido desde otra app (Galería, Archivos) llega acá vía
     // MainActivity — si la app estaba en cualquier otra pantalla, la manda a
@@ -341,11 +344,15 @@ private fun MainAppScaffold(
         // una transición de 1 ms sin volver al fade+slide de 220 ms que
         // duplicaba el trabajo de composición durante demasiado tiempo.
         val tabAnimSpec = tween<Float>(120, easing = FastOutSlowInEasing)
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-            NavHost(
+        // Column con TODO el padding del Scaffold de una sola vez -- el banner
+        // (si está) y el NavHost quedan uno arriba del otro, sin repartir
+        // PaddingValues a mano entre los dos.
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        if (isLabMode) LabModeBanner()
+        NavHost(
             navController = navController,
             startDestination = Routes.DASHBOARD,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.weight(1f),
             // Ver isMainTabRoute -- sin animación entre pestañas hermanas del
             // bottom nav, fade+slide se conserva para todo lo demás (entrar/
             // salir de las pantallas de detalle de "Más").
@@ -474,6 +481,7 @@ private fun MainAppScaffold(
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
+        }
     }
 }
 
@@ -574,6 +582,29 @@ private fun AppTopBar(
             UserAvatar(username = username, onClick = onAvatarClick)
         },
     )
+}
+
+// Persistente en las 4 pestañas del bottom nav (mismo Scaffold que AppTopBar,
+// arriba) -- mirror de AppTopBarModifier.swift (iOS) y el banner de App.tsx
+// (desktop). isLabMode viaja desde SessionViewModel, que ya lo confirmó en
+// vivo contra GET /api/health (ver LabModeStatus.kt) -- nunca por heurística.
+@Composable
+private fun LabModeBanner(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Color(0x267C3AED))
+            .padding(vertical = 6.dp, horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("🧪", modifier = Modifier.padding(end = 6.dp))
+        Text(
+            "Laboratorio · Datos simulados",
+            style = MaterialTheme.typography.labelMedium,
+            color = Color(0xFF7C3AED),
+            fontWeight = FontWeight.Medium,
+        )
+    }
 }
 
 @Composable

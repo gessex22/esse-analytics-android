@@ -22,3 +22,10 @@ data class ConnectionStatusDto(val connected: Boolean = false)
 
 @Serializable
 data class SetYoutubeThumbnailRequest(val imageBase64: String)
+
+// GET /api/health -- idéntico en la central real y en lab-backend. `environment`
+// es la única señal que LabModeStatus usa para decidir si activar mocks (nunca
+// heurística de URL/puerto) -- mismo criterio que useBackendType.ts (desktop) y
+// LabModeStatus.swift (iOS).
+@Serializable
+data class HealthResponseDto(val ok: Boolean = false, val environment: String? = null)
