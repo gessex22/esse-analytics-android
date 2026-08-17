@@ -41,12 +41,12 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,7 +71,6 @@ import com.esseanalytics.android.core.designsystem.theme.YoutubeRed
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
 import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
-import kotlinx.coroutines.launch
 import java.io.File
 
 // Historial de todo lo importado -- no solo una lista, cada tarjeta muestra
@@ -97,23 +96,29 @@ fun LibraryScreen(
     val items by viewModel.items.collectAsState()
     val filter by viewModel.filter.collectAsState()
     val canUseCloudStorage by viewModel.canUseCloudStorage.collectAsState()
-    val canSeeBackupCatalog by viewModel.canSeeBackupCatalog.collectAsState()
+    val canSeeLanLibrary by viewModel.canSeeLanLibrary.collectAsState()
     val nextUploads by viewModel.nextUploads.collectAsState()
     var deleteTarget by remember { mutableStateOf<LibraryListItem?>(null) }
     var playingLocal by remember { mutableStateOf<VideoFile?>(null) }
     var playingRemote by remember { mutableStateOf<RemoteLibraryVideoDto?>(null) }
+    var playingLan by remember { mutableStateOf<LibraryListItem.LanVideo?>(null) }
+    var publishingLan by remember { mutableStateOf<LibraryListItem.LanVideo?>(null) }
     var editingFile by remember { mutableStateOf<VideoFile?>(null) }
     var editingRemoteVideo by remember { mutableStateOf<RemoteLibraryVideoDto?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
 
     LaunchedEffect(canUseCloudStorage) {
         if (canUseCloudStorage) viewModel.refreshRemote()
     }
-    LaunchedEffect(canSeeBackupCatalog) {
-        if (canSeeBackupCatalog) viewModel.refreshBackupCatalog()
-    }
     LaunchedEffect(Unit) { viewModel.refreshNextUploads() }
+    // Descubrimiento corre SOLO mientras esta pantalla está visible --
+    // ref-count compartido con Ajustes si esa pantalla también lo pide al
+    // mismo tiempo (ver LanPcDiscoveryStore.start/stop), no un simple on/off
+    // que se pisarían.
+    DisposableEffect(Unit) {
+        viewModel.startLanDiscovery()
+        onDispose { viewModel.stopLanDiscovery() }
+    }
 
     Scaffold(
         modifier = modifier,
@@ -133,12 +138,12 @@ fun LibraryScreen(
         },
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
-            if (canUseCloudStorage || canSeeBackupCatalog) {
+            if (canUseCloudStorage || canSeeLanLibrary) {
                 LibraryFilterChips(
                     filter = filter,
                     onFilterChange = viewModel::setFilter,
                     canUseCloudStorage = canUseCloudStorage,
-                    canSeeBackupCatalog = canSeeBackupCatalog,
+                    canSeeLanLibrary = canSeeLanLibrary,
                 )
             }
 
@@ -168,7 +173,7 @@ fun LibraryScreen(
                             when (item) {
                                 is LibraryListItem.Local -> "local_${item.file.id}"
                                 is LibraryListItem.Remote -> "remote_${item.video._id}"
-                                is LibraryListItem.BackupCatalog -> "backup_${item.entry.file_name}"
+                                is LibraryListItem.LanVideo -> "lan_${item.video._id}"
                             }
                         },
                     ) { item ->
@@ -176,24 +181,24 @@ fun LibraryScreen(
                             item,
                             nextUploads = nextUploads,
                             remoteThumbnailUrl = (item as? LibraryListItem.Remote)?.let { viewModel.thumbnailUrl(it.video) },
+                            lanThumbnailUrl = (item as? LibraryListItem.LanVideo)?.let { viewModel.lanThumbnailUrl(it) },
                             onClick = {
                                 when (item) {
                                     is LibraryListItem.Local -> editingFile = item.file
                                     is LibraryListItem.Remote -> onRemoteClick(item.video)
-                                    // Solo lectura -- sin bytes, sin adónde navegar (ver
-                                    // BackupApi). Avisa por qué en vez de no hacer nada.
-                                    is LibraryListItem.BackupCatalog -> scope.launch {
-                                        snackbarHostState.showSnackbar(
-                                            "Este archivo vive en tu PC -- no se puede reproducir ni publicar desde acá.",
-                                        )
-                                    }
+                                    // Toca navega directo al mismo lugar donde se
+                                    // ve Y se publica (mismo criterio que iOS,
+                                    // LibraryView.swift) -- a diferencia del viejo
+                                    // BackupCatalog (solo lectura), acá SÍ hay
+                                    // bytes reales.
+                                    is LibraryListItem.LanVideo -> publishingLan = item
                                 }
                             },
                             onPlayClick = {
                                 when (item) {
                                     is LibraryListItem.Local -> playingLocal = item.file
                                     is LibraryListItem.Remote -> playingRemote = item.video
-                                    is LibraryListItem.BackupCatalog -> Unit
+                                    is LibraryListItem.LanVideo -> playingLan = item
                                 }
                             },
                             onDeleteClick = { deleteTarget = item },
@@ -202,11 +207,13 @@ fun LibraryScreen(
                             // de "descargar" un video de Nube a un registro local,
                             // a diferencia de iOS) edita directo contra
                             // RemoteLibraryVideoModel (RemoteVideoEditViewModel).
-                            // BackupCatalog es de solo lectura, sin editor.
+                            // LanVideo no tiene editor de plataformas acá -- el
+                            // estado real vive en la SQLite de la PC, se publica
+                            // (no se edita a mano) vía publishingLan.
                             onEditPlatformsClick = when (item) {
                                 is LibraryListItem.Local -> { { editingFile = item.file } }
                                 is LibraryListItem.Remote -> { { editingRemoteVideo = item.video } }
-                                is LibraryListItem.BackupCatalog -> null
+                                is LibraryListItem.LanVideo -> null
                             },
                         )
                     }
@@ -236,6 +243,25 @@ fun LibraryScreen(
             onDismiss = { playingRemote = null },
         )
     }
+    playingLan?.let { item ->
+        // Genérico -- title+streamUrl+onDismiss, sin nada específico de la
+        // cola remota (ver investigación previa a esta implementación).
+        RemoteVideoPlayerDialog(
+            title = item.video.fileName,
+            streamUrl = viewModel.lanStreamUrl(item),
+            onDismiss = { playingLan = null },
+        )
+    }
+    publishingLan?.let { item ->
+        LocalPcPublishSheet(
+            item = item,
+            viewModel = viewModel,
+            onDismiss = {
+                publishingLan = null
+                viewModel.resetLanPublishState()
+            },
+        )
+    }
 
     editingFile?.let { file ->
         VideoDetailSheet(
@@ -252,21 +278,25 @@ fun LibraryScreen(
     }
 }
 
-// Remoto y Catálogo PC son gates DISTINTOS (canUseCloudStorage vs
-// canSeeBackupCatalog) -- un premium sin el entitlement de storage ve Todos/
-// Local/Catálogo PC pero no Remoto; el owner ve los 4.
+// Remoto y Biblioteca LAN son gates DISTINTOS (canUseCloudStorage vs
+// canSeeLanLibrary) -- un premium sin el entitlement de storage ve Todos/
+// Local/Biblioteca LAN pero no Remoto; el owner ve los 4. canSeeLanLibrary es
+// gratis (sin isPremium) -- un free con su PC en la LAN también ve el chip.
+// FIX 2026-08-17: sin PC autorizada ahora mismo, el chip directamente no
+// aparece (antes quedaba siempre visible para cualquier premium vía el
+// mirror de metadata, sin bytes -- se veía como filas negras sin conexión).
 @Composable
 private fun LibraryFilterChips(
     filter: LibraryFilter,
     onFilterChange: (LibraryFilter) -> Unit,
     canUseCloudStorage: Boolean,
-    canSeeBackupCatalog: Boolean,
+    canSeeLanLibrary: Boolean,
 ) {
     val visibleFilters = buildList {
         add(LibraryFilter.ALL)
         add(LibraryFilter.LOCAL)
         if (canUseCloudStorage) add(LibraryFilter.REMOTE)
-        if (canSeeBackupCatalog) add(LibraryFilter.BACKUP_CATALOG)
+        if (canSeeLanLibrary) add(LibraryFilter.LAN)
     }
     // horizontalScroll, NO fillMaxWidth -- con los 4 chips (owner) el ancho no
     // entra en pantallas angostas; sin scroll, Row comprime el último chip
@@ -292,7 +322,7 @@ private fun libraryFilterLabel(filter: LibraryFilter): String = when (filter) {
     LibraryFilter.ALL -> "Todos"
     LibraryFilter.LOCAL -> "Local"
     LibraryFilter.REMOTE -> "Cola remota"
-    LibraryFilter.BACKUP_CATALOG -> "Catálogo PC"
+    LibraryFilter.LAN -> "Biblioteca LAN"
 }
 
 @Composable
@@ -300,6 +330,7 @@ private fun LibraryItemCard(
     item: LibraryListItem,
     nextUploads: Map<Platform, String>,
     remoteThumbnailUrl: String?,
+    lanThumbnailUrl: String?,
     onClick: () -> Unit,
     onPlayClick: () -> Unit,
     onDeleteClick: () -> Unit,
@@ -352,16 +383,40 @@ private fun LibraryItemCard(
                             )
                         }
                     }
-                    // Ícono de PC en vez de nube -- distingue de un vistazo la
-                    // cola remota (publicable) del catálogo de solo lectura.
-                    is LibraryListItem.BackupCatalog -> OriginThumbnail(Icons.Outlined.Computer, "Video en tu PC")
+                    // Mismo patrón que Remote -- acá SÍ hay bytes reales
+                    // (viene de una PC autorizada en la LAN ahora mismo), a
+                    // diferencia del viejo BackupCatalog que nunca tenía
+                    // miniatura y siempre caía al ícono. Mismo fallback si
+                    // la carga falla (PC recién apagada a mitad de scroll).
+                    is LibraryListItem.LanVideo -> Box(
+                        modifier = Modifier
+                            .size(width = 64.dp, height = 40.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (lanThumbnailUrl != null) {
+                            AsyncImage(
+                                model = lanThumbnailUrl,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                                error = rememberVectorPainter(Icons.Outlined.Computer),
+                            )
+                        } else {
+                            Icon(
+                                Icons.Outlined.Computer,
+                                contentDescription = "Video en tu PC (LAN)",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
                 }
 
-                // Sin bytes reproducibles para el catálogo de solo lectura (ver
-                // el snackbar de onClick más arriba) -- ningún play acá.
-                if (item !is LibraryListItem.BackupCatalog) {
-                    PlayBadge(onClick = onPlayClick, modifier = Modifier.align(Alignment.BottomEnd))
-                }
+                // LanVideo sí tiene bytes reproducibles -- a diferencia del
+                // viejo BackupCatalog, acá el play sí funciona.
+                PlayBadge(onClick = onPlayClick, modifier = Modifier.align(Alignment.BottomEnd))
             }
 
             Column(
@@ -399,16 +454,16 @@ private fun LibraryItemCard(
                             discarded = item.video.platformsDiscarded,
                         )
                     }
-                    is LibraryListItem.BackupCatalog -> {
-                        val durationLabel = item.entry.duracion_segundos?.let { "${it.toInt()}s" } ?: "—"
+                    is LibraryListItem.LanVideo -> {
+                        val durationLabel = item.video.duracion_segundos?.let { "${it.toInt()}s" } ?: "—"
                         Text(
-                            "$durationLabel · ${item.entry.resolucion ?: "—"}",
+                            "$durationLabel · ${item.video.resolucion ?: "—"}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         PlatformBadgeRow(
-                            published = item.entry.platforms.mapNotNull { Platform.fromApiValue(it) },
-                            discarded = item.entry.platforms_discarded,
+                            published = item.video.platforms.mapNotNull { Platform.fromApiValue(it) },
+                            discarded = item.video.platforms_discarded,
                         )
                     }
                 }
@@ -430,10 +485,10 @@ private fun LibraryItemCard(
                 }
             }
 
-            // Sin botón de borrar para el catálogo -- es un mirror de solo
-            // lectura, no hay nada que la app pueda eliminar desde acá (ver
+            // Sin botón de borrar para LanVideo -- el archivo vive en la PC,
+            // no hay nada que la app pueda eliminar desde acá (ver
             // LibraryViewModel.delete()).
-            if (item !is LibraryListItem.BackupCatalog) {
+            if (item !is LibraryListItem.LanVideo) {
                 IconButton(onClick = onDeleteClick, modifier = Modifier.size(36.dp)) {
                     Icon(
                         Icons.Outlined.Delete,
@@ -650,26 +705,5 @@ private fun LocalThumbnail(thumbnailPath: String?) {
                 )
             }
         }
-    }
-}
-
-// Sin miniatura real para remoto/catálogo -- ninguno de los dos tiene bytes
-// accesibles desde acá (ver el comentario en LibraryItemCard). Un solo
-// composable parametrizado por ícono en vez de uno por origen.
-@Composable
-private fun OriginThumbnail(icon: ImageVector, contentDescription: String) {
-    Box(
-        modifier = Modifier
-            .size(width = 64.dp, height = 40.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            icon,
-            contentDescription = contentDescription,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp),
-        )
     }
 }
