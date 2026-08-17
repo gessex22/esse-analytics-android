@@ -38,8 +38,18 @@ data class LocalPcVideoDto(
     val fileName: String get() = file_id.file_name
 }
 
+// FIX 2026-08-17 (review externo, hallazgo real P1): local-backend PAGINA
+// GET /api/videos -- antes se pedía solo page=1&limit=100 y se descartaba
+// `info`, así que una PC con más de 100 videos pendientes nunca mostraba el
+// resto. `nextPage` es lo único que necesita el cliente para saber si sigue.
+@Serializable
+data class LocalPcPageInfo(
+    val nextPage: Int? = null,
+)
+
 @Serializable
 data class LocalPcVideosResponse(
+    val info: LocalPcPageInfo? = null,
     val results: List<LocalPcVideoDto> = emptyList(),
 )
 
