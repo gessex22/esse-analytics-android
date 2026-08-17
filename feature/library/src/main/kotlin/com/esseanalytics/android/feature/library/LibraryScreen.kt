@@ -1,5 +1,6 @@
 package com.esseanalytics.android.feature.library
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -292,12 +293,6 @@ private fun LibraryFilterChips(
     canUseCloudStorage: Boolean,
     canSeeLanLibrary: Boolean,
 ) {
-    val visibleFilters = buildList {
-        add(LibraryFilter.ALL)
-        add(LibraryFilter.LOCAL)
-        if (canUseCloudStorage) add(LibraryFilter.REMOTE)
-        if (canSeeLanLibrary) add(LibraryFilter.LAN)
-    }
     // horizontalScroll, NO fillMaxWidth -- con los 4 chips (owner) el ancho no
     // entra en pantallas angostas; sin scroll, Row comprime el último chip
     // hasta que su texto envuelve letra por letra en una columna pegada al borde.
@@ -307,15 +302,32 @@ private fun LibraryFilterChips(
             .padding(horizontal = 16.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        visibleFilters.forEach { entry ->
-            FilterChip(
-                selected = filter == entry,
-                onClick = { onFilterChange(entry) },
-                label = { Text(libraryFilterLabel(entry)) },
-                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.surfaceVariant),
-            )
+        LibraryFilterChip(LibraryFilter.ALL, filter, onFilterChange)
+        LibraryFilterChip(LibraryFilter.LOCAL, filter, onFilterChange)
+        // AnimatedVisibility (no un simple if) -- pedido explícito del
+        // usuario: que el chip aparezca/desaparezca con una transición en
+        // vez de aparecer de golpe cuando canUseCloudStorage/
+        // canSeeLanLibrary cambian (ej. la PC de la LAN aparece o se
+        // pierde). Sin transiciones custom -- mismo default (fadeIn+
+        // expandIn / fadeOut+shrinkOut) que ya usan StatsScreen.kt/
+        // UploadScreen.kt.
+        AnimatedVisibility(visible = canUseCloudStorage) {
+            LibraryFilterChip(LibraryFilter.REMOTE, filter, onFilterChange)
+        }
+        AnimatedVisibility(visible = canSeeLanLibrary) {
+            LibraryFilterChip(LibraryFilter.LAN, filter, onFilterChange)
         }
     }
+}
+
+@Composable
+private fun LibraryFilterChip(entry: LibraryFilter, filter: LibraryFilter, onFilterChange: (LibraryFilter) -> Unit) {
+    FilterChip(
+        selected = filter == entry,
+        onClick = { onFilterChange(entry) },
+        label = { Text(libraryFilterLabel(entry)) },
+        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.surfaceVariant),
+    )
 }
 
 private fun libraryFilterLabel(filter: LibraryFilter): String = when (filter) {
