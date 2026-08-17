@@ -24,6 +24,7 @@ import com.esseanalytics.android.core.network.util.remoteLibraryThumbnailUrl
 import dagger.hilt.android.lifecycle.HiltViewModel
 import retrofit2.Retrofit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -133,13 +134,35 @@ class LibraryViewModel @Inject constructor(
     private val _filter = MutableStateFlow(LibraryFilter.ALL)
     val filter: StateFlow<LibraryFilter> = _filter.asStateFlow()
 
+    // Declarado ANTES del init de abajo a propósito -- viewModelScope usa
+    // Dispatchers.Main.immediate, y StateFlow.collect emite su valor actual
+    // de forma SÍNCRONA antes de suspender. Si la construcción del
+    // ViewModel ya corre en Main (caso normal con Hilt), el primer
+    // refreshLan() del init puede ejecutarse sincrónicamente DENTRO del
+    // propio constructor -- si esta declaración quedara más abajo en el
+    // archivo, su inicializador (`= null`) correría DESPUÉS en el
+    // constructor generado y pisaría el Job recién asignado, dejando
+    // refreshLanJob en null a pesar de haber un fetch en curso.
+    private var refreshLanJob: Job? = null
+
     // Reconciliación en vivo (sección 4.4 del diseño): la PC puede aparecer,
     // perderse, o pasar de "verificando" a "autorizada" mientras el usuario
     // está mirando la lista -- reintenta la carga cada vez que cambia el
     // conjunto de PCs descubiertas, no solo una vez al entrar.
     init {
         viewModelScope.launch {
-            lanDiscoveryStore.discovered.collect { refreshLan() }
+            lanDiscoveryStore.discovered.collect {
+                refreshLan()
+                // FIX 2026-08-17 (review externo, hallazgo real P1): si el
+                // chip "Biblioteca LAN" estaba seleccionado y la PC se
+                // pierde, canSeeLanLibrary pasa a false y el chip desaparece
+                // de visibleFilters -- pero _filter seguía apuntando a LAN,
+                // sin ningún chip para volver a ALL a mano. items() dejaba
+                // de producir nada para ese filtro, lista vacía sin salida.
+                if (_filter.value == LibraryFilter.LAN && authorizedLanBaseUrl() == null) {
+                    _filter.value = LibraryFilter.ALL
+                }
+            }
         }
     }
 
@@ -221,25 +244,65 @@ class LibraryViewModel @Inject constructor(
 
     fun stopLanDiscovery() = lanDiscoveryStore.stop()
 
+    // FIX 2026-08-17 (review externo, hallazgo real P1): cada emisión de
+    // discovery lanzaba un refreshLan() independiente sin cancelar el
+    // anterior -- si la PC A empezaba a cargar, la PC B pasaba a ser la
+    // autorizada, y la respuesta tardía de A llegaba último, _lanVideos
+    // quedaba con videos de A mientras authorizedLanBaseUrl() ya apuntaba a
+    // B (thumbnail/stream/publicar armados con la URL de la PC equivocada).
+    // El job se cancela acá Y se re-chequea la PC vigente antes de aplicar
+    // el resultado (doble seguro: cancelación cubre el caso común, el
+    // re-chequeo cubre la ventana angosta donde la respuesta ya estaba en
+    // curso cuando se pidió la cancelación). refreshLanJob está declarado
+    // arriba del init, ver el comentario ahí.
+    //
     // Reemplaza a refreshBackupCatalog(). Sin PC autorizada ahora mismo, no
     // hay nada que traer -- el chip ni aparece (ver canSeeLanLibrary), pero
     // igual se limpia _lanVideos para no dejar filas viejas de una PC que ya
     // se perdió (ver onServiceLost en LanPcDiscoveryStore).
     fun refreshLan() {
         val baseUrl = authorizedLanBaseUrl()
+        refreshLanJob?.cancel()
         if (baseUrl == null) {
             _lanVideos.value = emptyList()
             _lanLoadError.value = null
             return
         }
-        viewModelScope.launch {
+        refreshLanJob = viewModelScope.launch {
             _lanLoadError.value = null
             runCatching {
-                withContext(Dispatchers.IO) { localBackendApiFactory.create(baseUrl).listVideos(limit = 100).results }
+                withContext(Dispatchers.IO) { fetchAllLanVideos(baseUrl) }
             }
-                .onSuccess { results -> _lanVideos.value = results.filter(::isLanVideoPending) }
-                .onFailure { error -> _lanLoadError.value = error.message ?: "No se pudo leer la biblioteca LAN." }
+                .onSuccess { results ->
+                    if (authorizedLanBaseUrl() == baseUrl) {
+                        _lanVideos.value = results.filter(::isLanVideoPending)
+                    }
+                }
+                .onFailure { error ->
+                    if (authorizedLanBaseUrl() == baseUrl) {
+                        _lanLoadError.value = error.message ?: "No se pudo leer la biblioteca LAN."
+                    }
+                }
         }
+    }
+
+    // FIX 2026-08-17 (review externo, hallazgo real P1): local-backend pagina
+    // GET /api/videos -- antes se pedía solo la página 1 (limit=100) y se
+    // descartaba `info.nextPage`, así que una PC con más de 100 pendientes
+    // nunca mostraba el resto. Tope de 50 páginas (5000 videos) puramente
+    // defensivo, por si el server devolviera un nextPage inconsistente.
+    private suspend fun fetchAllLanVideos(baseUrl: String): List<LocalPcVideoDto> {
+        val api = localBackendApiFactory.create(baseUrl)
+        val all = mutableListOf<LocalPcVideoDto>()
+        var page = 1
+        while (page <= 50) {
+            val response = api.listVideos(limit = 100, page = page)
+            all += response.results
+            val nextPage = response.info?.nextPage ?: break
+            if (nextPage <= page) break
+            page = nextPage
+        }
+        return all
     }
 
     // Server-side y sin bytes -- la PC lee su propio archivo del disco y lo
@@ -248,8 +311,21 @@ class LibraryViewModel @Inject constructor(
     // secuencia (no en paralelo) para que el estado por plataforma
     // (lanPublishState) sea legible mientras corre, y porque local-backend
     // ya serializa sus propias subidas del lado de la PC.
+    // FIX 2026-08-17 (review externo, observación no bloqueante): cerrar
+    // LocalPcPublishSheet (onDismiss) limpia lanPublishState en la UI, pero
+    // antes NO cancelaba el job en curso -- si el usuario cerraba y volvía a
+    // abrir la hoja (mismo video u otro) mientras una publicación anterior
+    // seguía corriendo en background, esa corrutina vieja terminaba
+    // actualizando lanPublishState por encima de una sesión de diálogo
+    // nueva. Se cancela cualquier publishLan() anterior antes de arrancar
+    // uno nuevo -- local-backend igual serializa sus propias subidas del
+    // lado de la PC, cancelar acá solo evita que el celular siga esperando/
+    // pisando estado de un pedido que el usuario ya abandonó en la UI.
+    private var publishLanJob: Job? = null
+
     fun publishLan(item: LibraryListItem.LanVideo, platforms: Set<Platform>, title: String, description: String, tiktokPublic: Boolean) {
-        viewModelScope.launch {
+        publishLanJob?.cancel()
+        publishLanJob = viewModelScope.launch {
             val api = localBackendApiFactory.create(item.baseUrl)
             for (platform in platforms) {
                 _lanPublishState.update { it + (platform to LanPublishResult.InProgress) }
