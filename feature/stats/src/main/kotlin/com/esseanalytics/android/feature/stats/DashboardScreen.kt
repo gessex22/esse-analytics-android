@@ -20,18 +20,18 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.ChatBubble
 import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.material.icons.outlined.QueryStats
-import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -62,27 +62,27 @@ import com.esseanalytics.android.core.model.Platform
 
 private val dashboardPlatforms = Platform.publishable
 
+// Pedido explícito del usuario: gesto de swipe-to-refresh de verdad en vez
+// del botón "Actualizar" que ya usa StatsScreen.kt -- Dashboard queda como
+// la primera pantalla de la app con esto (no hay PullToRefreshBox/similar en
+// ningún otro lado del proyecto todavía). Mirror funcional de `.refreshable`
+// en iOS y del pull-to-refresh de la web.
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
     modifier: Modifier = Modifier,
     viewModel: DashboardViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
-    Column(modifier = modifier.fillMaxSize()) {
-        // A diferencia de iOS/web (gesto de pull-to-refresh), esta app no usa
-        // swipe-to-refresh en ningún lado -- se sigue la misma convención que
-        // ya tiene StatsScreen.kt: un botón "Actualizar" explícito. Sin esto,
-        // Dashboard solo se refrescaba con el init{} inicial del ViewModel,
-        // sin ninguna forma de que el usuario lo dispare a mano.
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.End,
-        ) {
-            TextButton(onClick = viewModel::refresh) {
-                Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                Text("Actualizar", modifier = Modifier.padding(start = 4.dp))
-            }
-        }
+    // isRefreshing acá es el mismo que ya mueve el spinner de AppTopBar (ver
+    // RefreshActivityTracker) -- no un estado nuevo, solo se reusa para
+    // también mover el indicador nativo del gesto.
+    val isRefreshing = (state as? DashboardUiState.Success)?.isRefreshing == true
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = viewModel::refresh,
+        modifier = modifier.fillMaxSize(),
+    ) {
         when (val current = state) {
             DashboardUiState.Loading -> Box(Modifier.fillMaxWidth().height(240.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             is DashboardUiState.Error -> DashboardMessage("No se pudo cargar", current.message)

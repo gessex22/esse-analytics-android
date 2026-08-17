@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -344,134 +343,116 @@ private fun MainAppScaffold(
         // una transición de 1 ms sin volver al fade+slide de 220 ms que
         // duplicaba el trabajo de composición durante demasiado tiempo.
         val tabAnimSpec = tween<Float>(120, easing = FastOutSlowInEasing)
-        // Column con TODO el padding del Scaffold de una sola vez -- el banner
-        // (si está) y el NavHost quedan uno arriba del otro, sin repartir
-        // PaddingValues a mano entre los dos.
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-        if (isLabMode) LabModeBanner()
-        NavHost(
-            navController = navController,
-            startDestination = Routes.DASHBOARD,
-            modifier = Modifier.weight(1f),
-            // Ver isMainTabRoute -- sin animación entre pestañas hermanas del
-            // bottom nav, fade+slide se conserva para todo lo demás (entrar/
-            // salir de las pantallas de detalle de "Más").
-            enterTransition = {
-                if (isMainTabRoute(initialState.destination.route) && isMainTabRoute(targetState.destination.route)) {
-                    fadeIn(tabAnimSpec)
-                } else {
-                    fadeIn(navAnimSpec) + slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, navOffsetSpec) { it / 10 }
-                }
-            },
-            exitTransition = {
-                if (isMainTabRoute(initialState.destination.route) && isMainTabRoute(targetState.destination.route)) {
-                    fadeOut(tabAnimSpec)
-                } else {
-                    fadeOut(navAnimSpec) + slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Start, navOffsetSpec) { it / 10 }
-                }
-            },
-            popEnterTransition = {
-                if (isMainTabRoute(initialState.destination.route) && isMainTabRoute(targetState.destination.route)) {
-                    fadeIn(tabAnimSpec)
-                } else {
-                    fadeIn(navAnimSpec) + slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.End, navOffsetSpec) { it / 10 }
-                }
-            },
-            popExitTransition = {
-                if (isMainTabRoute(initialState.destination.route) && isMainTabRoute(targetState.destination.route)) {
-                    fadeOut(tabAnimSpec)
-                } else {
-                    fadeOut(navAnimSpec) + slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, navOffsetSpec) { it / 10 }
-                }
-            },
-            ) {
-            composable(Routes.DASHBOARD) { DashboardScreen() }
-            composable(Routes.LIBRARY) {
-                LibraryScreen(
-                    onImportClick = { navController.navigate(Routes.INGEST) },
-                    onOpenUpload = { fileId -> navController.navigate("${Routes.UPLOAD}?fileId=$fileId") },
-                    // Ya tiene alguna plataforma publicada -> Estadísticas (a
-                    // eso fue, a ver cómo le fue); todavía nada publicado ->
-                    // Subir, con ese archivo ya elegido.
-                    onLocalClick = { file ->
-                        if (file.platforms.isNotEmpty()) {
-                            navController.navigate(Routes.STATS)
+        
+        // Box para permitir que el bottom nav flote SOBRE el contenido (Overlay real).
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            // Contenido principal en una Column para el banner y el NavHost.
+            Column(modifier = Modifier.fillMaxSize()) {
+                if (isLabMode) LabModeBanner()
+                NavHost(
+                    navController = navController,
+                    startDestination = Routes.DASHBOARD,
+                    modifier = Modifier.weight(1f),
+                    // Ver isMainTabRoute -- sin animación entre pestañas hermanas del
+                    // bottom nav, fade+slide se conserva para todo lo demás (entrar/
+                    // salir de las pantallas de detalle de "Más").
+                    enterTransition = {
+                        if (isMainTabRoute(initialState.destination.route) && isMainTabRoute(targetState.destination.route)) {
+                            fadeIn(tabAnimSpec)
                         } else {
-                            navController.navigate("${Routes.UPLOAD}?fileId=${file.id}")
+                            fadeIn(navAnimSpec) + slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, navOffsetSpec) { it / 10 }
                         }
                     },
-                    // Un ítem remoto va directo al formulario de publicar de
-                    // esa cola (ver RemoteLibraryScreen.initialVideoId), no a
-                    // Estadísticas -- la central no refleja el publish remoto
-                    // ahí todavía (ver Parte C.1, fuera de alcance).
-                    onRemoteClick = { video ->
-                        navController.navigate("${Routes.REMOTE_LIBRARY}?videoId=${video._id}")
-                    },
-                )
-            }
-            composable(Routes.CALENDAR) { CalendarScreen() }
-            composable(
-                route = "${Routes.UPLOAD}?fileId={fileId}",
-                arguments = listOf(navArgument("fileId") { type = NavType.LongType; defaultValue = -1L }),
-            ) { uploadEntry ->
-                val fileId = uploadEntry.arguments?.getLong("fileId")?.takeIf { it >= 0 }
-                UploadScreen(
-                    initialFileId = fileId,
-                    // Éxito total (Fase 2 del plan de estabilidad/UX): redirige
-                    // a Inicio. inclusive = true (no saveState/restoreState,
-                    // a diferencia del tap normal del bottom nav) a propósito --
-                    // fuerza una instancia nueva de DashboardViewModel para que
-                    // su init { refresh() } corra de nuevo y muestre la
-                    // publicación recién hecha. Biblioteca no necesita esto:
-                    // observa Room de forma reactiva (ver FileRepository.observeAll).
-                    onPublishedAllSuccess = {
-                        navController.navigate(Routes.DASHBOARD) {
-                            popUpTo(Routes.DASHBOARD) { inclusive = true }
-                            launchSingleTop = true
+                    exitTransition = {
+                        if (isMainTabRoute(initialState.destination.route) && isMainTabRoute(targetState.destination.route)) {
+                            fadeOut(tabAnimSpec)
+                        } else {
+                            fadeOut(navAnimSpec) + slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Start, navOffsetSpec) { it / 10 }
                         }
                     },
-                )
-            }
-            composable(Routes.MORE) { MoreScreen(navController, isOwner, canUseCloudStorage) }
-            composable(Routes.INGEST) {
-                DetailScaffold("Importar video", onBack = navController::popBackStack) {
-                    IngestScreen(
-                        pendingUris = pendingImportUris,
-                        onPendingUrisConsumed = onPendingImportUrisConsumed,
-                    )
+                    popEnterTransition = {
+                        if (isMainTabRoute(initialState.destination.route) && isMainTabRoute(targetState.destination.route)) {
+                            fadeIn(tabAnimSpec)
+                        } else {
+                            fadeIn(navAnimSpec) + slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.End, navOffsetSpec) { it / 10 }
+                        }
+                    },
+                    popExitTransition = {
+                        if (isMainTabRoute(initialState.destination.route) && isMainTabRoute(targetState.destination.route)) {
+                            fadeOut(tabAnimSpec)
+                        } else {
+                            fadeOut(navAnimSpec) + slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, navOffsetSpec) { it / 10 }
+                        }
+                    },
+                ) {
+                    composable(Routes.DASHBOARD) { DashboardScreen() }
+                    composable(Routes.LIBRARY) {
+                        LibraryScreen(
+                            onImportClick = { navController.navigate(Routes.INGEST) },
+                            onOpenUpload = { fileId -> navController.navigate("${Routes.UPLOAD}?fileId=$fileId") },
+                            onLocalClick = { file ->
+                                if (file.platforms.isNotEmpty()) {
+                                    navController.navigate(Routes.STATS)
+                                } else {
+                                    navController.navigate("${Routes.UPLOAD}?fileId=${file.id}")
+                                }
+                            },
+                            onRemoteClick = { video ->
+                                navController.navigate("${Routes.REMOTE_LIBRARY}?videoId=${video._id}")
+                            },
+                        )
+                    }
+                    composable(Routes.CALENDAR) { CalendarScreen() }
+                    composable(
+                        route = "${Routes.UPLOAD}?fileId={fileId}",
+                        arguments = listOf(navArgument("fileId") { type = NavType.LongType; defaultValue = -1L }),
+                    ) { uploadEntry ->
+                        val fileId = uploadEntry.arguments?.getLong("fileId")?.takeIf { it >= 0 }
+                        UploadScreen(
+                            initialFileId = fileId,
+                            onPublishedAllSuccess = {
+                                navController.navigate(Routes.DASHBOARD) {
+                                    popUpTo(Routes.DASHBOARD) { inclusive = true }
+                                    launchSingleTop = true
+                                }
+                            },
+                        )
+                    }
+                    composable(Routes.MORE) { MoreScreen(navController, isOwner, canUseCloudStorage) }
+                    composable(Routes.INGEST) {
+                        DetailScaffold("Importar video", onBack = navController::popBackStack) {
+                            IngestScreen(
+                                pendingUris = pendingImportUris,
+                                onPendingUrisConsumed = onPendingImportUrisConsumed,
+                            )
+                        }
+                    }
+                    composable(Routes.SYNC) {
+                        DetailScaffold("Sincronización", onBack = navController::popBackStack) { SyncScreen() }
+                    }
+                    composable(Routes.STATS) { StatsScreen() }
+                    composable(Routes.HISTORY) {
+                        DetailScaffold("Historial", onBack = navController::popBackStack) { HistoryScreen() }
+                    }
+                    composable(Routes.USERS) {
+                        DetailScaffold("Usuarios", onBack = navController::popBackStack) { UsersScreen() }
+                    }
+                    composable(Routes.GEMS) {
+                        DetailScaffold("Gemas", onBack = navController::popBackStack) { GemsScreen() }
+                    }
+                    composable(Routes.SETTINGS) {
+                        DetailScaffold("Ajustes", onBack = navController::popBackStack) { SettingsScreen() }
+                    }
+                    composable(
+                        route = "${Routes.REMOTE_LIBRARY}?videoId={videoId}",
+                        arguments = listOf(navArgument("videoId") { type = NavType.StringType; nullable = true; defaultValue = null }),
+                    ) { remoteLibraryEntry ->
+                        val videoId = remoteLibraryEntry.arguments?.getString("videoId")
+                        DetailScaffold("Biblioteca remota", onBack = navController::popBackStack) {
+                            RemoteLibraryScreen(initialVideoId = videoId)
+                        }
+                    }
                 }
-            }
-            composable(Routes.SYNC) {
-                DetailScaffold("Sincronización", onBack = navController::popBackStack) { SyncScreen() }
-            }
-            // Estadísticas ya es una pestaña principal: usar directamente la
-            // pantalla evita apilar otro TopAppBar con el mismo título.
-            composable(Routes.STATS) { StatsScreen() }
-            // Sin saveState/restoreState a propósito -- entrar de nuevo a
-            // Historial crea una instancia nueva de HistoryViewModel (init
-            // vuelve a cargar), así que siempre se ve al día tras publicar,
-            // sin necesitar un trigger de refresh compartido como Dashboard.
-            composable(Routes.HISTORY) {
-                DetailScaffold("Historial", onBack = navController::popBackStack) { HistoryScreen() }
-            }
-            composable(Routes.USERS) {
-                DetailScaffold("Usuarios", onBack = navController::popBackStack) { UsersScreen() }
-            }
-            composable(Routes.GEMS) {
-                DetailScaffold("Gemas", onBack = navController::popBackStack) { GemsScreen() }
-            }
-            composable(Routes.SETTINGS) {
-                DetailScaffold("Ajustes", onBack = navController::popBackStack) { SettingsScreen() }
-            }
-            composable(
-                route = "${Routes.REMOTE_LIBRARY}?videoId={videoId}",
-                arguments = listOf(navArgument("videoId") { type = NavType.StringType; nullable = true; defaultValue = null }),
-            ) { remoteLibraryEntry ->
-                val videoId = remoteLibraryEntry.arguments?.getString("videoId")
-                DetailScaffold("Biblioteca remota", onBack = navController::popBackStack) {
-                    RemoteLibraryScreen(initialVideoId = videoId)
-                }
-            }
             }
             // Overlay real, no bottomBar de Scaffold: el contenido queda por
             // debajo y los huecos alrededor de la cápsula son transparentes.
@@ -480,7 +461,6 @@ private fun MainAppScaffold(
                 onDestinationClick = navController::navigateToMainTab,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
-        }
         }
     }
 }
