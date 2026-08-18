@@ -6,8 +6,7 @@ import com.esseanalytics.android.core.database.FileRepository
 import com.esseanalytics.android.core.datastore.AuthState
 import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.model.Platform
-import com.esseanalytics.android.core.network.LanPcAuthState
-import com.esseanalytics.android.core.network.LanPcDiscoveryStore
+import com.esseanalytics.android.core.network.LanLibraryRepository
 import com.esseanalytics.android.core.network.LocalBackendApiFactory
 import com.esseanalytics.android.core.network.SyncRepository
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
@@ -53,7 +52,12 @@ class LibraryViewModel @Inject constructor(
     private val syncRepository: SyncRepository,
     private val tokenStore: TokenStore,
     private val localBackendApiFactory: LocalBackendApiFactory,
-    private val lanDiscoveryStore: LanPcDiscoveryStore,
+    // FIX 2026-08-18: reemplaza al acceso directo a LanPcDiscoveryStore (ver
+    // UIEssePanel/PLAN_LAN_PICKER_Y_REPRODUCTOR-2026-08-18.md) -- el catálogo
+    // LAN (discovery + fetch paginado) se comparte con UploadViewModel a
+    // través de este repositorio, en vez de que cada ViewModel reimplemente
+    // su propio refreshLan()/authorizedLanBaseUrl.
+    private val lanLibraryRepository: LanLibraryRepository,
     @CentralRetrofit private val retrofit: Retrofit,
 ) : ViewModel() {
 
@@ -87,25 +91,14 @@ class LibraryViewModel @Inject constructor(
     // Ajustes: los bytes nunca salen de la LAN del usuario. Gateado por
     // reachability REAL (hay al menos una PC autorizada ahora mismo), no por
     // el plan de la cuenta -- sin PC alcanzable, el chip directamente no
-    // existe, no degrada a un mirror.
-    val canSeeLanLibrary: StateFlow<Boolean> = lanDiscoveryStore.discovered
-        .map { list -> list.any { it.authState == LanPcAuthState.AUTHORIZED } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
-
-    private fun authorizedLanBaseUrl(): String? =
-        lanDiscoveryStore.discovered.value.firstOrNull { it.authState == LanPcAuthState.AUTHORIZED }?.url
+    // existe, no degrada a un mirror. FIX 2026-08-18: delegado a
+    // LanLibraryRepository (compartido con Subir, ver comentario en el
+    // constructor).
+    val canSeeLanLibrary: StateFlow<Boolean> = lanLibraryRepository.canSeeLanLibrary
+    val lanVideos: StateFlow<List<LocalPcVideoDto>> = lanLibraryRepository.videos
+    val lanLoadError: StateFlow<String?> = lanLibraryRepository.loadError
 
     private val _remoteVideos = MutableStateFlow<List<RemoteLibraryVideoDto>>(emptyList())
-    private val _lanVideos = MutableStateFlow<List<LocalPcVideoDto>>(emptyList())
-
-    // FIX 2026-08-17: antes el fetch del mirror era runCatching puro -- un
-    // error real (PC caída a mitad de sesión, JWT rechazado) quedaba
-    // indistinguible de "no hay nada pendiente". Se guarda el error de
-    // verdad para poder mostrarlo (mismo motivo que documenta
-    // LibraryView.swift en iOS sobre el bug real de "facebook" en
-    // BackupCatalogAPI).
-    private val _lanLoadError = MutableStateFlow<String?>(null)
-    val lanLoadError: StateFlow<String?> = _lanLoadError.asStateFlow()
 
     private val _lanPublishState = MutableStateFlow<Map<Platform, LanPublishResult>>(emptyMap())
     val lanPublishState: StateFlow<Map<Platform, LanPublishResult>> = _lanPublishState.asStateFlow()
@@ -134,32 +127,19 @@ class LibraryViewModel @Inject constructor(
     private val _filter = MutableStateFlow(LibraryFilter.ALL)
     val filter: StateFlow<LibraryFilter> = _filter.asStateFlow()
 
-    // Declarado ANTES del init de abajo a propósito -- viewModelScope usa
-    // Dispatchers.Main.immediate, y StateFlow.collect emite su valor actual
-    // de forma SÍNCRONA antes de suspender. Si la construcción del
-    // ViewModel ya corre en Main (caso normal con Hilt), el primer
-    // refreshLan() del init puede ejecutarse sincrónicamente DENTRO del
-    // propio constructor -- si esta declaración quedara más abajo en el
-    // archivo, su inicializador (`= null`) correría DESPUÉS en el
-    // constructor generado y pisaría el Job recién asignado, dejando
-    // refreshLanJob en null a pesar de haber un fetch en curso.
-    private var refreshLanJob: Job? = null
-
-    // Reconciliación en vivo (sección 4.4 del diseño): la PC puede aparecer,
-    // perderse, o pasar de "verificando" a "autorizada" mientras el usuario
-    // está mirando la lista -- reintenta la carga cada vez que cambia el
-    // conjunto de PCs descubiertas, no solo una vez al entrar.
+    // FIX 2026-08-18: la carga/reconciliación en vivo del catálogo LAN (PC
+    // que aparece/se pierde/pasa a "autorizada") ya la maneja
+    // LanLibraryRepository internamente (su propio watcher arranca con
+    // start(), ver startLanDiscovery() más abajo) -- acá solo queda la parte
+    // que es específica de ESTA pantalla: si el chip "Biblioteca LAN" estaba
+    // seleccionado y la PC se pierde, canSeeLanLibrary pasa a false y el
+    // chip desaparece de visibleFilters, pero _filter podía seguir apuntando
+    // a LAN sin ningún chip para volver a ALL a mano (FIX 2026-08-17
+    // original, preservado acá).
     init {
         viewModelScope.launch {
-            lanDiscoveryStore.discovered.collect {
-                refreshLan()
-                // FIX 2026-08-17 (review externo, hallazgo real P1): si el
-                // chip "Biblioteca LAN" estaba seleccionado y la PC se
-                // pierde, canSeeLanLibrary pasa a false y el chip desaparece
-                // de visibleFilters -- pero _filter seguía apuntando a LAN,
-                // sin ningún chip para volver a ALL a mano. items() dejaba
-                // de producir nada para ese filtro, lista vacía sin salida.
-                if (_filter.value == LibraryFilter.LAN && authorizedLanBaseUrl() == null) {
+            lanLibraryRepository.canSeeLanLibrary.collect { canSee ->
+                if (_filter.value == LibraryFilter.LAN && !canSee) {
                     _filter.value = LibraryFilter.ALL
                 }
             }
@@ -175,7 +155,7 @@ class LibraryViewModel @Inject constructor(
     val items: StateFlow<List<LibraryListItem>> = combine(
         fileRepository.observeAll(),
         _remoteVideos,
-        _lanVideos,
+        lanLibraryRepository.videos,
         _filter,
     ) { local, remote, lan, filter ->
         // Mismo criterio que LibraryView.swift (iOS): un video real puede
@@ -196,7 +176,7 @@ class LibraryViewModel @Inject constructor(
         fun isAlreadyLocal(video: RemoteLibraryVideoDto) =
             video._id in localRemoteIds || video.fileName in localFileNames
 
-        val lanBaseUrl = authorizedLanBaseUrl()
+        val lanBaseUrl = lanLibraryRepository.authorizedBaseUrl()
 
         val merged = buildList {
             if (filter == LibraryFilter.ALL || filter == LibraryFilter.LOCAL) {
@@ -240,70 +220,12 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    fun startLanDiscovery() = lanDiscoveryStore.start()
+    // FIX 2026-08-18: delegado a LanLibraryRepository, ref-counted ahí (dos
+    // consumidores activos a la vez -- Biblioteca y el picker de Subir -- no
+    // se pisan entre sí, ver ese archivo).
+    fun startLanDiscovery() = lanLibraryRepository.start()
 
-    fun stopLanDiscovery() = lanDiscoveryStore.stop()
-
-    // FIX 2026-08-17 (review externo, hallazgo real P1): cada emisión de
-    // discovery lanzaba un refreshLan() independiente sin cancelar el
-    // anterior -- si la PC A empezaba a cargar, la PC B pasaba a ser la
-    // autorizada, y la respuesta tardía de A llegaba último, _lanVideos
-    // quedaba con videos de A mientras authorizedLanBaseUrl() ya apuntaba a
-    // B (thumbnail/stream/publicar armados con la URL de la PC equivocada).
-    // El job se cancela acá Y se re-chequea la PC vigente antes de aplicar
-    // el resultado (doble seguro: cancelación cubre el caso común, el
-    // re-chequeo cubre la ventana angosta donde la respuesta ya estaba en
-    // curso cuando se pidió la cancelación). refreshLanJob está declarado
-    // arriba del init, ver el comentario ahí.
-    //
-    // Reemplaza a refreshBackupCatalog(). Sin PC autorizada ahora mismo, no
-    // hay nada que traer -- el chip ni aparece (ver canSeeLanLibrary), pero
-    // igual se limpia _lanVideos para no dejar filas viejas de una PC que ya
-    // se perdió (ver onServiceLost en LanPcDiscoveryStore).
-    fun refreshLan() {
-        val baseUrl = authorizedLanBaseUrl()
-        refreshLanJob?.cancel()
-        if (baseUrl == null) {
-            _lanVideos.value = emptyList()
-            _lanLoadError.value = null
-            return
-        }
-        refreshLanJob = viewModelScope.launch {
-            _lanLoadError.value = null
-            runCatching {
-                withContext(Dispatchers.IO) { fetchAllLanVideos(baseUrl) }
-            }
-                .onSuccess { results ->
-                    if (authorizedLanBaseUrl() == baseUrl) {
-                        _lanVideos.value = results.filter(::isLanVideoPending)
-                    }
-                }
-                .onFailure { error ->
-                    if (authorizedLanBaseUrl() == baseUrl) {
-                        _lanLoadError.value = error.message ?: "No se pudo leer la biblioteca LAN."
-                    }
-                }
-        }
-    }
-
-    // FIX 2026-08-17 (review externo, hallazgo real P1): local-backend pagina
-    // GET /api/videos -- antes se pedía solo la página 1 (limit=100) y se
-    // descartaba `info.nextPage`, así que una PC con más de 100 pendientes
-    // nunca mostraba el resto. Tope de 50 páginas (5000 videos) puramente
-    // defensivo, por si el server devolviera un nextPage inconsistente.
-    private suspend fun fetchAllLanVideos(baseUrl: String): List<LocalPcVideoDto> {
-        val api = localBackendApiFactory.create(baseUrl)
-        val all = mutableListOf<LocalPcVideoDto>()
-        var page = 1
-        while (page <= 50) {
-            val response = api.listVideos(limit = 100, page = page)
-            all += response.results
-            val nextPage = response.info?.nextPage ?: break
-            if (nextPage <= page) break
-            page = nextPage
-        }
-        return all
-    }
+    fun stopLanDiscovery() = lanLibraryRepository.stop()
 
     // Server-side y sin bytes -- la PC lee su propio archivo del disco y lo
     // sube ella misma (mismo mecanismo que LocalBackendUploadAPI en iOS), el
@@ -366,7 +288,7 @@ class LibraryViewModel @Inject constructor(
                 )
                 _lanPublishState.update { it + (platform to result) }
             }
-            refreshLan()
+            lanLibraryRepository.refresh()
         }
     }
 
@@ -389,6 +311,3 @@ class LibraryViewModel @Inject constructor(
         }
     }
 }
-
-private fun isLanVideoPending(video: LocalPcVideoDto): Boolean =
-    Platform.publishable.any { it.apiValue !in video.platforms && it.apiValue !in video.platforms_discarded }

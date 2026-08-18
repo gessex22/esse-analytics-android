@@ -21,10 +21,13 @@ import com.esseanalytics.android.core.media.MediaSource
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
 import com.esseanalytics.android.core.model.WorkflowMode
+import com.esseanalytics.android.core.network.LanLibraryRepository
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
 import com.esseanalytics.android.core.network.SyncRepository
 import com.esseanalytics.android.core.network.di.CentralRetrofit
+import com.esseanalytics.android.core.network.dto.LocalPcVideoDto
 import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
+import com.esseanalytics.android.core.network.util.localPcThumbnailUrl
 import com.esseanalytics.android.core.network.util.remoteLibraryThumbnailUrl
 import com.esseanalytics.android.feature.ingest.ImportResult
 import com.esseanalytics.android.feature.ingest.ImportUseCase
@@ -59,6 +62,11 @@ class UploadViewModel @Inject constructor(
     private val importUseCase: ImportUseCase,
     private val syncRepository: SyncRepository,
     private val tokenStore: TokenStore,
+    // FIX 2026-08-18 (ver UIEssePanel/PLAN_LAN_PICKER_Y_REPRODUCTOR-2026-08-18.md):
+    // mismo repositorio compartido que LibraryViewModel -- el picker "Cambiar
+    // video" puede ofrecer Biblioteca LAN con la MISMA política (PC
+    // autorizada por Bonjour) sin reimplementar discovery/fetch acá.
+    private val lanLibraryRepository: LanLibraryRepository,
     @CentralRetrofit private val retrofit: Retrofit,
 ) : ViewModel() {
 
@@ -66,6 +74,21 @@ class UploadViewModel @Inject constructor(
 
     fun thumbnailUrl(video: RemoteLibraryVideoDto): String? =
         remoteLibraryThumbnailUrl(retrofit.baseUrl(), video._id, video.thumbnailStoredFileName, tokenStore.token)
+
+    val canSeeLanLibrary: StateFlow<Boolean> = lanLibraryRepository.canSeeLanLibrary
+    val lanVideos: StateFlow<List<LocalPcVideoDto>> = lanLibraryRepository.videos
+    // Corresponde EXACTAMENTE a lanVideos (los dos se actualizan juntos en
+    // LanLibraryRepository.refresh()) -- evita el caso borde de leer un
+    // baseUrl más nuevo que la lista de videos que efectivamente trajo.
+    val lanBaseUrl: StateFlow<String?> = lanLibraryRepository.activeBaseUrl
+
+    fun lanThumbnailUrl(video: LocalPcVideoDto, baseUrl: String): String? =
+        localPcThumbnailUrl(baseUrl, video._id, tokenStore.token)
+
+    // Mismo ref-counting que LibraryViewModel -- ver LanLibraryRepository.
+    fun startLanDiscovery() = lanLibraryRepository.start()
+
+    fun stopLanDiscovery() = lanLibraryRepository.stop()
 
     // Solo archivos que todavía tienen alguna plataforma pendiente -- no
     // tiene sentido ofrecer "subir" uno que ya está resuelto en las 3.
