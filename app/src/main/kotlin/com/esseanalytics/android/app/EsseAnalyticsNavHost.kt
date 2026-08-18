@@ -59,6 +59,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -83,9 +86,13 @@ import androidx.navigation.navArgument
 import com.esseanalytics.android.core.datastore.AuthState
 import com.esseanalytics.android.feature.auth.LoginScreen
 import com.esseanalytics.android.feature.calendar.CalendarScreen
+import com.esseanalytics.android.core.network.dto.LocalPcVideoDto
 import com.esseanalytics.android.feature.gems.GemsScreen
 import com.esseanalytics.android.feature.ingest.IngestScreen
+import com.esseanalytics.android.feature.library.LibraryListItem
 import com.esseanalytics.android.feature.library.LibraryScreen
+import com.esseanalytics.android.feature.library.LibraryViewModel
+import com.esseanalytics.android.feature.library.LocalPcPublishSheet
 import com.esseanalytics.android.feature.stats.DashboardScreen
 import com.esseanalytics.android.feature.stats.HistoryScreen
 import com.esseanalytics.android.feature.remotelibrary.RemoteLibraryScreen
@@ -293,6 +300,17 @@ private fun MainAppScaffold(
     // (Biblioteca, Calendario, Subir) hace que colapse, sin repetir el cable
     // en cada una.
     val topBarScrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+    // FIX 2026-08-18 (ver UIEssePanel/PLAN_LAN_PICKER_Y_REPRODUCTOR-2026-08-18.md):
+    // feature:upload no puede depender de feature:library (arquitectura
+    // feature->feature prohibida acá), así que UploadScreen solo emite un
+    // callback con el video+baseUrl tocado -- este NavHost, que sí ve los dos
+    // feature modules, es quien arma el LibraryListItem.LanVideo y muestra
+    // LocalPcPublishSheet (la misma hoja que usa Biblioteca). uploadLanViewModel
+    // es una instancia de LibraryViewModel propia para esto -- no comparte
+    // estado con la pestaña Videos, pero publishLan()/lanPublishState no
+    // dependen de eso (misma lógica sin importar la instancia).
+    var publishingLanFromUpload by remember { mutableStateOf<LibraryListItem.LanVideo?>(null) }
+    val uploadLanViewModel: LibraryViewModel = hiltViewModel()
     // Hoisteado acá (antes vivía solo dentro de bottomBar) -- lo necesita
     // también el pointerInput del swipe global (Feature A), para saber en
     // qué tab está parado el usuario cuando suelta el gesto.
@@ -416,6 +434,9 @@ private fun MainAppScaffold(
                                     launchSingleTop = true
                                 }
                             },
+                            onSelectLan = { video: LocalPcVideoDto, baseUrl: String ->
+                                publishingLanFromUpload = LibraryListItem.LanVideo(video, baseUrl)
+                            },
                         )
                     }
                     composable(Routes.MORE) { MoreScreen(navController, isOwner, canUseCloudStorage) }
@@ -462,6 +483,19 @@ private fun MainAppScaffold(
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
+    }
+    // Ver comentario en publishingLanFromUpload/uploadLanViewModel más arriba
+    // -- LocalPcPublishSheet usa Dialog() internamente, se superpone a todo
+    // sin importar dónde se declare en el árbol.
+    publishingLanFromUpload?.let { item ->
+        LocalPcPublishSheet(
+            item = item,
+            viewModel = uploadLanViewModel,
+            onDismiss = {
+                uploadLanViewModel.resetLanPublishState()
+                publishingLanFromUpload = null
+            },
+        )
     }
 }
 

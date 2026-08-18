@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.outlined.CloudUpload
+import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.AlertDialog
@@ -46,6 +47,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -77,6 +79,7 @@ import com.esseanalytics.android.core.designsystem.theme.TiktokPink
 import com.esseanalytics.android.core.designsystem.theme.YoutubeRed
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
+import com.esseanalytics.android.core.network.dto.LocalPcVideoDto
 import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
 import java.io.File
 
@@ -91,6 +94,13 @@ fun UploadScreen(
     // Se llama tras un éxito TOTAL (todas las plataformas elegidas
     // publicadas) -- EsseAnalyticsNavHost lo usa para redirigir a Inicio.
     onPublishedAllSuccess: () -> Unit = {},
+    // FIX 2026-08-18 (ver UIEssePanel/PLAN_LAN_PICKER_Y_REPRODUCTOR-2026-08-18.md):
+    // un video de Biblioteca LAN NUNCA se convierte en VideoFile/selectedFile
+    // -- no hay bytes que copiar al teléfono (feature:upload no puede
+    // depender de feature:library para reusar su sheet/ViewModel directo, esa
+    // dependencia cruzada está prohibida). El caller (EsseAnalyticsNavHost,
+    // que sí puede ver los dos feature modules) decide qué hacer con el tap.
+    onSelectLan: (LocalPcVideoDto, String) -> Unit = { _, _ -> },
     viewModel: UploadViewModel = hiltViewModel(),
 ) {
     val files by viewModel.files.collectAsState()
@@ -100,6 +110,9 @@ fun UploadScreen(
     val nextUploads by viewModel.nextUploads.collectAsState()
     val activeBatch by viewModel.activeBatch.collectAsState()
     val pendingBatchFileId by viewModel.pendingBatchFileId.collectAsState()
+    val canSeeLanLibrary by viewModel.canSeeLanLibrary.collectAsState()
+    val lanVideos by viewModel.lanVideos.collectAsState()
+    val lanBaseUrl by viewModel.lanBaseUrl.collectAsState()
     var selectedFile by remember { mutableStateOf<VideoFile?>(null) }
     var showSuccessDialog by remember { mutableStateOf(false) }
 
@@ -109,6 +122,13 @@ fun UploadScreen(
     // RemoteLibraryViewModel/LibraryViewModel).
     LaunchedEffect(Unit) { viewModel.refreshRemoteVideos() }
     LaunchedEffect(Unit) { viewModel.refreshNextUploads() }
+    // Mismo patrón ref-counted que LibraryScreen.kt (feature:library) --
+    // LanLibraryRepository soporta los dos consumidores activos a la vez sin
+    // pisarse. Ver ese archivo.
+    DisposableEffect(Unit) {
+        viewModel.startLanDiscovery()
+        onDispose { viewModel.stopLanDiscovery() }
+    }
     // Distingue "todavía no autoseleccionó nada" de "el usuario tocó Elegir
     // otro video a propósito" -- sin esto, un simple cambio en la lista (se
     // importa/publica/borra algo mientras el usuario está mirando la lista a
@@ -157,7 +177,12 @@ fun UploadScreen(
         )
     }
 
-    if (files.isEmpty() && remoteVideos.isEmpty()) {
+    // canSeeLanLibrary (no lanVideos.isEmpty()) evita el falso "Nada para
+    // subir" mientras la PC recién se está autorizando/cargando -- mismo
+    // criterio que showsChips en LibraryView.swift (iOS): el chip/sección
+    // existe apenas hay una PC autorizada, sin esperar a que termine de
+    // traer su lista.
+    if (files.isEmpty() && remoteVideos.isEmpty() && !canSeeLanLibrary) {
         PlaceholderScreen(
             title = "Nada para subir todavía",
             note = "Importá un video primero desde la pestaña Videos.",
@@ -215,6 +240,20 @@ fun UploadScreen(
                             }
                         }
                     },
+                )
+            }
+            // FIX 2026-08-18: mismo gap que BUG-2026-08-16-03 (ver
+            // docs/bug-reports.md en content-automation-dashboard) -- antes
+            // este picker no tenía forma de cambiar a un video de la PC en
+            // Biblioteca LAN. Solo aparece con PC autorizada ahora mismo
+            // (canSeeLanLibrary), sin fallback a ningún mirror.
+            val currentLanBaseUrl = lanBaseUrl
+            if (canSeeLanLibrary && currentLanBaseUrl != null && lanVideos.isNotEmpty()) {
+                LanVideoStrip(
+                    videos = lanVideos,
+                    nextUploads = nextUploads,
+                    thumbnailUrl = { video -> viewModel.lanThumbnailUrl(video, currentLanBaseUrl) },
+                    onSelect = { video -> onSelectLan(video, currentLanBaseUrl) },
                 )
             }
             FileList(
@@ -331,6 +370,76 @@ private fun RemoteVideoStrip(
                                 )
                                 else -> Icon(
                                     Icons.Outlined.CloudUpload,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        Text(
+                            video.fileName,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                        val nextFor = Platform.publishable.filter { nextUploads[it] == video.fileName }
+                        if (nextFor.isNotEmpty()) NextUploadBadgeRow(nextFor)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Tira horizontal para Biblioteca LAN, mismo patrón visual que RemoteVideoStrip
+// -- fuente distinta (server-side, sin bytes que bajar al teléfono), por eso
+// onSelect acá NO dispara ningún import: solo avisa al caller (ver
+// onSelectLan en UploadScreen) qué video+baseUrl se tocó.
+@Composable
+private fun LanVideoStrip(
+    videos: List<LocalPcVideoDto>,
+    nextUploads: Map<Platform, String>,
+    thumbnailUrl: (LocalPcVideoDto) -> String?,
+    onSelect: (LocalPcVideoDto) -> Unit,
+) {
+    Column(modifier = Modifier.padding(bottom = 8.dp)) {
+        Text(
+            "Biblioteca LAN",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 4.dp),
+        )
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(videos, key = { it._id }) { video ->
+                Card(
+                    modifier = Modifier.width(140.dp),
+                    onClick = { onSelect(video) },
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                ) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(80.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            val url = thumbnailUrl(video)
+                            if (url != null) {
+                                AsyncImage(
+                                    model = url,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            } else {
+                                Icon(
+                                    Icons.Outlined.Computer,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )

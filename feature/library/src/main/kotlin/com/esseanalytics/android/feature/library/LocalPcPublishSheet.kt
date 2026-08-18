@@ -1,18 +1,25 @@
 package com.esseanalytics.android.feature.library
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -34,9 +41,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import coil.compose.AsyncImage
 import com.esseanalytics.android.core.model.Platform
 
 // Publicar desde una PC de la LAN es server-side y sin bytes -- la PC lee su
@@ -70,8 +80,22 @@ fun LocalPcPublishSheet(
     var title by remember(item.video._id) { mutableStateOf(item.video.fileName.substringBeforeLast('.')) }
     var description by remember(item.video._id) { mutableStateOf("") }
     var tiktokPublic by remember { mutableStateOf(false) }
+    // FIX 2026-08-18 (ver UIEssePanel/PLAN_LAN_PICKER_Y_REPRODUCTOR-2026-08-18.md):
+    // antes esta hoja no tenía forma de VER el video antes de publicar, solo
+    // nombre+checkboxes. RemoteVideoPlayerDialog ya es genérico (title +
+    // streamUrl + onDismiss, sin nada específico de la cola remota -- mismo
+    // componente que usa LibraryScreen para playingLan), se reusa tal cual.
+    var showPlayer by remember { mutableStateOf(false) }
 
     val isSubmitting = publishState.values.any { it is LanPublishResult.InProgress }
+
+    if (showPlayer) {
+        RemoteVideoPlayerDialog(
+            title = item.video.fileName,
+            streamUrl = viewModel.lanStreamUrl(item),
+            onDismiss = { showPlayer = false },
+        )
+    }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Scaffold(
@@ -93,6 +117,42 @@ fun LocalPcPublishSheet(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
+                // FIX 2026-08-18: miniatura tocable con ícono play, antes de
+                // los campos del formulario (mismo lugar que PublishForm en
+                // feature:upload) -- ver showPlayer/RemoteVideoPlayerDialog
+                // arriba.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable { showPlayer = true },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    val thumbnailUrl = viewModel.lanThumbnailUrl(item)
+                    if (thumbnailUrl != null) {
+                        AsyncImage(
+                            model = thumbnailUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxWidth().height(180.dp),
+                        )
+                    } else {
+                        Icon(
+                            Icons.Outlined.Computer,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Icon(
+                        Icons.Filled.PlayCircle,
+                        contentDescription = "Reproducir",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(48.dp),
+                    )
+                }
+
                 Text(item.video.fileName, style = MaterialTheme.typography.titleMedium)
                 Text(
                     "Esta PC sube el video ella misma -- el teléfono solo manda el pedido. No se puede pausar ni reanudar la subida desde acá.",
