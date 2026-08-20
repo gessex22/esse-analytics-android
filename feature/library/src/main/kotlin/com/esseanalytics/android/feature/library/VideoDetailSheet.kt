@@ -73,6 +73,12 @@ fun VideoDetailSheet(
 ) {
     val isSaving by viewModel.isSaving.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
+    // BUG-2026-08-15-03: antes `hasLink` usaba `platform in file.platforms`,
+    // tautológicamente igual a la condición PUBLISHED de la fila -- el
+    // ícono LinkOff/label "Sin enlace" nunca se mostraba. Reactivo por
+    // file.id para reflejar altas/bajas de link sin recomposición manual.
+    val linkedPlatforms by remember(file.id) { viewModel.linkedPlatforms(file.id) }
+        .collectAsState(initial = emptySet())
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var galleryMessage by remember { mutableStateOf<String?>(null) }
@@ -144,7 +150,7 @@ fun VideoDetailSheet(
                         platform in file.platformsDiscarded -> PlatformBadgeState.DISCARDED
                         else -> PlatformBadgeState.PENDING
                     },
-                    hasLink = platform in file.platforms,
+                    hasLink = platform in linkedPlatforms,
                     onToggleStatus = { viewModel.togglePlatform(file, platform) },
                     onEditLink = {
                         scope.launch {
@@ -260,8 +266,16 @@ internal fun VideoDetailPlatformRow(
             }
         }
 
+        // BUG-2026-08-15-03: el ícono de arriba (Link vs LinkOff) ya
+        // distinguía un link real de una marca manual sin link -- el label
+        // del chip ahora también lo hace explícito, mismo criterio que
+        // VideoDetailView.swift/RemoteVideoDetailView.swift (iOS).
         val (background, content, label) = when (status) {
-            PlatformBadgeState.PUBLISHED -> Triple(color.copy(alpha = 0.15f), color, "Publicado")
+            PlatformBadgeState.PUBLISHED -> Triple(
+                color.copy(alpha = 0.15f),
+                color,
+                if (hasLink) "Publicado" else "Publicado · Sin enlace",
+            )
             PlatformBadgeState.DISCARDED -> Triple(
                 MaterialTheme.colorScheme.surfaceVariant,
                 MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
