@@ -16,9 +16,11 @@ import com.esseanalytics.android.core.network.dto.UpdateFilePlatformsRequest
 import com.esseanalytics.android.core.network.dto.UpdateRemoteLibraryPlatformsRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -53,6 +55,17 @@ class VideoDetailViewModel @Inject constructor(
 
     suspend fun existingLink(fileId: Long, platform: Platform): String? =
         platformVideoRepository.findByLinkedFileAndPlatform(fileId, platform)?.platformUrl
+
+    // BUG-2026-08-15-03: antes VideoDetailSheet usaba `platform in file.platforms`
+    // como `hasLink` -- tautológicamente igual a la condición PUBLISHED, así
+    // que el ícono LinkOff/label "Sin enlace" nunca se mostraba aunque el
+    // badge fuera una marca manual sin ningún PlatformVideoEntity real detrás.
+    // Reactivo (no suspend) para que la fila de cada plataforma se actualice
+    // sola apenas se guarda un link nuevo, sin depender de que el caller
+    // vuelva a pedirlo a mano.
+    fun linkedPlatforms(fileId: Long): Flow<Set<Platform>> =
+        platformVideoRepository.observeByFile(fileId)
+            .map { list -> list.map { it.platform }.toSet() }
 
     // Ciclo pendiente -> publicado -> descartado -> pendiente. Room primero
     // (la UI nunca espera la red) -- en paralelo se sincroniza a la central
