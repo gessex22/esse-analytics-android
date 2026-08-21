@@ -4,11 +4,16 @@ import com.esseanalytics.android.core.network.dto.LocalPcVideosResponse
 import com.esseanalytics.android.core.network.dto.LocalPcInstagramUploadRequest
 import com.esseanalytics.android.core.network.dto.LocalPcTiktokUploadRequest
 import com.esseanalytics.android.core.network.dto.LocalPcYoutubeUploadRequest
+import com.esseanalytics.android.core.network.dto.LocalPcPlatformLinksDto
+import com.esseanalytics.android.core.network.dto.LocalPcSetPlatformLinkRequest
+import com.esseanalytics.android.core.network.dto.LocalPcUpdatePlatformsRequest
 import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Headers
+import retrofit2.http.PATCH
+import retrofit2.http.Path
 import retrofit2.http.POST
 import retrofit2.http.Query
 
@@ -44,4 +49,20 @@ interface LocalBackendApi {
 
     @POST("api/tiktok/upload")
     suspend fun uploadTiktok(@Body body: LocalPcTiktokUploadRequest): Response<ResponseBody>
+
+    @PATCH("api/videos/{fileId}/platforms")
+    suspend fun updatePlatforms(
+        @Path("fileId") fileId: String,
+        @Body body: LocalPcUpdatePlatformsRequest,
+    ): Response<ResponseBody>
+
+    @GET("api/videos/{fileId}/platform-links")
+    suspend fun getPlatformLinks(@Path("fileId") fileId: String): LocalPcPlatformLinksDto
+
+    @PATCH("api/videos/{fileId}/platform-link/{platform}")
+    suspend fun setPlatformLink(
+        @Path("fileId") fileId: String,
+        @Path("platform") platform: String,
+        @Body body: LocalPcSetPlatformLinkRequest,
+    ): Response<ResponseBody>
 }

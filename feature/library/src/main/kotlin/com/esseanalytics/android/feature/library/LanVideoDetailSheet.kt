@@ -24,21 +24,21 @@ import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.esseanalytics.android.core.model.Platform
-import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
 
 @Composable
-fun RemoteVideoDetailSheet(
-    video: RemoteLibraryVideoDto,
+fun LanVideoDetailSheet(
+    item: LibraryListItem.LanVideo,
+    streamUrl: String?,
     onDismiss: () -> Unit,
-    streamUrl: String? = null,
-    onPublish: () -> Unit = {},
-    viewModel: RemoteVideoEditViewModel = hiltViewModel(),
+    onPublish: () -> Unit,
+    viewModel: LanVideoDetailViewModel = hiltViewModel(),
 ) {
-    LaunchedEffect(video._id) { viewModel.setInitial(video) }
+    LaunchedEffect(item.video._id, item.baseUrl) { viewModel.setInitial(item) }
     val current by viewModel.video.collectAsState()
+    val links by viewModel.links.collectAsState()
     val isSaving by viewModel.isSaving.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
-    val shown = current ?: video
+    val shown = current ?: item.video
     val context = LocalContext.current
     val player = remember(streamUrl) {
         streamUrl?.let {
@@ -55,18 +55,20 @@ fun RemoteVideoDetailSheet(
 
     VideoDetailDialog(
         title = shown.fileName,
-        metadata = listOfNotNull(shown.resolution, shown.formato).joinToString(" · "),
+        metadata = listOfNotNull(
+            shown.resolucion?.let { "Resolución: $it" },
+            shown.duracion_segundos?.let { "Duración: ${it}s" },
+            shown.formato?.let { "Formato: $it" },
+        ).joinToString(" · "),
         onDismiss = onDismiss,
         stateFor = { platform ->
             when {
                 platform.apiValue in shown.platforms -> PlatformBadgeState.PUBLISHED
-                platform.apiValue in shown.platformsDiscarded -> PlatformBadgeState.DISCARDED
+                platform.apiValue in shown.platforms_discarded -> PlatformBadgeState.DISCARDED
                 else -> PlatformBadgeState.PENDING
             }
         },
-        hasLink = { platform ->
-            shown.platformLinks.any { it.platform == platform.apiValue && it.platformUrl != null }
-        },
+        hasLink = { links.urlFor(it.apiValue) != null },
         onToggle = viewModel::togglePlatform,
         onEditLink = { platform ->
             linkEditorText = viewModel.existingLink(platform) ?: ""

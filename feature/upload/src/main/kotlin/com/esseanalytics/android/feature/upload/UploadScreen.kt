@@ -100,7 +100,7 @@ fun UploadScreen(
     // depender de feature:library para reusar su sheet/ViewModel directo, esa
     // dependencia cruzada está prohibida). El caller (EsseAnalyticsNavHost,
     // que sí puede ver los dos feature modules) decide qué hacer con el tap.
-    onSelectLan: (LocalPcVideoDto, String) -> Unit = { _, _ -> },
+    lanPublishContent: @Composable (LocalPcVideoDto, String, () -> Unit) -> Unit = { _, _, _ -> },
     viewModel: UploadViewModel = hiltViewModel(),
 ) {
     val files by viewModel.files.collectAsState()
@@ -114,6 +114,7 @@ fun UploadScreen(
     val lanVideos by viewModel.lanVideos.collectAsState()
     val lanBaseUrl by viewModel.lanBaseUrl.collectAsState()
     var selectedFile by remember { mutableStateOf<VideoFile?>(null) }
+    var selectedLan by remember { mutableStateOf<Pair<LocalPcVideoDto, String>?>(null) }
     var showSuccessDialog by remember { mutableStateOf(false) }
 
     // Best-effort: si el usuario no tiene el entitlement de Nube, la API
@@ -146,7 +147,7 @@ fun UploadScreen(
     // ver PendingBatchStore), mostrar ESE archivo es más útil que el
     // pendiente más nuevo cualquiera.
     LaunchedEffect(initialFileId, pendingBatchFileId, files) {
-        if (selectedFile == null && !browsingList) {
+        if (selectedFile == null && selectedLan == null && !browsingList) {
             selectedFile = when {
                 pendingBatchFileId != null -> files.find { it.id == pendingBatchFileId }
                 initialFileId != null -> files.find { it.id == initialFileId }
@@ -193,8 +194,14 @@ fun UploadScreen(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
+        val currentLan = selectedLan
         val current = selectedFile
-        if (current == null) {
+        if (currentLan != null) {
+            lanPublishContent(currentLan.first, currentLan.second) {
+                selectedLan = null
+                browsingList = true
+            }
+        } else if (current == null) {
             // Encabezado propio para este paso -- sin esto, esta lista es
             // visualmente indistinguible de Biblioteca (misma tarjeta:
             // miniatura + título + subtítulo), y quedaba ambiguo si estabas
@@ -253,7 +260,11 @@ fun UploadScreen(
                     videos = lanVideos,
                     nextUploads = nextUploads,
                     thumbnailUrl = { video -> viewModel.lanThumbnailUrl(video, currentLanBaseUrl) },
-                    onSelect = { video -> onSelectLan(video, currentLanBaseUrl) },
+                    onSelect = { video ->
+                        selectedFile = null
+                        selectedLan = video to currentLanBaseUrl
+                        browsingList = false
+                    },
                 )
             }
             FileList(
@@ -261,6 +272,7 @@ fun UploadScreen(
                 nextUploads = nextUploads,
                 onSelect = {
                     selectedFile = it
+                    selectedLan = null
                     browsingList = false
                 },
                 modifier = Modifier.weight(1f),
@@ -619,7 +631,12 @@ private fun PublishForm(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(24.dp),
+            // bottom extra: FloatingBottomNavigation (EsseAnalyticsNavHost) es
+            // un overlay real, no un bottomBar de Scaffold -- no reserva
+            // espacio propio, así que sin este margen extra el botón
+            // "Publicar" (última fila) queda scrolleable hasta quedar tapado
+            // detrás de la cápsula flotante.
+            .padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = 24.dp + 80.dp),
     ) {
         Text(file.fileName, style = MaterialTheme.typography.titleLarge)
         Text(

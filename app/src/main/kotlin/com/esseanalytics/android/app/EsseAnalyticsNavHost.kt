@@ -92,7 +92,7 @@ import com.esseanalytics.android.feature.ingest.IngestScreen
 import com.esseanalytics.android.feature.library.LibraryListItem
 import com.esseanalytics.android.feature.library.LibraryScreen
 import com.esseanalytics.android.feature.library.LibraryViewModel
-import com.esseanalytics.android.feature.library.LocalPcPublishSheet
+import com.esseanalytics.android.feature.library.LocalPcPublishContent
 import com.esseanalytics.android.feature.stats.DashboardScreen
 import com.esseanalytics.android.feature.stats.HistoryScreen
 import com.esseanalytics.android.feature.remotelibrary.RemoteLibraryScreen
@@ -110,6 +110,12 @@ private object Routes {
     const val MORE = "more"
     const val SYNC = "sync"
     const val STATS = "stats"
+    // Estadísticas es tab del bottom nav Y ítem del menú "Más" a la vez --
+    // el mismo Routes.STATS no puede llevar back button condicional (se
+    // vería tanto entrando por el tab como por acá), así que "Más" empuja
+    // esta ruta hermana, envuelta en DetailScaffold (título + volver), en
+    // vez de reusar el destino de la tab.
+    const val STATS_DETAIL = "stats_detail"
     const val USERS = "users"
     const val GEMS = "gems"
     const val INGEST = "ingest"
@@ -301,15 +307,9 @@ private fun MainAppScaffold(
     // en cada una.
     val topBarScrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     // FIX 2026-08-18 (ver UIEssePanel/PLAN_LAN_PICKER_Y_REPRODUCTOR-2026-08-18.md):
-    // feature:upload no puede depender de feature:library (arquitectura
-    // feature->feature prohibida acá), así que UploadScreen solo emite un
-    // callback con el video+baseUrl tocado -- este NavHost, que sí ve los dos
-    // feature modules, es quien arma el LibraryListItem.LanVideo y muestra
-    // LocalPcPublishSheet (la misma hoja que usa Biblioteca). uploadLanViewModel
-    // es una instancia de LibraryViewModel propia para esto -- no comparte
-    // estado con la pestaña Videos, pero publishLan()/lanPublishState no
-    // dependen de eso (misma lógica sin importar la instancia).
-    var publishingLanFromUpload by remember { mutableStateOf<LibraryListItem.LanVideo?>(null) }
+    // El NavHost actúa como puente entre feature:upload y feature:library sin
+    // introducir una dependencia feature→feature. UploadScreen conserva el
+    // mismo contenedor y este lambda inyecta solamente el contenido LAN.
     val uploadLanViewModel: LibraryViewModel = hiltViewModel()
     // Hoisteado acá (antes vivía solo dentro de bottomBar) -- lo necesita
     // también el pointerInput del swipe global (Feature A), para saber en
@@ -408,16 +408,6 @@ private fun MainAppScaffold(
                         LibraryScreen(
                             onImportClick = { navController.navigate(Routes.INGEST) },
                             onOpenUpload = { fileId -> navController.navigate("${Routes.UPLOAD}?fileId=$fileId") },
-                            onLocalClick = { file ->
-                                if (file.platforms.isNotEmpty()) {
-                                    navController.navigate(Routes.STATS)
-                                } else {
-                                    navController.navigate("${Routes.UPLOAD}?fileId=${file.id}")
-                                }
-                            },
-                            onRemoteClick = { video ->
-                                navController.navigate("${Routes.REMOTE_LIBRARY}?videoId=${video._id}")
-                            },
                         )
                     }
                     composable(Routes.CALENDAR) { CalendarScreen() }
@@ -434,8 +424,12 @@ private fun MainAppScaffold(
                                     launchSingleTop = true
                                 }
                             },
-                            onSelectLan = { video: LocalPcVideoDto, baseUrl: String ->
-                                publishingLanFromUpload = LibraryListItem.LanVideo(video, baseUrl)
+                            lanPublishContent = { video: LocalPcVideoDto, baseUrl: String, onChooseAnother ->
+                                LocalPcPublishContent(
+                                    item = LibraryListItem.LanVideo(video, baseUrl),
+                                    viewModel = uploadLanViewModel,
+                                    onChooseAnother = onChooseAnother,
+                                )
                             },
                         )
                     }
@@ -452,6 +446,9 @@ private fun MainAppScaffold(
                         DetailScaffold("Sincronización", onBack = navController::popBackStack) { SyncScreen() }
                     }
                     composable(Routes.STATS) { StatsScreen() }
+                    composable(Routes.STATS_DETAIL) {
+                        DetailScaffold("Estadísticas", onBack = navController::popBackStack) { StatsScreen() }
+                    }
                     composable(Routes.HISTORY) {
                         DetailScaffold("Historial", onBack = navController::popBackStack) { HistoryScreen() }
                     }
@@ -483,19 +480,6 @@ private fun MainAppScaffold(
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
-    }
-    // Ver comentario en publishingLanFromUpload/uploadLanViewModel más arriba
-    // -- LocalPcPublishSheet usa Dialog() internamente, se superpone a todo
-    // sin importar dónde se declare en el árbol.
-    publishingLanFromUpload?.let { item ->
-        LocalPcPublishSheet(
-            item = item,
-            viewModel = uploadLanViewModel,
-            onDismiss = {
-                uploadLanViewModel.resetLanPublishState()
-                publishingLanFromUpload = null
-            },
-        )
     }
 }
 
@@ -666,13 +650,10 @@ private fun MoreScreen(navController: NavHostController, isOwner: Boolean, canUs
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         ) {
             Column {
-                MoreItem(
-                    icon = Icons.Outlined.VideoLibrary,
-                    label = "Videos",
-                    description = "Biblioteca de videos locales y remotos",
-                    onClick = { navController.navigate(Routes.LIBRARY) },
-                )
-                HorizontalDivider()
+                // "Videos" se sacó de acá -- Biblioteca ya es uno de los 5
+                // accesos de la cápsula flotante (floatingMainDestinations),
+                // tenerlo duplicado en este menú era ruido puro (pedido
+                // explícito del usuario).
                 MoreItem(
                     icon = Icons.Outlined.Sync,
                     label = "Sincronización",
@@ -684,7 +665,13 @@ private fun MoreScreen(navController: NavHostController, isOwner: Boolean, canUs
                     icon = Icons.Outlined.QueryStats,
                     label = "Estadísticas",
                     description = "Vistas, likes y comentarios por red",
-                    onClick = { navController.navigate(Routes.STATS) },
+                    // Estadísticas SÍ sigue siendo tab del bottom nav a la
+                    // vez -- a diferencia de Videos, acá el pedido no era
+                    // sacarla, era agregar una forma de volver cuando se
+                    // entra por acá. Ruta hermana con DetailScaffold en vez
+                    // de Routes.STATS (esa la sigue usando el tab, sin back
+                    // button, igual que el resto de las tabs principales).
+                    onClick = { navController.navigate(Routes.STATS_DETAIL) },
                 )
                 HorizontalDivider()
                 MoreItem(

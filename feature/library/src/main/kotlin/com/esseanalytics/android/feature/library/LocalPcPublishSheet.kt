@@ -66,6 +66,39 @@ fun LocalPcPublishSheet(
     viewModel: LibraryViewModel,
     onDismiss: () -> Unit,
 ) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Publicar desde esta PC") },
+                    navigationIcon = {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Cerrar")
+                        }
+                    },
+                )
+            },
+        ) { padding ->
+            LocalPcPublishContent(
+                item = item,
+                viewModel = viewModel,
+                onChooseAnother = onDismiss,
+                modifier = Modifier.padding(padding),
+            )
+        }
+    }
+}
+
+// El mismo contenido se usa dentro de la pestaña Subir y desde Biblioteca.
+// El contenedor (pantalla normal o diálogo de detalle) deja de decidir qué
+// formulario se muestra; solamente aporta cómo volver al selector.
+@Composable
+fun LocalPcPublishContent(
+    item: LibraryListItem.LanVideo,
+    viewModel: LibraryViewModel,
+    onChooseAnother: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val publishState by viewModel.lanPublishState.collectAsState()
     // Preselecciona lo que todavía no está publicado ni descartado en esa
     // plataforma -- mismo criterio que isLanVideoPending (LibraryViewModel),
@@ -80,6 +113,13 @@ fun LocalPcPublishSheet(
     var title by remember(item.video._id) { mutableStateOf(item.video.fileName.substringBeforeLast('.')) }
     var description by remember(item.video._id) { mutableStateOf("") }
     var tiktokPublic by remember { mutableStateOf(false) }
+    // Paridad con UploadScreen.kt (FacebookCrossPostRow) -- no se puede
+    // reusar ese composable directo, feature:library no puede depender de
+    // feature:upload (feature→feature prohibido, ver comentario de arriba).
+    // El contrato ya lo soporta (LocalPcInstagramUploadRequest.crossPostFacebook,
+    // local-backend/src/controllers/instagram-upload.controller.ts), solo
+    // faltaba el toggle en esta hoja.
+    var crossPostFacebook by remember(item.video._id) { mutableStateOf(false) }
     // FIX 2026-08-18 (ver UIEssePanel/PLAN_LAN_PICKER_Y_REPRODUCTOR-2026-08-18.md):
     // antes esta hoja no tenía forma de VER el video antes de publicar, solo
     // nombre+checkboxes. RemoteVideoPlayerDialog ya es genérico (title +
@@ -97,26 +137,26 @@ fun LocalPcPublishSheet(
         )
     }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = { Text("Publicar desde esta PC") },
-                    navigationIcon = {
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Cerrar")
-                        }
+    Column(
+        modifier = modifier
+            .verticalScroll(rememberScrollState())
+            // bottom extra: mismo motivo que PublishForm en feature:upload --
+            // cuando esta hoja se abre desde la tab "Subir" (puente del
+            // NavHost) la cápsula flotante es un overlay, no reserva espacio,
+            // y el botón "Publicar" quedaba tapable al final del scroll.
+            .padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = 24.dp + 80.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+                Text(item.video.fileName, style = MaterialTheme.typography.titleLarge)
+                Text(
+                    "← Elegir otro video",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable {
+                        viewModel.resetLanPublishState()
+                        onChooseAnother()
                     },
                 )
-            },
-        ) { padding ->
-            Column(
-                modifier = Modifier
-                    .padding(padding)
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
                 // FIX 2026-08-18: miniatura tocable con ícono play, antes de
                 // los campos del formulario (mismo lugar que PublishForm en
                 // feature:upload) -- ver showPlayer/RemoteVideoPlayerDialog
@@ -153,13 +193,27 @@ fun LocalPcPublishSheet(
                     )
                 }
 
-                Text(item.video.fileName, style = MaterialTheme.typography.titleMedium)
                 Text(
                     "Esta PC sube el video ella misma -- el teléfono solo manda el pedido. No se puede pausar ni reanudar la subida desde acá.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Título") },
+                    enabled = !isSubmitting,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Descripción") },
+                    enabled = !isSubmitting,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text("Plataformas", style = MaterialTheme.typography.titleMedium)
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Platform.publishable.forEach { platform ->
                         LanPublishPlatformRow(
@@ -171,23 +225,19 @@ fun LocalPcPublishSheet(
                                 selectedPlatforms = if (checked) selectedPlatforms + platform else selectedPlatforms - platform
                             },
                         )
+                        // Mismo criterio que PublishForm en feature:upload:
+                        // Facebook no es una plataforma publicable aparte, es
+                        // un crosspost del mismo archivo que Instagram acepta
+                        // (ver instagram-upload.controller.ts, local-backend).
+                        if (platform == Platform.INSTAGRAM) {
+                            LanFacebookCrossPostRow(
+                                checked = crossPostFacebook,
+                                enabled = Platform.INSTAGRAM in selectedPlatforms && !isSubmitting,
+                                onCheckedChange = { crossPostFacebook = it },
+                            )
+                        }
                     }
                 }
-
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("Título (YouTube/TikTok)") },
-                    enabled = !isSubmitting,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    label = { Text("Descripción / caption (YouTube/Instagram)") },
-                    enabled = !isSubmitting,
-                    modifier = Modifier.fillMaxWidth(),
-                )
                 if (Platform.TIKTOK in selectedPlatforms) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Switch(checked = tiktokPublic, onCheckedChange = { tiktokPublic = it }, enabled = !isSubmitting)
@@ -197,7 +247,16 @@ fun LocalPcPublishSheet(
                 }
 
                 Button(
-                    onClick = { viewModel.publishLan(item, selectedPlatforms, title, description, tiktokPublic) },
+                    onClick = {
+                        viewModel.publishLan(
+                            item,
+                            selectedPlatforms,
+                            title,
+                            description,
+                            tiktokPublic,
+                            crossPostFacebook = crossPostFacebook && Platform.INSTAGRAM in selectedPlatforms,
+                        )
+                    },
                     enabled = !isSubmitting && selectedPlatforms.isNotEmpty(),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
@@ -207,7 +266,28 @@ fun LocalPcPublishSheet(
                         Text("Publicar")
                     }
                 }
-            }
+    }
+}
+
+// Mirror de FacebookCrossPostRow (feature:upload/UploadScreen.kt) -- no se
+// puede importar directo por la prohibición feature→feature de esta
+// arquitectura (ver comentario grande al inicio del archivo), así que queda
+// duplicado a propósito, con el mismo texto y layout.
+@Composable
+private fun LanFacebookCrossPostRow(checked: Boolean, enabled: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 32.dp, bottom = 4.dp),
+    ) {
+        Checkbox(checked = checked && enabled, enabled = enabled, onCheckedChange = onCheckedChange)
+        Column(modifier = Modifier.padding(top = 12.dp)) {
+            Text("También publicar en Facebook", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "Mismo video, como Reel en la Página vinculada a tu cuenta de Instagram.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
