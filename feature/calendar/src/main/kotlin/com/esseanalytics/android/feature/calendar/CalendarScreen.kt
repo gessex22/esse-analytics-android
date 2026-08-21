@@ -91,7 +91,12 @@ fun CalendarScreen(modifier: Modifier = Modifier, viewModel: CalendarViewModel =
         } else {
             LazyColumn(
                 modifier = modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
+                // bottom extra: FloatingBottomNavigation (EsseAnalyticsNavHost) es
+                // un overlay real, no un bottomBar de Scaffold -- no reserva
+                // espacio propio, así que sin este margen extra la última tarjeta
+                // queda scrolleable hasta quedar tapada detrás de la cápsula
+                // flotante. Mismo criterio que PublishForm en UploadScreen.kt.
+                contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp + 80.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 // Spinner de refresh: en AppTopBar (izquierda del avatar),

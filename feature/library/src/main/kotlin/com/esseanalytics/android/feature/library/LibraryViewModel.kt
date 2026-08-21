@@ -245,7 +245,14 @@ class LibraryViewModel @Inject constructor(
     // pisando estado de un pedido que el usuario ya abandonó en la UI.
     private var publishLanJob: Job? = null
 
-    fun publishLan(item: LibraryListItem.LanVideo, platforms: Set<Platform>, title: String, description: String, tiktokPublic: Boolean) {
+    fun publishLan(
+        item: LibraryListItem.LanVideo,
+        platforms: Set<Platform>,
+        title: String,
+        description: String,
+        tiktokPublic: Boolean,
+        crossPostFacebook: Boolean = false,
+    ) {
         publishLanJob?.cancel()
         publishLanJob = viewModelScope.launch {
             val api = localBackendApiFactory.create(item.baseUrl)
@@ -262,7 +269,11 @@ class LibraryViewModel @Inject constructor(
                                 ),
                             )
                             Platform.INSTAGRAM -> api.uploadInstagram(
-                                LocalPcInstagramUploadRequest(fileId = item.video._id, caption = description),
+                                LocalPcInstagramUploadRequest(
+                                    fileId = item.video._id,
+                                    caption = description,
+                                    crossPostFacebook = crossPostFacebook,
+                                ),
                             )
                             Platform.TIKTOK -> api.uploadTiktok(
                                 LocalPcTiktokUploadRequest(

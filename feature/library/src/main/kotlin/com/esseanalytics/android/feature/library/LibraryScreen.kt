@@ -88,9 +88,7 @@ import java.io.File
 @Composable
 fun LibraryScreen(
     onImportClick: () -> Unit = {},
-    onLocalClick: (VideoFile) -> Unit = {},
     onOpenUpload: (Long) -> Unit = {},
-    onRemoteClick: (RemoteLibraryVideoDto) -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
@@ -106,6 +104,7 @@ fun LibraryScreen(
     var publishingLan by remember { mutableStateOf<LibraryListItem.LanVideo?>(null) }
     var editingFile by remember { mutableStateOf<VideoFile?>(null) }
     var editingRemoteVideo by remember { mutableStateOf<RemoteLibraryVideoDto?>(null) }
+    var editingLan by remember { mutableStateOf<LibraryListItem.LanVideo?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(canUseCloudStorage) {
@@ -186,13 +185,8 @@ fun LibraryScreen(
                             onClick = {
                                 when (item) {
                                     is LibraryListItem.Local -> editingFile = item.file
-                                    is LibraryListItem.Remote -> onRemoteClick(item.video)
-                                    // Toca navega directo al mismo lugar donde se
-                                    // ve Y se publica (mismo criterio que iOS,
-                                    // LibraryView.swift) -- a diferencia del viejo
-                                    // BackupCatalog (solo lectura), acá SÍ hay
-                                    // bytes reales.
-                                    is LibraryListItem.LanVideo -> publishingLan = item
+                                    is LibraryListItem.Remote -> editingRemoteVideo = item.video
+                                    is LibraryListItem.LanVideo -> editingLan = item
                                 }
                             },
                             onPlayClick = {
@@ -208,13 +202,10 @@ fun LibraryScreen(
                             // de "descargar" un video de Nube a un registro local,
                             // a diferencia de iOS) edita directo contra
                             // RemoteLibraryVideoModel (RemoteVideoEditViewModel).
-                            // LanVideo no tiene editor de plataformas acá -- el
-                            // estado real vive en la SQLite de la PC, se publica
-                            // (no se edita a mano) vía publishingLan.
                             onEditPlatformsClick = when (item) {
                                 is LibraryListItem.Local -> { { editingFile = item.file } }
                                 is LibraryListItem.Remote -> { { editingRemoteVideo = item.video } }
-                                is LibraryListItem.LanVideo -> null
+                                is LibraryListItem.LanVideo -> { { editingLan = item } }
                             },
                         )
                     }
@@ -275,7 +266,22 @@ fun LibraryScreen(
         )
     }
     editingRemoteVideo?.let { video ->
-        RemoteVideoDetailSheet(video = video, onDismiss = { editingRemoteVideo = null })
+        RemoteVideoDetailSheet(
+            video = video,
+            streamUrl = viewModel.streamUrl(video),
+            onDismiss = { editingRemoteVideo = null },
+        )
+    }
+    editingLan?.let { item ->
+        LanVideoDetailSheet(
+            item = item,
+            streamUrl = viewModel.lanStreamUrl(item),
+            onDismiss = { editingLan = null },
+            onPublish = {
+                editingLan = null
+                publishingLan = item
+            },
+        )
     }
 }
 

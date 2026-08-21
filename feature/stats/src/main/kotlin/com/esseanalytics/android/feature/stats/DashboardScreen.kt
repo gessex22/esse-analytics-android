@@ -88,7 +88,13 @@ fun DashboardScreen(
             is DashboardUiState.Error -> DashboardMessage("No se pudo cargar", current.message)
             is DashboardUiState.Success -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                // bottom extra: FloatingBottomNavigation (EsseAnalyticsNavHost) es
+                // un overlay real, no un bottomBar de Scaffold -- no reserva
+                // espacio propio, así que sin este margen extra la última tarjeta
+                // (Próximas publicaciones) queda scrolleable hasta quedar tapada
+                // detrás de la cápsula flotante. Mismo criterio que PublishForm
+                // en UploadScreen.kt.
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp + 80.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 // El spinner de refresh (pull-to-refresh, dashboardRefreshTrigger
