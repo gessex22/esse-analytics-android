@@ -69,10 +69,18 @@ class CalendarViewModel @Inject constructor(
     val uiState: StateFlow<CalendarUiState> = _uiState.asStateFlow()
 
     init {
-        refresh()
+        // force=false: en la carga inicial (o al recrearse el ViewModel
+        // mientras la caché sigue tibia por otra pantalla) sirve aprovechar
+        // SyncRepository -- solo el pull-to-refresh explícito (ver refresh())
+        // debe garantizar bypass real de caché.
+        load(force = false)
     }
 
     fun refresh() {
+        load(force = true)
+    }
+
+    private fun load(force: Boolean) {
         viewModelScope.launch {
             // Ver comentario igual en DashboardViewModel.refresh().
             val previous = _uiState.value as? CalendarUiState.Success
@@ -80,7 +88,7 @@ class CalendarViewModel @Inject constructor(
             // Señal para AppTopBar -- ver RefreshActivityTracker.
             refreshTracker.setRefreshing("calendar", true)
             _uiState.value = try {
-                CalendarUiState.Success(syncRepository.getCalendarConfig().map { it.toSlot() })
+                CalendarUiState.Success(syncRepository.getCalendarConfig(force = force).map { it.toSlot() })
             } catch (e: Exception) {
                 // Boundary real: llamada a la central, puede fallar por red,
                 // rol sin permiso (varios endpoints de /api/sync/* son

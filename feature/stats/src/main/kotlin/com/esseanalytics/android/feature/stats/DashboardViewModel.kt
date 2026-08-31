@@ -7,6 +7,7 @@ import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.WorkflowMode
+import com.esseanalytics.android.core.network.HistoryOutbox
 import com.esseanalytics.android.core.network.SyncRepository
 import com.esseanalytics.android.core.network.di.CentralRetrofit
 import com.esseanalytics.android.core.network.util.remoteLibraryThumbnailUrl
@@ -67,6 +68,7 @@ class DashboardViewModel @Inject constructor(
     private val settingsStore: SettingsStore,
     private val tokenStore: TokenStore,
     private val refreshTracker: RefreshActivityTracker,
+    private val historyOutbox: HistoryOutbox,
     @CentralRetrofit private val retrofit: Retrofit,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<DashboardUiState>(DashboardUiState.Loading)
@@ -77,9 +79,24 @@ class DashboardViewModel @Inject constructor(
         return remoteLibraryThumbnailUrl(retrofit.baseUrl(), videoId, item.thumbnailStoredFileName, tokenStore.token)
     }
 
-    init { refresh() }
+    init {
+        // force=false: la primera carga (o un ViewModel recreado mientras la
+        // caché sigue tibia por otra pantalla) puede aprovechar
+        // SyncRepository -- el bypass real de caché es responsabilidad
+        // exclusiva del pull-to-refresh explícito (ver refresh()).
+        load(force = false)
+    }
 
     fun refresh() {
+        load(force = true)
+    }
+
+    private fun load(force: Boolean) {
+        // Fire-and-forget: vacía el outbox de publicaciones que no llegaron a
+        // la central (SYNC-02#4, ver HistoryOutbox) en cada apertura de
+        // Dashboard/pull-to-refresh, sin bloquear ni retrasar el resto de
+        // esta carga -- si falla, no afecta el resto de load() ni su estado.
+        viewModelScope.launch { historyOutbox.flush() }
         viewModelScope.launch {
             // `previous` capturado UNA vez acá -- es la señal de "ya hay
             // datos en pantalla" para todo este intento, sin importar cómo
@@ -96,11 +113,11 @@ class DashboardViewModel @Inject constructor(
             // compartida, no en el contenido) -- ver RefreshActivityTracker.
             refreshTracker.setRefreshing("dashboard", true)
             val result = supervisorScope {
-                val stats = async { runCatching { syncRepository.getGroupStats(limit = 5) } }
+                val stats = async { runCatching { syncRepository.getGroupStats(limit = 5, force = force) } }
                 val individualStats = Platform.publishable.map { platform ->
-                    async { runCatching { syncRepository.getGroupStats(limit = 5, platform = platform.apiValue) } }
+                    async { runCatching { syncRepository.getGroupStats(limit = 5, platform = platform.apiValue, force = force) } }
                 }
-                val calendar = async { runCatching { syncRepository.getCalendarConfig() } }
+                val calendar = async { runCatching { syncRepository.getCalendarConfig(force = force) } }
                 val history = async { runCatching { syncRepository.getHistory(limit = 1, force = true) } }
                 val workflowMode = async { runCatching { settingsStore.workflowMode.first() } }
                 Triple(stats.await(), calendar.await(), history.await()) to Pair(workflowMode.await(), individualStats.map { it.await() })
