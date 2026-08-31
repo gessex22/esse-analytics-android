@@ -45,10 +45,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.esseanalytics.android.core.designsystem.icon.FacebookLogo
 import com.esseanalytics.android.core.designsystem.icon.InstagramLogo
 import com.esseanalytics.android.core.designsystem.icon.PlatformIcons
 import com.esseanalytics.android.core.designsystem.icon.TiktokLogo
 import com.esseanalytics.android.core.designsystem.icon.YoutubeLogo
+import com.esseanalytics.android.core.designsystem.theme.FacebookBlue
 import com.esseanalytics.android.core.designsystem.theme.InstagramPurple
 import com.esseanalytics.android.core.designsystem.theme.TiktokPink
 import com.esseanalytics.android.core.designsystem.theme.YoutubeRed
@@ -261,6 +263,7 @@ private fun platformColor(platform: String): Color = when (platform) {
     "youtube" -> YoutubeRed
     "instagram" -> InstagramPurple
     "tiktok" -> TiktokPink
+    "facebook" -> FacebookBlue
     else -> Color.Gray
 }
 
@@ -268,6 +271,7 @@ private fun platformIcon(platform: String): ImageVector? = when (platform) {
     "youtube" -> PlatformIcons.YoutubeLogo
     "instagram" -> PlatformIcons.InstagramLogo
     "tiktok" -> PlatformIcons.TiktokLogo
+    "facebook" -> PlatformIcons.FacebookLogo
     else -> null
 }
 

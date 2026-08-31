@@ -70,10 +70,12 @@ import androidx.work.Data
 import androidx.work.WorkInfo
 import coil.compose.AsyncImage
 import com.esseanalytics.android.core.designsystem.component.PlaceholderScreen
+import com.esseanalytics.android.core.designsystem.icon.FacebookLogo
 import com.esseanalytics.android.core.designsystem.icon.InstagramLogo
 import com.esseanalytics.android.core.designsystem.icon.PlatformIcons
 import com.esseanalytics.android.core.designsystem.icon.TiktokLogo
 import com.esseanalytics.android.core.designsystem.icon.YoutubeLogo
+import com.esseanalytics.android.core.designsystem.theme.FacebookBlue
 import com.esseanalytics.android.core.designsystem.theme.InstagramPurple
 import com.esseanalytics.android.core.designsystem.theme.TiktokPink
 import com.esseanalytics.android.core.designsystem.theme.YoutubeRed
@@ -920,7 +922,13 @@ private fun FacebookCrossPostRow(checked: Boolean, enabled: Boolean, onCheckedCh
     ) {
         Checkbox(checked = checked && enabled, enabled = enabled, onCheckedChange = onCheckedChange)
         Column(modifier = Modifier.padding(top = 12.dp)) {
-            Text("También publicar en Facebook", style = MaterialTheme.typography.bodyMedium)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // Mismo logo de marca que el toggle equivalente en el dashboard
+                // (YoutubeUploadView.tsx) y iOS (InstagramOptionsFields) -- antes
+                // este toggle no tenía ningún ícono.
+                Icon(PlatformIcons.FacebookLogo, contentDescription = null, tint = FacebookBlue, modifier = Modifier.size(16.dp))
+                Text("También publicar en Facebook", style = MaterialTheme.typography.bodyMedium)
+            }
             Text(
                 "Mismo video, como Reel en la Página vinculada a tu cuenta de Instagram.",
                 style = MaterialTheme.typography.labelSmall,
@@ -1096,7 +1104,7 @@ private fun platformColor(platform: Platform): Color = when (platform) {
     Platform.YOUTUBE -> YoutubeRed
     Platform.INSTAGRAM -> InstagramPurple
     Platform.TIKTOK -> TiktokPink
-    Platform.FACEBOOK -> Color.Gray
+    Platform.FACEBOOK -> FacebookBlue
 }
 
 private fun platformFullLabel(platform: Platform): String = when (platform) {
@@ -1110,7 +1118,7 @@ private fun platformIcon(platform: Platform): ImageVector? = when (platform) {
     Platform.YOUTUBE -> PlatformIcons.YoutubeLogo
     Platform.INSTAGRAM -> PlatformIcons.InstagramLogo
     Platform.TIKTOK -> PlatformIcons.TiktokLogo
-    Platform.FACEBOOK -> null
+    Platform.FACEBOOK -> PlatformIcons.FacebookLogo
 }
 
 @Composable

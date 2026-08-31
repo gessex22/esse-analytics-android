@@ -10,6 +10,10 @@ import androidx.compose.ui.graphics.Color
 val YoutubeRed = Color(0xFFEF4444)
 val InstagramPurple = Color(0xFFA855F7)
 val TiktokPink = Color(0xFFEC4899)
+// Facebook no es una plataforma publicable propia -- es el crosspost del
+// mismo video de Instagram (ver Platform.kt) -- mismo azul que
+// frontend/src/components/HistoryView.tsx (text-blue-500).
+val FacebookBlue = Color(0xFF3B82F6)
 
 // Urgencia del calendario (mismos tonos que UrgencyPill en
 // frontend/src/components/PublishingQueue.tsx: past=red-500, today=orange-500,
