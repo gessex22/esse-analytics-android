@@ -4,7 +4,9 @@ import android.content.Context
 import androidx.room.Room
 import com.esseanalytics.android.core.database.EsseAnalyticsDatabase
 import com.esseanalytics.android.core.database.MIGRATION_2_3
+import com.esseanalytics.android.core.database.MIGRATION_3_4
 import com.esseanalytics.android.core.database.dao.FileDao
+import com.esseanalytics.android.core.database.dao.PendingHistoryEventDao
 import com.esseanalytics.android.core.database.dao.PlatformVideoDao
 import dagger.Module
 import dagger.Provides
@@ -20,7 +22,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): EsseAnalyticsDatabase =
         Room.databaseBuilder(context, EsseAnalyticsDatabase::class.java, "essenalytics.db")
-            .addMigrations(MIGRATION_2_3)
+            .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
             // Sigue como red de contención para saltos de versión SIN
             // Migration explícita (ej. instalaciones que quedaron en v1) --
             // MIGRATION_2_3 cubre el único salto real de acá en más.
@@ -32,4 +34,7 @@ object DatabaseModule {
 
     @Provides
     fun providePlatformVideoDao(db: EsseAnalyticsDatabase): PlatformVideoDao = db.platformVideoDao()
+
+    @Provides
+    fun providePendingHistoryEventDao(db: EsseAnalyticsDatabase): PendingHistoryEventDao = db.pendingHistoryEventDao()
 }

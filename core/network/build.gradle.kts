@@ -11,6 +11,10 @@ android {
 dependencies {
     implementation(project(":core:model"))
     implementation(project(":core:datastore"))
+    // Outbox persistente de recordPublish (HistoryOutbox, hallazgo SYNC-02#4)
+    // necesita Room para encolar eventos que fallaron -- core:database no
+    // depende de core:network, así que no hay ciclo.
+    implementation(project(":core:database"))
 
     implementation(libs.retrofit.core)
     implementation(libs.retrofit.kotlinx.serialization)

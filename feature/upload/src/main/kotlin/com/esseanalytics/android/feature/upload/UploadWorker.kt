@@ -12,8 +12,8 @@ import com.esseanalytics.android.core.database.FileRepository
 import com.esseanalytics.android.core.database.PlatformVideoRepository
 import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.model.Platform
+import com.esseanalytics.android.core.network.HistoryOutbox
 import com.esseanalytics.android.core.network.LabModeStatus
-import com.esseanalytics.android.core.network.api.SyncApi
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
 import com.esseanalytics.android.core.network.dto.RemoteLibraryPlatformLinkDto
 import com.esseanalytics.android.core.network.dto.UpdateRemoteLibraryPlatformsRequest
@@ -42,7 +42,7 @@ class UploadWorker @AssistedInject constructor(
     private val fileRepository: FileRepository,
     private val platformVideoRepository: PlatformVideoRepository,
     private val settingsStore: SettingsStore,
-    private val syncApi: SyncApi,
+    private val historyOutbox: HistoryOutbox,
     private val remoteLibraryApi: RemoteLibraryApi,
     private val youtubeUploader: YoutubeUploader,
     private val instagramUploader: InstagramUploader,
@@ -168,31 +168,25 @@ class UploadWorker @AssistedInject constructor(
     // (UploadCoordinator.recordSuccess), acá nunca se llamaba a este endpoint.
     // Sin esto, Estadísticas no tenía de dónde sacar el platformId real, y el
     // Calendario (getCalendarConfig) nunca avanzaba "próximo a publicar" para
-    // lo subido desde Android -- solo el escritorio lo actualizaba. Best-effort:
-    // si falla, la subida real ya se completó y ya quedó registrada en Room.
+    // lo subido desde Android -- solo el escritorio lo actualizaba.
+    // HistoryOutbox (hallazgo SYNC-02#4): si el envío falla, ya NO se pierde
+    // en silencio -- queda encolado de forma durable (Room) para reintentar
+    // más tarde (ver DashboardViewModel.refresh(), que vacía el outbox).
     private suspend fun reportPublish(platform: Platform, platformId: String, platformUrl: String, fileName: String, title: String, remoteId: String?, operationId: String?) {
-        val deviceId = settingsStore.getOrCreateInstallId()
-        val deviceName = settingsStore.getOrCreateDeviceName()
-        repeat(3) { attempt ->
-            val sent = runCatching {
-                syncApi.recordPublish(
-                    RecordPublishRequest(
-                        platform = platform.apiValue,
-                        platformId = platformId,
-                        platformUrl = platformUrl.ifBlank { null },
-                        fileName = fileName,
-                        remoteLibraryVideoId = remoteId,
-                        title = title,
-                        publishedAt = Instant.now().toString(),
-                        operationId = operationId,
-                        deviceId = deviceId,
-                        deviceName = deviceName,
-                    ),
-                )
-            }.isSuccess
-            if (sent) return
-            if (attempt < 2) kotlinx.coroutines.delay(750L * (attempt + 1))
-        }
+        historyOutbox.sendOrEnqueue(
+            RecordPublishRequest(
+                platform = platform.apiValue,
+                platformId = platformId,
+                platformUrl = platformUrl.ifBlank { null },
+                fileName = fileName,
+                remoteLibraryVideoId = remoteId,
+                title = title,
+                publishedAt = Instant.now().toString(),
+                operationId = operationId,
+                deviceId = settingsStore.getOrCreateInstallId(),
+                deviceName = settingsStore.getOrCreateDeviceName(),
+            ),
+        )
     }
 
     // videoFile.filePath puede ser un path local (Share Sheet, o SAF sin

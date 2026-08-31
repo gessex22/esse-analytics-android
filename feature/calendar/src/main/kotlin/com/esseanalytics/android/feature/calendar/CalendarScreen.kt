@@ -19,7 +19,6 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.VideoLibrary
-import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -41,13 +40,14 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.esseanalytics.android.core.designsystem.component.PlaceholderScreen
 import com.esseanalytics.android.core.designsystem.component.RefreshErrorBanner
+import com.esseanalytics.android.core.designsystem.icon.FacebookLogo
 import com.esseanalytics.android.core.designsystem.icon.InstagramLogo
 import com.esseanalytics.android.core.designsystem.icon.PlatformIcons
 import com.esseanalytics.android.core.designsystem.icon.TiktokLogo
 import com.esseanalytics.android.core.designsystem.icon.YoutubeLogo
+import com.esseanalytics.android.core.designsystem.theme.FacebookBlue
 import com.esseanalytics.android.core.designsystem.theme.InstagramPurple
 import com.esseanalytics.android.core.designsystem.theme.TiktokPink
-import com.esseanalytics.android.core.designsystem.theme.UrgencyPast
 import com.esseanalytics.android.core.designsystem.theme.UrgencySoon
 import com.esseanalytics.android.core.designsystem.theme.UrgencyToday
 import com.esseanalytics.android.core.designsystem.theme.YoutubeRed
@@ -291,19 +291,19 @@ private fun NextVideoThumbnail(slot: CalendarSlot) {
     }
 }
 
-// Mismo criterio que UrgencyPill en PublishingQueue.tsx (desktop): rojo si ya
-// venció, naranja si es hoy, ámbar si es mañana. Ahora vive como badge
-// flotante en la esquina de la tarjeta (antes mezclado en el texto de
-// "Próxima publicación") -- por eso SIEMPRE se ve como chip, incluso el caso
-// "falta más de un día" (antes era texto plano sin fondo, que quedaba
-// perdido/inconsistente como badge suelto).
+// Decisión del usuario 2026-08-30: un pendiente vencido (days < 0, todavía
+// sin publicar) ya NO se distingue de "Hoy" -- ni color propio (antes
+// UrgencyPast/rojo) ni ícono propio (antes WarningAmber) ni contador
+// creciente ("Venció Nd"). Se trata idéntico a un pendiente de hoy hasta que
+// se publique de verdad (lo que recalcula nextDate hacia adelante). Mismo
+// criterio aplicado en paralelo en CalendarView.swift (iOS) y
+// PublishingQueue.tsx (Electron/desktop).
 @Composable
 private fun UrgencyPill(nextDate: LocalDate, modifier: Modifier = Modifier) {
     val days = relDays(nextDate)
     val urgent = days <= 1
     val color = when {
-        days < 0 -> UrgencyPast
-        days == 0L -> UrgencyToday
+        days <= 0L -> UrgencyToday
         days == 1L -> UrgencySoon
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
@@ -315,7 +315,7 @@ private fun UrgencyPill(nextDate: LocalDate, modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            if (days < 0) Icons.Outlined.WarningAmber else Icons.Outlined.Schedule,
+            Icons.Outlined.Schedule,
             contentDescription = null,
             tint = color,
             modifier = Modifier.size(12.dp),
@@ -333,8 +333,7 @@ private fun UrgencyPill(nextDate: LocalDate, modifier: Modifier = Modifier) {
 private fun relDays(next: LocalDate): Long = ChronoUnit.DAYS.between(LocalDate.now(), next)
 
 private fun daysLabel(days: Long): String = when {
-    days < 0 -> "Venció ${-days}d"
-    days == 0L -> "Hoy"
+    days <= 0L -> "Hoy"
     days == 1L -> "Mañana"
     else -> "${days}d"
 }
@@ -346,7 +345,7 @@ private fun platformColor(platform: Platform): Color = when (platform) {
     Platform.YOUTUBE -> YoutubeRed
     Platform.INSTAGRAM -> InstagramPurple
     Platform.TIKTOK -> TiktokPink
-    Platform.FACEBOOK -> Color.Gray
+    Platform.FACEBOOK -> FacebookBlue
 }
 
 private fun platformShortLabel(platform: Platform): String = when (platform) {
@@ -367,5 +366,5 @@ private fun platformIcon(platform: Platform): ImageVector? = when (platform) {
     Platform.YOUTUBE -> PlatformIcons.YoutubeLogo
     Platform.INSTAGRAM -> PlatformIcons.InstagramLogo
     Platform.TIKTOK -> PlatformIcons.TiktokLogo
-    Platform.FACEBOOK -> null
+    Platform.FACEBOOK -> PlatformIcons.FacebookLogo
 }

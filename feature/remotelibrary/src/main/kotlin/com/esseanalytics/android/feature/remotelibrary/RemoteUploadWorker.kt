@@ -8,8 +8,8 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.model.Platform
+import com.esseanalytics.android.core.network.HistoryOutbox
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
-import com.esseanalytics.android.core.network.api.SyncApi
 import com.esseanalytics.android.core.network.dto.RecordPublishRequest
 import com.esseanalytics.android.core.network.dto.UpdateRemoteLibraryPlatformsRequest
 import com.esseanalytics.android.feature.upload.InstagramUploader
@@ -36,7 +36,7 @@ class RemoteUploadWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
     private val remoteLibraryApi: RemoteLibraryApi,
-    private val syncApi: SyncApi,
+    private val historyOutbox: HistoryOutbox,
     private val settingsStore: SettingsStore,
     private val youtubeUploader: YoutubeUploader,
     private val instagramUploader: InstagramUploader,
@@ -88,21 +88,24 @@ class RemoteUploadWorker @AssistedInject constructor(
                     // La actualización de Biblioteca remota no sustituye el
                     // registro de publicación: Estadísticas, Historial y el
                     // match del catálogo dependen de PlatformVideoModel.
-                    runCatching {
-                        syncApi.recordPublish(
-                            RecordPublishRequest(
-                                platform = platform.apiValue,
-                                platformId = result.platformId,
-                                platformUrl = result.platformUrl.ifBlank { null },
-                                fileName = title,
-                                remoteLibraryVideoId = videoId,
-                                title = title,
-                                publishedAt = Instant.now().toString(),
-                                deviceId = settingsStore.getOrCreateInstallId(),
-                                deviceName = settingsStore.getOrCreateDeviceName(),
-                            ),
-                        )
-                    }
+                    // HistoryOutbox (hallazgo SYNC-02#4): antes esto era un
+                    // solo intento (`runCatching`, sin retry ni persistencia)
+                    // -- el flujo con MENOS red de seguridad de los 3 call
+                    // sites de recordPublish en Android. Ahora encola de
+                    // forma durable si falla, igual que UploadWorker.
+                    historyOutbox.sendOrEnqueue(
+                        RecordPublishRequest(
+                            platform = platform.apiValue,
+                            platformId = result.platformId,
+                            platformUrl = result.platformUrl.ifBlank { null },
+                            fileName = title,
+                            remoteLibraryVideoId = videoId,
+                            title = title,
+                            publishedAt = Instant.now().toString(),
+                            deviceId = settingsStore.getOrCreateInstallId(),
+                            deviceName = settingsStore.getOrCreateDeviceName(),
+                        ),
+                    )
                     Result.success(workDataOf(KEY_RESULT_URL to result.platformUrl))
                 }
                 is UploadResult.Failure -> {
