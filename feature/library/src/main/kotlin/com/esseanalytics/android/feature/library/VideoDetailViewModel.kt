@@ -55,6 +55,42 @@ class VideoDetailViewModel @Inject constructor(
     fun linkedPlatforms(fileId: Long): Flow<Set<Platform>> =
         platformVideoRepository.observeByFile(fileId).map { list -> list.map { it.platform }.toSet() }
 
+    // Bug real SYNC-01 #2 (auditoría 2026-08-30, corregido 2026-09-01): un
+    // video importado desde Biblioteca Remota puede traer la badge de
+    // "publicado" copiada de OTRO dispositivo sin que este dispositivo
+    // tenga el link real -- existingLink() de arriba solo lee
+    // platform_videos local, que nunca se completaba desde la central para
+    // este caso. Mostraba "Publicado · Sin enlace" para un link que sí
+    // existe (en la central y en Biblioteca Remota), solo que este
+    // dispositivo nunca lo pidió.
+    //
+    // Se pide getFileStats (mismo endpoint que ya usa Dashboard, solo
+    // devuelve slots con platformId real -- nunca badge_only, ver
+    // BUG-2026-08-15-03 en el backend) al abrir el detalle, y se completa
+    // localmente lo que falte. Best-effort: sin red o sin match, no
+    // bloquea nada. matchStatus "remote" (no "manual"): el link no se
+    // resolvió en ESTE dispositivo, se heredó de otro -- mismo criterio
+    // que LocalVideoDetailAdapter.prepare() en iOS.
+    // No hace falta refrescar currentFile/_file al final: linkedPlatforms()
+    // ya es un Flow reactivo sobre Room (observeByFile), así que insertar acá
+    // alcanza para que la UI (VideoDetailSheet.kt) se entere sola.
+    suspend fun backfillRemoteLinks(file: VideoFile) {
+        val stats = runCatching { syncApi.getFileStats(fileName = file.fileName) }.getOrNull() ?: return
+        for (platform in file.platforms) {
+            if (platformVideoRepository.findByLinkedFileAndPlatform(file.id, platform) != null) continue
+            val slot = stats.platforms[platform.apiValue] ?: continue
+            platformVideoRepository.upsertPublished(
+                platform = platform,
+                platformId = slot.platformId,
+                platformUrl = slot.platformUrl,
+                linkedFileId = file.id,
+                title = slot.title,
+                publishedAt = null,
+                matchStatus = "remote",
+            )
+        }
+    }
+
     override fun togglePlatform(platform: Platform) {
         val file = currentFile ?: return
         viewModelScope.launch {

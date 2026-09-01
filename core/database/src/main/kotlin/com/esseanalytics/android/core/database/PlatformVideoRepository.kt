@@ -36,13 +36,21 @@ class PlatformVideoRepository @Inject constructor(
     // archivo a la misma plataforma (platformId nuevo cada vez) deja dos filas
     // linkeadas al mismo fileId -- mismo bug que ya se encontró y arregló del
     // lado de desktop (ver el comentario en PlatformVideoDao).
+    // publishedAt nullable (default sigue siendo "ahora", no cambia a los
+    // callers existentes): el backfill cross-device de abajo no conoce la
+    // fecha real de publicación (getFileStats no la manda por plataforma) y
+    // fabricar "ahora" ahí sería engañoso -- mismo criterio que
+    // LocalVideoDetailAdapter.prepare() en iOS. matchStatus parametrizado
+    // por lo mismo: "remote" distingue un link heredado de otro dispositivo
+    // de uno resuelto acá (auto/manual).
     suspend fun upsertPublished(
         platform: Platform,
         platformId: String,
         platformUrl: String?,
         linkedFileId: Long,
         title: String? = null,
-        publishedAt: Instant = Instant.now(),
+        publishedAt: Instant? = Instant.now(),
+        matchStatus: String = "manual",
     ) = db.withTransaction {
         dao.unlinkOthersForFile(platform.apiValue, linkedFileId)
         dao.upsert(
@@ -50,9 +58,9 @@ class PlatformVideoRepository @Inject constructor(
                 platform = platform.apiValue,
                 platformId = platformId,
                 platformUrl = platformUrl,
-                publishedAtEpochMs = publishedAt.toEpochMilli(),
+                publishedAtEpochMs = publishedAt?.toEpochMilli(),
                 linkedFileId = linkedFileId,
-                matchStatus = "manual",
+                matchStatus = matchStatus,
                 title = title,
             ),
         )

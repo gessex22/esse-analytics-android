@@ -61,7 +61,13 @@ fun VideoDetailSheet(
     onPublish: () -> Unit = {},
     viewModel: VideoDetailViewModel = hiltViewModel(),
 ) {
-    LaunchedEffect(file.id) { viewModel.setInitial(file) }
+    LaunchedEffect(file.id) {
+        viewModel.setInitial(file)
+        // Bug real SYNC-01 #2 -- ver comentario completo en
+        // VideoDetailViewModel.backfillRemoteLinks. Best-effort, no bloquea
+        // la apertura del detalle si falla.
+        viewModel.backfillRemoteLinks(file)
+    }
     val currentFile by viewModel.file.collectAsState()
     val shownFile = currentFile ?: file
     val isSaving by viewModel.isSaving.collectAsState()
