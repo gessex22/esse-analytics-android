@@ -7,12 +7,12 @@ import com.esseanalytics.android.core.database.PlatformVideoRepository
 import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
+import com.esseanalytics.android.core.network.PlatformUpdateOutbox
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
 import com.esseanalytics.android.core.network.api.SyncApi
 import com.esseanalytics.android.core.network.di.PlatformOkHttp
 import com.esseanalytics.android.core.network.dto.RecordPublishRequest
 import com.esseanalytics.android.core.network.dto.RemoteLibraryPlatformLinkDto
-import com.esseanalytics.android.core.network.dto.UpdateFilePlatformsRequest
 import com.esseanalytics.android.core.network.dto.UpdateRemoteLibraryPlatformsRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
@@ -32,6 +32,7 @@ class VideoDetailViewModel @Inject constructor(
     private val platformVideoRepository: PlatformVideoRepository,
     private val remoteLibraryApi: RemoteLibraryApi,
     private val syncApi: SyncApi,
+    private val platformUpdateOutbox: PlatformUpdateOutbox,
     private val settingsStore: SettingsStore,
     @PlatformOkHttp private val platformOkHttpClient: OkHttpClient,
 ) : ViewModel(), VideoDetailEditor {
@@ -183,18 +184,18 @@ class VideoDetailViewModel @Inject constructor(
         }
     }
 
+    // SYNC-01 #4 parte b (2026-09-01): antes esto era runCatching puro -- un
+    // corte de red al tocar/descartar una plataforma dejaba el cambio
+    // guardado localmente pero la central nunca se enteraba, sin ningún
+    // reintento. Ver PlatformUpdateOutbox.
     private suspend fun syncPlatformsToCentralIfNeeded(fileId: Long, remoteId: String?) {
         val current = fileRepository.findById(fileId) ?: return
-        runCatching {
-            syncApi.updateFilePlatforms(
-                UpdateFilePlatformsRequest(
-                    fileName = current.fileName,
-                    remoteLibraryVideoId = remoteId,
-                    platforms = current.platforms.map { it.apiValue },
-                    platformsDiscarded = current.platformsDiscarded.map { it.apiValue },
-                ),
-            )
-        }
+        platformUpdateOutbox.sendOrEnqueue(
+            fileName = current.fileName,
+            remoteLibraryVideoId = remoteId,
+            platforms = current.platforms,
+            platformsDiscarded = current.platformsDiscarded,
+        )
     }
 
     private suspend fun syncToRemoteIfNeeded(
