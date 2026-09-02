@@ -21,4 +21,9 @@ dependencies {
     // de un módulo fallido) -- bug preexistente nunca detectado porque Lint
     // corría antes que Assemble debug en el CI y lo tapaba (ver Fase 6).
     implementation(libs.retrofit.core)
+    // Rediseño de Calendario (paridad con iOS, 2026-09-01): íconos nuevos
+    // (WbSunny/WbTwilight para Hoy/Mañana, ExpandMore/Less, etc.) no están
+    // en el set core de Material Icons -- mismo patrón que ya usan
+    // app/build.gradle.kts y core/designsystem/build.gradle.kts.
+    implementation(libs.androidx.compose.material.icons.extended)
 }

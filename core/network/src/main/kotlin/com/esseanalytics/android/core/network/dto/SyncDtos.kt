@@ -69,6 +69,9 @@ data class CalendarConfigDto(
 )
 
 @Serializable
+data class SkipNextRequest(val fileId: String)
+
+@Serializable
 data class NextVideoDto(
     val fileId: String,
     val title: String,

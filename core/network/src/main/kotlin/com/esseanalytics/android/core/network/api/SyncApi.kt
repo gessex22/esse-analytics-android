@@ -8,6 +8,7 @@ import com.esseanalytics.android.core.network.dto.GroupStatsResponse
 import com.esseanalytics.android.core.network.dto.PlatformRecentPageDto
 import com.esseanalytics.android.core.network.dto.RecordPublishRequest
 import com.esseanalytics.android.core.network.dto.ResolveCrossMatchSlotRequest
+import com.esseanalytics.android.core.network.dto.SkipNextRequest
 import com.esseanalytics.android.core.network.dto.UpdateFilePlatformsRequest
 import com.esseanalytics.android.core.network.dto.SyncReviewResponseDto
 import com.esseanalytics.android.core.network.dto.SyncStatsDto
@@ -28,6 +29,14 @@ interface SyncApi {
 
     @PATCH("api/sync/calendar-config/{platform}")
     suspend fun updateCalendarConfig(@Path("platform") platform: String, @Body body: Map<String, String>)
+
+    // Descarta el "próximo" de esta plataforma puntual -- mismo endpoint que
+    // ya consume CalendarView.swift (iOS)/PublishingQueue.tsx (Electron).
+    // Rediseño de Calendario Android (paridad con iOS, 2026-09-01): antes
+    // Android no tenía esta acción en absoluto (solo lectura, Fase 1 del
+    // plan original).
+    @POST("api/sync/calendar-config/{platform}/skip-next")
+    suspend fun skipNextCalendarVideo(@Path("platform") platform: String, @Body body: SkipNextRequest)
 
     @GET("api/sync/group-stats")
     suspend fun getGroupStats(
