@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -349,6 +350,22 @@ private fun MainAppScaffold(
                 isRefreshing = isAnyRefreshing,
             ) { navController.navigate(Routes.SETTINGS) }
         },
+        // Bug real reportado 2026-09-01: la cápsula flotante quedaba mucho
+        // más separada del borde inferior de lo que su propio
+        // .navigationBarsPadding() (en FloatingBottomNavigation, más abajo)
+        // pedía. Causa: el default de Scaffold (contentWindowInsets =
+        // WindowInsets.safeDrawing) YA reserva el alto de la barra de
+        // navegación del sistema en `padding` -- que acá se aplica al Box
+        // exterior que envuelve TANTO el contenido como la cápsula (no hay
+        // bottomBar real, es un overlay manual, ver comentario de Box más
+        // abajo). El .navigationBarsPadding() de la cápsula sumaba ESE
+        // mismo alto una segunda vez encima, duplicando el hueco. Como el
+        // TopAppBar ya inserta su propio padding de status bar por su
+        // cuenta (comportamiento default de Material3, independiente de
+        // esto), y la cápsula ya maneja su propio padding de nav bar,
+        // Scaffold no necesita reservar nada de scaffold — se lo dejamos
+        // enteramente a cada uno.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { padding ->
         // duration=220 + FastOutSlowInEasing == el cubic-bezier [0.4,0,0.2,1]
         // que motion/react usa en la web para transiciones de panel/vista
