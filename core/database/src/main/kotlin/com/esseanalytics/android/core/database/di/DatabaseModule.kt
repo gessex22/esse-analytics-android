@@ -6,6 +6,8 @@ import com.esseanalytics.android.core.database.EsseAnalyticsDatabase
 import com.esseanalytics.android.core.database.MIGRATION_2_3
 import com.esseanalytics.android.core.database.MIGRATION_3_4
 import com.esseanalytics.android.core.database.MIGRATION_4_5
+import com.esseanalytics.android.core.database.MIGRATION_5_6
+import com.esseanalytics.android.core.database.dao.CausalPlatformDao
 import com.esseanalytics.android.core.database.dao.FileDao
 import com.esseanalytics.android.core.database.dao.PendingHistoryEventDao
 import com.esseanalytics.android.core.database.dao.PendingPlatformUpdateDao
@@ -24,7 +26,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): EsseAnalyticsDatabase =
         Room.databaseBuilder(context, EsseAnalyticsDatabase::class.java, "essenalytics.db")
-            .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+            .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
             // Sigue como red de contención para saltos de versión SIN
             // Migration explícita (ej. instalaciones que quedaron en v1) --
             // MIGRATION_2_3 cubre el único salto real de acá en más.
@@ -42,4 +44,7 @@ object DatabaseModule {
 
     @Provides
     fun providePendingPlatformUpdateDao(db: EsseAnalyticsDatabase): PendingPlatformUpdateDao = db.pendingPlatformUpdateDao()
+
+    @Provides
+    fun provideCausalPlatformDao(db: EsseAnalyticsDatabase): CausalPlatformDao = db.causalPlatformDao()
 }

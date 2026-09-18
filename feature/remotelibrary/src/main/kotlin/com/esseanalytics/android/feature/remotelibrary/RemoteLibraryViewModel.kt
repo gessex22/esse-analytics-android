@@ -17,6 +17,7 @@ import com.esseanalytics.android.core.media.AndroidFrameThumbnailGenerator
 import com.esseanalytics.android.core.media.AndroidMediaProber
 import com.esseanalytics.android.core.media.MediaSource
 import com.esseanalytics.android.core.model.Platform
+import com.esseanalytics.android.core.network.PlatformIdentityStore
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
 import com.esseanalytics.android.core.network.di.CentralRetrofit
 import com.esseanalytics.android.core.network.dto.RemoteLibraryUploadResponse
@@ -64,6 +65,7 @@ class RemoteLibraryViewModel @Inject constructor(
     @CentralRetrofit private val retrofit: Retrofit,
     private val json: Json,
     private val tokenStore: TokenStore,
+    private val platformIdentityStore: PlatformIdentityStore,
 ) : ViewModel() {
 
     private val workManager = WorkManager.getInstance(context)
@@ -100,7 +102,15 @@ class RemoteLibraryViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = RemoteLibraryUiState.Loading
             runCatching { api.listVideos(limit = 100, skip = 0) }
-                .onSuccess { _uiState.value = RemoteLibraryUiState.Loaded(it.videos); _total.value = it.total }
+                .onSuccess {
+                    _uiState.value = RemoteLibraryUiState.Loaded(it.videos)
+                    _total.value = it.total
+                    // Hidrata identidad causal (contentId + platformRev) desde los
+                    // DTOs reales -- así un archivo local bajado de la cola conoce
+                    // su contentId y el editor remoto puede transicionar badges.
+                    // Best-effort: sin sesión o sin campos causales, no hace nada.
+                    runCatching { platformIdentityStore.hydrateFromRemote(it.videos) }
+                }
                 .onFailure { _uiState.value = RemoteLibraryUiState.Error(it.message ?: "No se pudo cargar la cola remota.") }
         }
     }
@@ -187,7 +197,7 @@ class RemoteLibraryViewModel @Inject constructor(
     fun publish(video: RemoteLibraryVideoDto, platforms: Set<Platform>, title: String, description: String) {
         platforms.forEach { platform ->
             val request = OneTimeWorkRequestBuilder<RemoteUploadWorker>()
-                .setInputData(RemoteUploadWorker.buildInputData(video._id, platform, title, description, video.platforms))
+                .setInputData(RemoteUploadWorker.buildInputData(video._id, platform, title, video.fileName, description))
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                 .build()

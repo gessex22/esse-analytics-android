@@ -5,8 +5,13 @@ import com.esseanalytics.android.core.network.dto.ConfirmLinkRequest
 import com.esseanalytics.android.core.network.dto.CrossMatchCandidatesResponseDto
 import com.esseanalytics.android.core.network.dto.GroupStatsItemDto
 import com.esseanalytics.android.core.network.dto.GroupStatsResponse
+import com.esseanalytics.android.core.network.dto.ManualPlatformLinkRequest
+import com.esseanalytics.android.core.network.dto.PlatformCausalResponse
 import com.esseanalytics.android.core.network.dto.PlatformRecentPageDto
+import com.esseanalytics.android.core.network.dto.PlatformTransitionRequest
 import com.esseanalytics.android.core.network.dto.RecordPublishRequest
+import com.esseanalytics.android.core.network.dto.ResolveIdentityRequest
+import com.esseanalytics.android.core.network.dto.ResolveIdentityResponse
 import com.esseanalytics.android.core.network.dto.ResolveCrossMatchSlotRequest
 import com.esseanalytics.android.core.network.dto.SkipNextRequest
 import com.esseanalytics.android.core.network.dto.UpdateFilePlatformsRequest
@@ -14,6 +19,7 @@ import com.esseanalytics.android.core.network.dto.SyncReviewResponseDto
 import com.esseanalytics.android.core.network.dto.SyncStatsDto
 import com.esseanalytics.android.core.network.dto.TriggerSyncResponse
 import com.esseanalytics.android.core.network.dto.UploadHistoryResponse
+import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.PATCH
@@ -102,7 +108,28 @@ interface SyncApi {
     suspend fun recordPublish(@Body body: RecordPublishRequest)
 
     // Sincroniza el estado COMPLETO publicado/descartado de un archivo hacia
-    // la central -- ver UpdateFilePlatformsRequest.
+    // la central -- ver UpdateFilePlatformsRequest. LEGADO: sigue existiendo
+    // solo para drenar el outbox viejo (PlatformUpdateOutbox); ningún caller
+    // nuevo debe encolar snapshots -- ver CausalPlatformOutbox.
     @POST("api/sync/file-platforms")
     suspend fun updateFilePlatforms(@Body body: UpdateFilePlatformsRequest)
+
+    // Infraestructura causal (mirror de central/iOS). Response<> crudo, no el
+    // body pelado: hace falta el status HTTP para distinguir 200 (aplicado) de
+    // 202 (in_progress) -- ambos son 2xx, un `suspend fun (): T` no los
+    // diferencia -- y para leer el errorBody de 409 (revisión autoritativa)
+    // sin que Retrofit tire HttpException. La clasificación completa
+    // (200/202/409/422/401/429/5xx/red) vive en CausalPlatformOutbox.classify.
+    @POST("api/sync/platform-transition")
+    suspend fun platformTransition(@Body body: PlatformTransitionRequest): Response<PlatformCausalResponse>
+
+    @POST("api/sync/manual-platform-link")
+    suspend fun manualPlatformLink(@Body body: ManualPlatformLinkRequest): Response<PlatformCausalResponse>
+
+    // Bootstrap de identidad para archivos locales (sin RemoteLibraryVideoDto).
+    // Body pelado: solo importa el 200 con contentId; un 404/red se traga con
+    // runCatching (ver PlatformIdentityStore) y la fila queda excluida hasta el
+    // próximo intento.
+    @POST("api/sync/resolve-identity")
+    suspend fun resolveIdentity(@Body body: ResolveIdentityRequest): ResolveIdentityResponse
 }

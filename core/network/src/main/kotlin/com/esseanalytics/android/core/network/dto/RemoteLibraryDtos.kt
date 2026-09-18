@@ -30,6 +30,20 @@ data class RemoteLibraryVideoDto(
     // tenía miniatura ni de armar su URL (ver remoteLibraryThumbnailUrl), así
     // que Nube nunca mostró una miniatura real, siempre el ícono genérico.
     val thumbnailStoredFileName: String? = null,
+    // Identidad causal de la central (infra platform-transition/
+    // manual-platform-link). `contentId` es el id canónico del contenido
+    // (compartido entre plataformas/dispositivos), distinto de `_id` (que es el
+    // id del registro en la cola remota). `platformRev` es la revisión actual
+    // por plataforma (apiValue -> versión), la baseVersion contra la que la
+    // central valida una transición. Ambos opcionales: un DTO legado que no los
+    // trae no se puede editar por el camino causal (ver
+    // RemoteVideoEditViewModel -- falla explícito y revierte la UI en vez de
+    // mandar una transición sin identidad/revisión). Se hidratan al listar Nube
+    // (ver PlatformIdentityStore) para que los archivos locales bajados de la
+    // cola también conozcan su contentId/revisión. NUNCA se deriva un contentId
+    // del fileName: si no vino de la central, no existe para el cliente.
+    val contentId: String? = null,
+    val platformRev: Map<String, Long>? = null,
 )
 
 // total/hasMore existían del lado del backend (listRemoteLibraryVideos) desde

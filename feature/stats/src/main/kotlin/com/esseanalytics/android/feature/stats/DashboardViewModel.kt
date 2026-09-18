@@ -7,6 +7,7 @@ import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.WorkflowMode
+import com.esseanalytics.android.core.network.CausalPlatformOutbox
 import com.esseanalytics.android.core.network.HistoryOutbox
 import com.esseanalytics.android.core.network.PlatformUpdateOutbox
 import com.esseanalytics.android.core.network.SyncRepository
@@ -71,6 +72,7 @@ class DashboardViewModel @Inject constructor(
     private val refreshTracker: RefreshActivityTracker,
     private val historyOutbox: HistoryOutbox,
     private val platformUpdateOutbox: PlatformUpdateOutbox,
+    private val causalPlatformOutbox: CausalPlatformOutbox,
     @CentralRetrofit private val retrofit: Retrofit,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<DashboardUiState>(DashboardUiState.Loading)
@@ -99,8 +101,14 @@ class DashboardViewModel @Inject constructor(
         // Dashboard/pull-to-refresh, sin bloquear ni retrasar el resto de
         // esta carga -- si falla, no afecta el resto de load() ni su estado.
         viewModelScope.launch { historyOutbox.flush() }
-        // SYNC-01 #4 parte b -- mismo criterio que el flush de arriba.
+        // SYNC-01 #4 parte b -- mismo criterio que el flush de arriba. LEGADO:
+        // solo drena filas viejas (ningún caller nuevo encola snapshots).
         viewModelScope.launch { platformUpdateOutbox.flush() }
+        // Outbox causal de transiciones/links (platform-transition /
+        // manual-platform-link) -- reemplaza al snapshot legado de arriba como
+        // camino de sincronización de badges/links editados a mano. Mismo
+        // criterio fire-and-forget.
+        viewModelScope.launch { runCatching { causalPlatformOutbox.flush() } }
         viewModelScope.launch {
             // `previous` capturado UNA vez acá -- es la señal de "ya hay
             // datos en pantalla" para todo este intento, sin importar cómo

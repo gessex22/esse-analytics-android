@@ -3,17 +3,14 @@ package com.esseanalytics.android.feature.library
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.esseanalytics.android.core.database.FileRepository
+import com.esseanalytics.android.core.database.PlatformTransitionRepository
 import com.esseanalytics.android.core.database.PlatformVideoRepository
-import com.esseanalytics.android.core.datastore.SettingsStore
+import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
-import com.esseanalytics.android.core.network.PlatformUpdateOutbox
-import com.esseanalytics.android.core.network.api.RemoteLibraryApi
+import com.esseanalytics.android.core.network.CausalPlatformOutbox
 import com.esseanalytics.android.core.network.api.SyncApi
 import com.esseanalytics.android.core.network.di.PlatformOkHttp
-import com.esseanalytics.android.core.network.dto.RecordPublishRequest
-import com.esseanalytics.android.core.network.dto.RemoteLibraryPlatformLinkDto
-import com.esseanalytics.android.core.network.dto.UpdateRemoteLibraryPlatformsRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,10 +27,10 @@ import javax.inject.Inject
 class VideoDetailViewModel @Inject constructor(
     private val fileRepository: FileRepository,
     private val platformVideoRepository: PlatformVideoRepository,
-    private val remoteLibraryApi: RemoteLibraryApi,
+    private val platformTransitionRepository: PlatformTransitionRepository,
+    private val causalPlatformOutbox: CausalPlatformOutbox,
     private val syncApi: SyncApi,
-    private val platformUpdateOutbox: PlatformUpdateOutbox,
-    private val settingsStore: SettingsStore,
+    private val tokenStore: TokenStore,
     @PlatformOkHttp private val platformOkHttpClient: OkHttpClient,
 ) : ViewModel(), VideoDetailEditor {
     private var currentFile: VideoFile? = null
@@ -92,53 +89,63 @@ class VideoDetailViewModel @Inject constructor(
         }
     }
 
+    // El toggle deja de PATCHear la central por snapshot (updateFilePlatforms,
+    // PlatformUpdateOutbox) y de PATCHear Biblioteca remota directo: cada cambio
+    // viaja como una INTENCIÓN causal (platform-transition) encolada EN LA MISMA
+    // transacción Room que el ciclo de badge (ver
+    // PlatformTransitionRepository.toggleAndEnqueue). Si la intención no se pudo
+    // encolar (Room revirtió), el badge NO cambia. El drenado real a la central
+    // lo hace CausalPlatformOutbox (acá solo se dispara, best-effort).
     override fun togglePlatform(platform: Platform) {
         val file = currentFile ?: return
         viewModelScope.launch {
-            val current = fileRepository.findById(file.id) ?: return@launch
-            val (platforms, discarded) = PlatformLinkResolver.nextCycle(
-                platform,
-                current.platforms.map { it.apiValue },
-                current.platformsDiscarded.map { it.apiValue },
-            )
-            val updated = current.copy(
-                platforms = platforms.mapNotNull(Platform::fromApiValue),
-                platformsDiscarded = discarded.mapNotNull(Platform::fromApiValue),
-            )
-            fileRepository.update(updated)
+            _errorMessage.value = null
+            val userKey = tokenStore.currentUser?.id
+            val updated = if (userKey != null) {
+                platformTransitionRepository.toggleAndEnqueue(file.id, platform, userKey)
+            } else {
+                // Sin sesión no hay a quién atribuir la intención causal -- se
+                // aplica solo el cambio local para no dejar la UI muerta;
+                // sincroniza cuando vuelva a haber sesión + identidad.
+                fileRepository.cyclePlatformStatus(file.id, platform)
+                fileRepository.findById(file.id)
+            }
+            if (updated == null) {
+                _errorMessage.value = "No se pudo registrar el cambio. Probá de nuevo."
+                return@launch
+            }
             currentFile = updated
             _file.value = updated
-            syncPlatformsToCentralIfNeeded(file.id, file.remoteLibraryVideoId)
-            syncToRemoteIfNeeded(file.id, file.remoteLibraryVideoId)
+            triggerFlush()
         }
     }
 
+    // Guardar un link viaja como manual-platform-link (con contentId +
+    // operationId, resuelto por el outbox); borrar el link (campo vacío) viaja
+    // como transición unlink. Ya NO se llama a recordPublish ni se PATCHea
+    // Biblioteca remota directo: el registro de historial lo produce la
+    // confirmación causal del manual-platform-link del lado central.
     override fun saveLink(platform: Platform, rawUrl: String) {
         val file = currentFile ?: return
         viewModelScope.launch {
             _isSaving.value = true
             _errorMessage.value = null
             val trimmed = rawUrl.trim()
-            val nowIso = Instant.now().truncatedTo(ChronoUnit.MILLIS).toString()
-            val remoteLink: RemoteLibraryPlatformLinkDto
+            val userKey = tokenStore.currentUser?.id
 
             if (trimmed.isEmpty()) {
-                val previousId = platformVideoRepository
-                    .findByLinkedFileAndPlatform(file.id, platform)?.platformId
                 platformVideoRepository.deleteForFile(file.id, platform)
                 fileRepository.removePlatform(file.id, platform)
-                remoteLink = RemoteLibraryPlatformLinkDto(
-                    platform = platform.apiValue,
-                    platformId = previousId ?: "",
-                    platformUrl = null,
-                    publishedAt = nowIso,
-                )
+                if (userKey != null) {
+                    platformTransitionRepository.enqueueUnlink(
+                        userKey = userKey,
+                        fileName = file.fileName,
+                        remoteLibraryVideoId = file.remoteLibraryVideoId,
+                        platform = platform,
+                    )
+                }
             } else {
-                val platformId = PlatformLinkResolver.resolvedPlatformId(
-                    platform,
-                    trimmed,
-                    platformOkHttpClient,
-                )
+                val platformId = PlatformLinkResolver.resolvedPlatformId(platform, trimmed, platformOkHttpClient)
                 val previous = platformVideoRepository.findByLinkedFileAndPlatform(file.id, platform)
                 val publishedAt = previous?.publishedAt ?: Instant.now().truncatedTo(ChronoUnit.MILLIS)
                 val publishedAtIso = publishedAt.truncatedTo(ChronoUnit.MILLIS).toString()
@@ -150,70 +157,33 @@ class VideoDetailViewModel @Inject constructor(
                     publishedAt = publishedAt,
                 )
                 fileRepository.addPlatform(file.id, platform)
-                remoteLink = RemoteLibraryPlatformLinkDto(
-                    platform = platform.apiValue,
-                    platformId = platformId,
-                    platformUrl = trimmed,
-                    publishedAt = publishedAtIso,
-                )
-
-                runCatching {
-                    syncApi.recordPublish(
-                        RecordPublishRequest(
-                            platform = platform.apiValue,
-                            platformId = platformId,
-                            platformUrl = trimmed,
-                            fileName = file.fileName,
-                            remoteLibraryVideoId = file.remoteLibraryVideoId,
-                            publishedAt = publishedAtIso,
-                            deviceId = settingsStore.getOrCreateInstallId(),
-                            deviceName = settingsStore.getOrCreateDeviceName(),
-                        ),
+                if (userKey != null) {
+                    platformTransitionRepository.enqueueManualLink(
+                        userKey = userKey,
+                        fileName = file.fileName,
+                        remoteLibraryVideoId = file.remoteLibraryVideoId,
+                        platform = platform,
+                        platformId = platformId,
+                        platformUrl = trimmed,
+                        title = null,
+                        publishedAt = publishedAtIso,
                     )
-                }.onFailure {
-                    _errorMessage.value = "El link se guardó en el celular pero no se pudo sincronizar con Estadísticas (${it.message}). Volvé a guardarlo para reintentar."
                 }
             }
 
-            syncToRemoteIfNeeded(file.id, file.remoteLibraryVideoId, listOf(remoteLink))
             fileRepository.findById(file.id)?.let {
                 currentFile = it
                 _file.value = it
             }
             _isSaving.value = false
+            triggerFlush()
         }
     }
 
-    // SYNC-01 #4 parte b (2026-09-01): antes esto era runCatching puro -- un
-    // corte de red al tocar/descartar una plataforma dejaba el cambio
-    // guardado localmente pero la central nunca se enteraba, sin ningún
-    // reintento. Ver PlatformUpdateOutbox.
-    private suspend fun syncPlatformsToCentralIfNeeded(fileId: Long, remoteId: String?) {
-        val current = fileRepository.findById(fileId) ?: return
-        platformUpdateOutbox.sendOrEnqueue(
-            fileName = current.fileName,
-            remoteLibraryVideoId = remoteId,
-            platforms = current.platforms,
-            platformsDiscarded = current.platformsDiscarded,
-        )
-    }
-
-    private suspend fun syncToRemoteIfNeeded(
-        fileId: Long,
-        remoteId: String?,
-        links: List<RemoteLibraryPlatformLinkDto> = emptyList(),
-    ) {
-        if (remoteId == null) return
-        val current = fileRepository.findById(fileId) ?: return
-        runCatching {
-            remoteLibraryApi.updatePlatforms(
-                id = remoteId,
-                body = UpdateRemoteLibraryPlatformsRequest(
-                    platforms = current.platforms.map { it.apiValue },
-                    platformsDiscarded = current.platformsDiscarded.map { it.apiValue },
-                    platformLinks = links,
-                ),
-            )
-        }.onFailure { _errorMessage.value = it.message ?: "No se pudo sincronizar con la nube." }
+    // Drena el outbox causal en background -- best-effort, no bloquea la UI ni
+    // propaga errores (la fila queda encolada y se reintenta en el próximo
+    // flush: acá o en DashboardViewModel).
+    private fun triggerFlush() {
+        viewModelScope.launch { runCatching { causalPlatformOutbox.flush() } }
     }
 }

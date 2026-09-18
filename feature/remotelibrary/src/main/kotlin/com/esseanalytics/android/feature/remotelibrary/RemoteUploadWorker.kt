@@ -11,7 +11,6 @@ import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.HistoryOutbox
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
 import com.esseanalytics.android.core.network.dto.RecordPublishRequest
-import com.esseanalytics.android.core.network.dto.UpdateRemoteLibraryPlatformsRequest
 import com.esseanalytics.android.feature.upload.InstagramUploader
 import com.esseanalytics.android.feature.upload.TiktokUploader
 import com.esseanalytics.android.feature.upload.UploadMetadata
@@ -49,7 +48,11 @@ class RemoteUploadWorker @AssistedInject constructor(
             ?: return Result.failure()
         val title = inputData.getString(KEY_TITLE)?.takeIf { it.isNotBlank() }
             ?: return Result.failure(workDataOf(KEY_ERROR to "Datos de subida incompletos."))
-        val existingPlatforms = inputData.getStringArray(KEY_EXISTING_PLATFORMS)?.toList() ?: emptyList()
+        // fileName real del video de la cola remota -- antes se mandaba `title`
+        // como fileName a record-publish (quedaba mal el match en la central si
+        // el título editado no coincidía con el nombre del archivo). Fallback a
+        // title solo si el caller viejo no lo pasó.
+        val fileName = inputData.getString(KEY_FILE_NAME)?.takeIf { it.isNotBlank() } ?: title
 
         // Facebook es crossposting, no una subida directa -- no debería llegar
         // acá nunca (ver Platform.publishable), pero se cubre el caso igual
@@ -73,32 +76,19 @@ class RemoteUploadWorker @AssistedInject constructor(
 
             return when (result) {
                 is UploadResult.Success -> {
-                    // La central lleva el estado de "qué ya se publicó" de esta
-                    // cola (PATCH reemplaza platforms entero, no lo mergea -- ver
-                    // updateRemoteLibraryVideoPlatforms en el backend), por eso
-                    // se manda la lista completa (existentes + esta) y no solo
-                    // la plataforma nueva.
-                    val updatedPlatforms = (existingPlatforms + platform.apiValue).distinct()
-                    runCatching {
-                        remoteLibraryApi.updatePlatforms(
-                            videoId,
-                            UpdateRemoteLibraryPlatformsRequest(platforms = updatedPlatforms),
-                        )
-                    }
-                    // La actualización de Biblioteca remota no sustituye el
-                    // registro de publicación: Estadísticas, Historial y el
-                    // match del catálogo dependen de PlatformVideoModel.
-                    // HistoryOutbox (hallazgo SYNC-02#4): antes esto era un
-                    // solo intento (`runCatching`, sin retry ni persistencia)
-                    // -- el flujo con MENOS red de seguridad de los 3 call
-                    // sites de recordPublish en Android. Ahora encola de
-                    // forma durable si falla, igual que UploadWorker.
+                    // record-publish (vía HistoryOutbox) es el ÚNICO canal a la
+                    // central/Nube tras una publicación real -- ya NO se PATCHea
+                    // Biblioteca remota directo (platforms). La central deriva el
+                    // estado publicado de este video de la cola del propio evento
+                    // record-publish (que ya trae remoteLibraryVideoId), sin un
+                    // segundo camino que pueda quedar desincronizado. HistoryOutbox
+                    // (hallazgo SYNC-02#4) encola de forma durable si falla.
                     historyOutbox.sendOrEnqueue(
                         RecordPublishRequest(
                             platform = platform.apiValue,
                             platformId = result.platformId,
                             platformUrl = result.platformUrl.ifBlank { null },
-                            fileName = title,
+                            fileName = fileName,
                             remoteLibraryVideoId = videoId,
                             title = title,
                             publishedAt = Instant.now().toString(),
@@ -137,8 +127,8 @@ class RemoteUploadWorker @AssistedInject constructor(
         const val KEY_VIDEO_ID = "videoId"
         const val KEY_PLATFORM = "platform"
         const val KEY_TITLE = "title"
+        const val KEY_FILE_NAME = "fileName"
         const val KEY_DESCRIPTION = "description"
-        const val KEY_EXISTING_PLATFORMS = "existingPlatforms"
         const val KEY_PROGRESS = "progress"
         const val KEY_RESULT_URL = "resultUrl"
         const val KEY_ERROR = "error"
@@ -148,14 +138,14 @@ class RemoteUploadWorker @AssistedInject constructor(
             videoId: String,
             platform: Platform,
             title: String,
+            fileName: String,
             description: String,
-            existingPlatforms: List<String>,
         ) = workDataOf(
             KEY_VIDEO_ID to videoId,
             KEY_PLATFORM to platform.apiValue,
             KEY_TITLE to title,
+            KEY_FILE_NAME to fileName,
             KEY_DESCRIPTION to description,
-            KEY_EXISTING_PLATFORMS to existingPlatforms.toTypedArray(),
         )
     }
 }

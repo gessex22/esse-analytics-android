@@ -1,6 +1,8 @@
 package com.esseanalytics.android.core.network.di
 
 import android.content.Context
+import com.esseanalytics.android.core.network.CausalIdentityResolver
+import com.esseanalytics.android.core.network.PlatformIdentityStore
 import com.esseanalytics.android.core.network.api.AuthApi
 import com.esseanalytics.android.core.network.api.BackupApi
 import com.esseanalytics.android.core.network.api.HealthApi
@@ -133,4 +135,11 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideHealthApi(@CentralRetrofit retrofit: Retrofit): HealthApi = retrofit.create(HealthApi::class.java)
+
+    // Bootstrap de identidad causal para el flusher (resolve-identity + cache).
+    // PlatformIdentityStore es @Singleton @Inject; esto solo expone su interfaz
+    // a CausalFlusher para poder fakearla en los tests.
+    @Provides
+    @Singleton
+    fun provideCausalIdentityResolver(store: PlatformIdentityStore): CausalIdentityResolver = store
 }

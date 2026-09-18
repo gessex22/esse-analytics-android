@@ -14,9 +14,6 @@ import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.HistoryOutbox
 import com.esseanalytics.android.core.network.LabModeStatus
-import com.esseanalytics.android.core.network.api.RemoteLibraryApi
-import com.esseanalytics.android.core.network.dto.RemoteLibraryPlatformLinkDto
-import com.esseanalytics.android.core.network.dto.UpdateRemoteLibraryPlatformsRequest
 import com.esseanalytics.android.core.network.dto.RecordPublishRequest
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -43,7 +40,6 @@ class UploadWorker @AssistedInject constructor(
     private val platformVideoRepository: PlatformVideoRepository,
     private val settingsStore: SettingsStore,
     private val historyOutbox: HistoryOutbox,
-    private val remoteLibraryApi: RemoteLibraryApi,
     private val youtubeUploader: YoutubeUploader,
     private val instagramUploader: InstagramUploader,
     private val tiktokUploader: TiktokUploader,
@@ -106,19 +102,13 @@ class UploadWorker @AssistedInject constructor(
                         title = title,
                     )
                     fileRepository.onPlatformPublished(fileId, platform, settingsStore.workflowMode.first())
+                    // record-publish (vía HistoryOutbox) es el ÚNICO canal a la
+                    // central/Nube tras una publicación real -- ya no se PATCHea
+                    // Biblioteca remota directo (platforms/platformLinks): la
+                    // central deriva el estado de la publicación del propio
+                    // evento record-publish, y el estado editable a mano viaja
+                    // por el camino causal (platform-transition), no por acá.
                     reportPublish(platform, result.platformId, result.platformUrl, videoFile.fileName, title, videoFile.remoteLibraryVideoId, operationId)
-                    videoFile.remoteLibraryVideoId?.let { remoteId ->
-                        runCatching {
-                            remoteLibraryApi.updatePlatforms(
-                                remoteId,
-                                UpdateRemoteLibraryPlatformsRequest(
-                                    platforms = (fileRepository.findById(fileId)?.platforms ?: emptyList()).map { it.apiValue },
-                                    platformsDiscarded = (fileRepository.findById(fileId)?.platformsDiscarded ?: emptyList()).map { it.apiValue },
-                                    platformLinks = listOf(RemoteLibraryPlatformLinkDto(platform.apiValue, result.platformId, result.platformUrl.ifBlank { null }, Instant.now().toString())),
-                                ),
-                            )
-                        }
-                    }
 
                     // Facebook NO pasa por onPlatformPublished (no está en
                     // Platform.publishable) -- si le pidiéramos eso también,
