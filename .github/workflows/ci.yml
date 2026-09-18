@@ -49,7 +49,28 @@ jobs:
         run: ./gradlew assembleDebug --stacktrace
 
       - name: Unit tests
-        run: ./gradlew testDebugUnitTest --stacktrace
+        shell: bash
+        run: |
+          set -o pipefail
+          log_file="$(mktemp)"
+          ./gradlew testDebugUnitTest --stacktrace 2>&1 | tee "$log_file"
+          status="${PIPESTATUS[0]}"
+
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "### Unit tests failed (exit code $status)"
+              echo '```text'
+              tail -n 120 "$log_file"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            excerpt="$(tail -n 25 "$log_file" \
+              | sed -e 's/%/%25/g' -e 's/\r/%0D/g' \
+              | awk '{printf "%s%%0A", $0}')"
+            echo "::error::testDebugUnitTest failed (exit $status). Last lines: ${excerpt}"
+          fi
+
+          exit "$status"
 
       - name: Lint
         continue-on-error: true
