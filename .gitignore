@@ -13,10 +13,8 @@ local.properties
 *.hprof
 .DS_Store
 
-# gradle wrapper jar — se genera (o repara) solo al abrir el proyecto en
-# Android Studio, o corriendo `gradle wrapper` con un Gradle instalado — ver
-# README para el porqué no está commiteado.
-gradle/wrapper/gradle-wrapper.jar
+# El wrapper completo se versiona para que CI pueda ejecutar `./gradlew` desde
+# un checkout limpio, sin depender de Android Studio para regenerar el JAR.
 
 # core/database/schemas/ SÍ se commitea (no se ignora) — Room lo exporta ahí
 # en cada build (ksp room.schemaLocation) y hace falta el historial completo,
