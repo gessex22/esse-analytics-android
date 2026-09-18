@@ -5,9 +5,9 @@ import com.esseanalytics.android.core.network.AuthEvent
 import com.esseanalytics.android.core.network.AuthEventBus
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runTest
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
@@ -110,19 +110,33 @@ class AuthAuthenticatorTest {
             .build()
     }
 
-    // Dispatchers.Unconfined arranca el collector de forma sincronica hasta
-    // su primer punto de suspension (quedar a la espera de valores) antes de
-    // devolver el control, y hace que scope.launch { eventBus.emit(...) }
-    // corra inline. Asi no hace falta kotlinx-coroutines-test ni timeouts:
-    // para cuando `body` retorna, el evento (si hubo) ya fue entregado.
+    // runTest corre sobre un StandardTestDispatcher respaldado por un
+    // TestCoroutineScheduler: nada arranca solo, cada coroutine queda
+    // encolada hasta que se pide explicitamente avanzar el scheduler. Eso
+    // reemplaza el intento anterior con Dispatchers.Unconfined, que dependia
+    // de que el collector alcanzara su punto de suspension (ya suscripto)
+    // antes de que corriera el scope.launch interno de handleUnauthorized, y
+    // de que ese launch entregara el evento antes de cancelar -- orden que
+    // Unconfined no garantiza entre corrutinas hermanas. Aca el orden es
+    // explicito: 1) se arranca el collector y se avanza el scheduler hasta
+    // que quede suscripto y en espera; 2) se corre `body`, que solo encola
+    // el scope.launch { eventBus.emit(...) } de handleUnauthorized sin
+    // ejecutarlo todavia; 3) se vuelve a avanzar el scheduler para que ese
+    // launch corra hasta el final y el collector reciba el evento; recien
+    // ahi se cancela. Todo en tiempo virtual, sin sleeps ni timeouts reales.
     private fun collectEvents(eventBus: AuthEventBus, body: (CoroutineScope) -> Unit): List<AuthEvent> {
         val events = mutableListOf<AuthEvent>()
-        val unconfinedScope = CoroutineScope(Dispatchers.Unconfined)
-        val collectJob: Job = unconfinedScope.launch {
-            eventBus.events.collect { events.add(it) }
+        runTest {
+            val collectJob = launch {
+                eventBus.events.collect { events.add(it) }
+            }
+            testScheduler.advanceUntilIdle()
+
+            body(this)
+            testScheduler.advanceUntilIdle()
+
+            collectJob.cancelAndJoin()
         }
-        body(unconfinedScope)
-        collectJob.cancel()
         return events
     }
 }
