@@ -88,6 +88,27 @@ class TokenGuardTest {
     }
 
     @Test
+    fun `clearIfCurrent matches equal tokens even when they are different instances`() {
+        // Los literales Kotlin/Java se internan, asi que dos "tokenA" en el
+        // mismo archivo terminan siendo la MISMA instancia y un
+        // compareAndSet(expectedToken, null) por referencia pasaria este test
+        // igual aunque estuviera roto. Construimos las dos strings en runtime
+        // (StringBuilder.toString() nunca devuelve la instancia interna) para
+        // que sean iguales por valor pero necesariamente distintas por
+        // identidad, y asi el test solo pase con una comparacion por equals.
+        val savedToken = StringBuilder("session-").append("token-value").toString()
+        val expectedToken = StringBuilder("session-").append("token-value").toString()
+        assertTrue(savedToken !== expectedToken)
+        assertEquals(savedToken, expectedToken)
+        val guard = TokenGuard(savedToken)
+
+        val cleared = guard.clearIfCurrent(expectedToken)
+
+        assertTrue(cleared)
+        assertNull(guard.get())
+    }
+
+    @Test
     fun `a set during a race prevents a stale clearIfCurrent from winning`() {
         val guard = TokenGuard("tokenA")
         val readyLatch = CountDownLatch(1)

@@ -111,25 +111,18 @@ class AuthAuthenticatorTest {
             .build()
     }
 
-    // El intento anterior (launch con start DEFAULT + advanceUntilIdle()
-    // antes de `body`) seguia fallando en CI (run 101, commit 074fa82):
-    // DEFAULT solo *encola* el arranque del collector en el scheduler:
-    // sigue siendo advanceUntilIdle() quien decide cuando corre esa cola, y
-    // nada en la API documenta que un unico advanceUntilIdle() alcance para
-    // llevar a collect() hasta su punto de suspension (registrado como
-    // subscriptor del MutableSharedFlow) antes de que sigamos con `body`.
-    // CoroutineStart.UNDISPATCHED elimina esa dependencia por completo: el
-    // cuerpo de la corrutina corre inline, en el hilo actual, apenas se
-    // llama a launch(...) -- collect() ya alcanzo allocateSlot() (quedo
-    // suscripto) y esta bloqueado en su primer punto de suspension real
-    // (awaitValue) para cuando esta linea termina, sin pasar por el
-    // scheduler. Recien de ahi en adelante entra el tiempo virtual: `body`
-    // solo encola el scope.launch { eventBus.emit(...) } de
-    // handleUnauthorized (via el dispatcher DEFAULT del propio TestScope);
-    // advanceUntilIdle() lo corre, el emit() encuentra el slot ya
-    // suscripto y reanuda su continuation (otra tarea encolada que el mismo
-    // advanceUntilIdle() drena antes de devolver el control); recien ahi se
-    // cancela. Sin sleeps, delays ni timeouts reales.
+    // OJO: los intentos previos (074fa82 / adf15de) reescribieron ESTA función
+    // creyendo que el caso 2 fallaba por una carrera de suscripción del
+    // collector. No era eso: el emit nunca ocurría porque
+    // FakeTokenSessionGuard.clearIfCurrent comparaba por identidad
+    // (AtomicReference.compareAndSet) y el Bearer parseado del header es otra
+    // instancia de String — ver el fake más abajo y TokenGuard.clearIfCurrent.
+    // Ya arreglado eso, este armado sí captura el evento de forma determinista:
+    // UNDISPATCHED corre el collector inline hasta allocateSlot()+awaitValue,
+    // así queda suscripto antes de disparar `body`; `body` encola el
+    // scope.launch { emit } de handleUnauthorized en el StandardTestDispatcher
+    // y advanceUntilIdle() lo corre y drena la continuation que el emit reanuda
+    // en el collector. Todo en tiempo virtual, sin sleeps ni timeouts.
     private fun collectEvents(eventBus: AuthEventBus, body: (CoroutineScope) -> Unit): List<AuthEvent> {
         val events = mutableListOf<AuthEvent>()
         runTest {
@@ -149,5 +142,17 @@ class AuthAuthenticatorTest {
 private class FakeTokenSessionGuard(initial: String?) : TokenSessionGuard {
     private val current = AtomicReference(initial)
     override val token: String? get() = current.get()
-    override fun clearIfCurrent(expectedToken: String): Boolean = current.compareAndSet(expectedToken, null)
+
+    // Espeja la semántica real de TokenGuard.clearIfCurrent: compara por VALOR
+    // (el Bearer parseado del header es un String distinto al guardado, aunque
+    // sea igual por contenido) y recién entonces hace el compareAndSet por
+    // identidad sobre la instancia leída. Un compareAndSet(expectedToken, null)
+    // directo compararía por referencia y devolvería siempre false acá.
+    override fun clearIfCurrent(expectedToken: String): Boolean {
+        while (true) {
+            val cur = current.get() ?: return false
+            if (cur != expectedToken) return false
+            if (current.compareAndSet(cur, null)) return true
+        }
+    }
 }

@@ -142,5 +142,22 @@ internal class TokenGuard(initial: String?) {
 
     // true solo si `current` era exactamente expectedToken (y ya quedó en
     // null); false si no matcheaba — deja el valor guardado intacto.
-    fun clearIfCurrent(expectedToken: String): Boolean = current.compareAndSet(expectedToken, null)
+    //
+    // Compara por VALOR, no por identidad: el expectedToken que llega desde
+    // AuthAuthenticator es el Bearer parseado del header de la request fallida
+    // (un String nuevo, producto de removePrefix/substring), nunca la MISMA
+    // instancia que se guardó en save(). AtomicReference.compareAndSet compara
+    // por referencia (===), así que un compareAndSet(expectedToken, null)
+    // directo daría siempre false para credenciales igual-por-valor y la
+    // sesión vencida no se limpiaría jamás. Por eso: leer la instancia vigente,
+    // compararla por equals, y recién ahí hacer el CAS sobre esa misma
+    // instancia (que sí matchea por identidad), reintentando si un save()/
+    // clear() concurrente la cambió en el medio — se preserva la atomicidad.
+    fun clearIfCurrent(expectedToken: String): Boolean {
+        while (true) {
+            val cur = current.get() ?: return false
+            if (cur != expectedToken) return false
+            if (current.compareAndSet(cur, null)) return true
+        }
+    }
 }
