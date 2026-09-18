@@ -1,9 +1,20 @@
 name: CI
 
-# El wrapper de Gradle (gradle/wrapper/gradle-wrapper.jar) no está commiteado
-# a propósito (ver README) — por eso este workflow instala Gradle directo con
-# gradle/actions/setup-gradle en vez de invocar ./gradlew. Cuando el wrapper
-# jar exista en el repo, cambiar los pasos de "gradle ..." a "./gradlew ...".
+# gradle/gradle-daemon-jvm.properties exige toolchainVendor=jetbrains y
+# toolchainVersion=21 para el daemon de Gradle — por eso el JDK que instala
+# setup-java tiene que ser ese mismo (distribution: jetbrains, java-version
+# 21). Con Temurin 17 el build falla antes de llegar a compilar nada
+# ("Cannot find a Java installation matching Java 21 vendor jetbrains"). El
+# token de GitHub se pasa al step para evitar el rate-limit no autenticado
+# (60 req/hora) al resolver el catálogo de builds de JetBrains Runtime.
+#
+# El wrapper de Gradle (gradle/wrapper/gradle-wrapper.jar + .properties,
+# apuntando a Gradle 9.5.0) está commiteado, así que este workflow corre
+# ./gradlew directamente en vez de instalar una versión de Gradle aparte
+# (evita el desfasaje que había antes entre el Gradle de CI y el del
+# wrapper). gradle/actions/setup-gradle se mantiene solo por el caching de
+# dependencias/builds y el step summary que agrega, no para proveer el
+# binario de Gradle.
 #
 # Fase 6 del plan de estabilidad (2026-08): Lint venía corriendo ANTES de
 # Assemble debug y sin continue-on-error -- confirmado en el historial de
@@ -28,19 +39,21 @@ jobs:
 
       - uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: "17"
+          distribution: jetbrains
+          java-version: "21"
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.11.1"
 
       - name: Assemble debug
-        run: gradle assembleDebug --stacktrace
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Unit tests
+        run: ./gradlew testDebugUnitTest --stacktrace
 
       - name: Lint
         continue-on-error: true
-        run: gradle lint --stacktrace
+        run: ./gradlew lint --stacktrace
 
       - name: Subir reporte de lint
         if: always()

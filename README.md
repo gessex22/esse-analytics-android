@@ -24,19 +24,29 @@ que sí está terminado y no es placeholder:
 
 ## Cómo abrir el proyecto
 
-1. Android Studio (versión reciente, con soporte AGP 8.9 / Kotlin 2.1).
-2. **Importante — el wrapper de Gradle no viene completo.** No se pudo generar
-   `gradle/wrapper/gradle-wrapper.jar` (es un binario) en el entorno donde se
-   armó este scaffold, que tampoco tenía Java/Gradle/Android SDK instalados
-   para poder compilar y verificar nada acá. Al abrir la carpeta en Android
-   Studio, el IDE va a detectar el wrapper incompleto y ofrecer regenerarlo
-   solo — aceptá esa opción (o corré `gradle wrapper --gradle-version 8.11.1`
-   una vez, con cualquier Gradle instalado en el sistema).
-3. Sync de Gradle. Es MUY probable que el primer sync tire algún error de
-   versión — las versiones en `gradle/libs.versions.toml` se eligieron por
-   estabilidad/documentación (no por ser lo último del todo, ver el comentario
-   ahí arriba), pero no se pudieron compilar/verificar. Dejate llevar por el
-   Quick Fix / Upgrade Assistant del IDE si pide ajustar algo.
+1. Android Studio (versión reciente, con soporte AGP 9.3.1 / Kotlin 2.2.10).
+2. **El wrapper de Gradle está completo y commiteado** (`gradle/wrapper/gradle-wrapper.jar`
+   + `.properties`, `gradlew`, `gradlew.bat`), apuntando a Gradle 9.5.0. El
+   daemon de Gradle exige JDK 21 de JetBrains Runtime — lo define
+   `gradle/gradle-daemon-jvm.properties` (`toolchainVendor=jetbrains`,
+   `toolchainVersion=21`). Aunque `settings.gradle.kts` trae el plugin
+   `foojay-resolver-convention` para que Gradle pueda auto-provisionar ese
+   JDK, en CI (ver `.github/workflows/ci.yml`) igual hace falta instalarlo
+   explícito con `actions/setup-java` — una corrida real mostró que el
+   auto-provisioning solo no alcanza y falla sin encontrar el JBR 21. Si el
+   sync local falla por lo mismo, configurá manualmente un Gradle JDK/JBR 21
+   en Android Studio (Settings → Build Tools → Gradle) en vez de asumir que
+   se resuelve solo.
+3. Sync: `./gradlew --stacktrace` (o abrir la carpeta en Android Studio y
+   dejar que el IDE dispare el sync). Build: `./gradlew assembleDebug`. Tests
+   unitarios: `./gradlew testDebugUnitTest`. Es MUY probable que el primer
+   sync tire algún error de versión — las versiones en
+   `gradle/libs.versions.toml` se eligieron por estabilidad/documentación (no
+   por ser lo último del todo, ver el comentario ahí arriba), pero no se
+   pudieron compilar/verificar desde este entorno (ver `CLAUDE.md` del hub
+   sobre por qué Android no se puede compilar desde una sesión de Claude Code
+   en Windows). Dejate llevar por el Quick Fix / Upgrade Assistant del IDE si
+   pide ajustar algo.
 
 ## Decisión pendiente antes de Fase 1: motor de video
 
