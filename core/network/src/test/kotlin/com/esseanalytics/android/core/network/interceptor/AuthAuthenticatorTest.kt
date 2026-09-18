@@ -5,6 +5,7 @@ import com.esseanalytics.android.core.network.AuthEvent
 import com.esseanalytics.android.core.network.AuthEventBus
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
@@ -110,27 +111,31 @@ class AuthAuthenticatorTest {
             .build()
     }
 
-    // runTest corre sobre un StandardTestDispatcher respaldado por un
-    // TestCoroutineScheduler: nada arranca solo, cada coroutine queda
-    // encolada hasta que se pide explicitamente avanzar el scheduler. Eso
-    // reemplaza el intento anterior con Dispatchers.Unconfined, que dependia
-    // de que el collector alcanzara su punto de suspension (ya suscripto)
-    // antes de que corriera el scope.launch interno de handleUnauthorized, y
-    // de que ese launch entregara el evento antes de cancelar -- orden que
-    // Unconfined no garantiza entre corrutinas hermanas. Aca el orden es
-    // explicito: 1) se arranca el collector y se avanza el scheduler hasta
-    // que quede suscripto y en espera; 2) se corre `body`, que solo encola
-    // el scope.launch { eventBus.emit(...) } de handleUnauthorized sin
-    // ejecutarlo todavia; 3) se vuelve a avanzar el scheduler para que ese
-    // launch corra hasta el final y el collector reciba el evento; recien
-    // ahi se cancela. Todo en tiempo virtual, sin sleeps ni timeouts reales.
+    // El intento anterior (launch con start DEFAULT + advanceUntilIdle()
+    // antes de `body`) seguia fallando en CI (run 101, commit 074fa82):
+    // DEFAULT solo *encola* el arranque del collector en el scheduler:
+    // sigue siendo advanceUntilIdle() quien decide cuando corre esa cola, y
+    // nada en la API documenta que un unico advanceUntilIdle() alcance para
+    // llevar a collect() hasta su punto de suspension (registrado como
+    // subscriptor del MutableSharedFlow) antes de que sigamos con `body`.
+    // CoroutineStart.UNDISPATCHED elimina esa dependencia por completo: el
+    // cuerpo de la corrutina corre inline, en el hilo actual, apenas se
+    // llama a launch(...) -- collect() ya alcanzo allocateSlot() (quedo
+    // suscripto) y esta bloqueado en su primer punto de suspension real
+    // (awaitValue) para cuando esta linea termina, sin pasar por el
+    // scheduler. Recien de ahi en adelante entra el tiempo virtual: `body`
+    // solo encola el scope.launch { eventBus.emit(...) } de
+    // handleUnauthorized (via el dispatcher DEFAULT del propio TestScope);
+    // advanceUntilIdle() lo corre, el emit() encuentra el slot ya
+    // suscripto y reanuda su continuation (otra tarea encolada que el mismo
+    // advanceUntilIdle() drena antes de devolver el control); recien ahi se
+    // cancela. Sin sleeps, delays ni timeouts reales.
     private fun collectEvents(eventBus: AuthEventBus, body: (CoroutineScope) -> Unit): List<AuthEvent> {
         val events = mutableListOf<AuthEvent>()
         runTest {
-            val collectJob = launch {
+            val collectJob = launch(start = CoroutineStart.UNDISPATCHED) {
                 eventBus.events.collect { events.add(it) }
             }
-            testScheduler.advanceUntilIdle()
 
             body(this)
             testScheduler.advanceUntilIdle()
