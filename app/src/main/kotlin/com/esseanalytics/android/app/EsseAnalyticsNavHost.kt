@@ -62,6 +62,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,6 +98,7 @@ import com.esseanalytics.android.feature.library.LocalPcPublishContent
 import com.esseanalytics.android.feature.stats.DashboardScreen
 import com.esseanalytics.android.feature.stats.HistoryScreen
 import com.esseanalytics.android.feature.remotelibrary.RemoteLibraryScreen
+import com.esseanalytics.android.feature.settings.ServerSettingsScreen
 import com.esseanalytics.android.feature.settings.SettingsScreen
 import com.esseanalytics.android.feature.stats.StatsScreen
 import com.esseanalytics.android.feature.sync.SyncScreen
@@ -251,7 +253,21 @@ fun EsseAnalyticsNavHost(
     val authState by sessionViewModel.authState.collectAsState()
 
     when (val current = authState) {
-        is AuthState.LoggedOut -> LoginScreen(onLoggedIn = { /* authState cambia solo, ver TokenStore */ })
+        is AuthState.LoggedOut -> {
+            // Alternancia mínima login ↔ pantalla de servidor (sin auth) con
+            // estado local: rememberSaveable sobrevive a la rotación y vuelve
+            // solo al login con "Atrás". El NavHost autenticado de abajo no se
+            // toca.
+            var showingServerSettings by rememberSaveable { mutableStateOf(false) }
+            if (showingServerSettings) {
+                ServerSettingsScreen(onBack = { showingServerSettings = false })
+            } else {
+                LoginScreen(
+                    onLoggedIn = { /* authState cambia solo, ver TokenStore */ },
+                    onServerClick = { showingServerSettings = true },
+                )
+            }
+        }
         // key(user.id): fuerza un NavHostController -- y con él, TODOS los
         // ViewModelStore de cada pantalla (Library, RemoteLibrary, Stats,
         // Sync, etc.) -- completamente nuevo cada vez que la cuenta logueada
@@ -435,6 +451,7 @@ private fun MainAppScaffold(
                         val fileId = uploadEntry.arguments?.getLong("fileId")?.takeIf { it >= 0 }
                         UploadScreen(
                             initialFileId = fileId,
+                            canUseCloudStorage = canUseCloudStorage,
                             onPublishedAllSuccess = {
                                 navController.navigate(Routes.DASHBOARD) {
                                     popUpTo(Routes.DASHBOARD) { inclusive = true }

@@ -3,8 +3,11 @@ package com.esseanalytics.android.feature.library
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -37,12 +40,23 @@ internal fun VideoDetailDialog(
     actions: @Composable () -> Unit,
 ) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        val navigationBarPadding = WindowInsets.navigationBars
+            .asPaddingValues()
+            .calculateBottomPadding()
         Surface(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize()) {
                 player()
                 LazyColumn(
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+                    contentPadding = PaddingValues(
+                        start = 20.dp,
+                        top = 16.dp,
+                        end = 20.dp,
+                        // La barra flotante de la app es overlay y no reserva
+                        // espacio. El inset adicional cubre gestos y navegación
+                        // de tres botones en la ventana edge-to-edge del diálogo.
+                        bottom = 16.dp + 80.dp + navigationBarPadding,
+                    ),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     item {
@@ -75,7 +89,7 @@ internal fun VideoDetailDialog(
                             )
                         }
                     }
-                    item { actions() }
+                    item { Column { actions() } }
                     item {
                         TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
                             Text("Cerrar", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)

@@ -14,6 +14,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -32,6 +33,7 @@ class SettingsViewModel @Inject constructor(
     private val localPcDiscovery: LocalPcDiscovery,
     private val authEventBus: AuthEventBus,
     private val labModeStatus: LabModeStatus,
+    private val serverHealthChecker: ServerHealthChecker,
 ) : ViewModel() {
 
     // Ver Core/Network/LabModeStatus.swift (iOS) -- mismo criterio, chequeo en
@@ -84,16 +86,43 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settingsStore.setWifiOnlyUploads(enabled) }
     }
 
-    fun setServerUrl(value: String) {
-        viewModelScope.launch {
-            settingsStore.setServerUrl(value)
-            // OJO: NetworkModule ya construyó el Retrofit singleton con la URL
-            // vieja al arrancar el proceso (ver el TODO ahí) -- este chequeo
-            // sigue pegándole a esa baseUrl fija hasta que se reinicie la app,
-            // igual que el resto de la red. La etiqueta puede quedar
-            // desactualizada hasta el restart -- comportamiento ya conocido,
-            // no nuevo de este cambio.
-            refreshLabMode()
+    // Estado del flujo Guardar servidor (ver ServerSettingsContent): validación
+    // → "Probando…" → éxito con environment del health / error. Si la prueba
+    // falla, el valor guardado queda intacto.
+    private val _serverSaveState = MutableStateFlow<ServerSaveState>(ServerSaveState.Idle)
+    val serverSaveState: StateFlow<ServerSaveState> = _serverSaveState.asStateFlow()
+
+    fun resetServerSaveState() {
+        _serverSaveState.value = ServerSaveState.Idle
+    }
+
+    // Antes de persistir valida el candidato (vacío = central) y lo prueba en
+    // vivo con GET {candidato}/api/health (timeout 5s) vía ServerHealthChecker
+    // -- NUNCA HealthApi/Retrofit, cuyo singleton sigue pegado a la baseUrl con
+    // la que arrancó el proceso (ver TODO de NetworkModule). Sólo ante HTTP 2xx
+    // persiste con SettingsStore.setServerUrl. OJO: aunque se guarde, el
+    // Retrofit singleton conserva la URL vieja hasta reiniciar la app (igual
+    // que el resto de la red) -- el banner/badge de laboratorio puede quedar
+    // desactualizado hasta el restart; comportamiento conocido, no nuevo.
+    fun saveServerUrl(draft: String) {
+        when (val validation = ServerUrlRules.validate(draft)) {
+            is ServerUrlValidation.Invalid ->
+                _serverSaveState.value = ServerSaveState.Error(validation.reason)
+
+            is ServerUrlValidation.Valid -> {
+                viewModelScope.launch {
+                    _serverSaveState.value = ServerSaveState.Checking
+                    when (val result = serverHealthChecker.check(validation.healthCheckBase)) {
+                        is ServerHealthResult.Alive -> {
+                            settingsStore.setServerUrl(validation.storedValue)
+                            refreshLabMode()
+                            _serverSaveState.value = ServerSaveState.Saved(result.environment)
+                        }
+                        is ServerHealthResult.Unreachable ->
+                            _serverSaveState.value = ServerSaveState.Error(result.message)
+                    }
+                }
+            }
         }
     }
 
@@ -139,4 +168,11 @@ class SettingsViewModel @Inject constructor(
     fun logout() {
         tokenStore.clear()
     }
+}
+
+sealed interface ServerSaveState {
+    data object Idle : ServerSaveState
+    data object Checking : ServerSaveState
+    data class Saved(val environment: String?) : ServerSaveState
+    data class Error(val message: String) : ServerSaveState
 }

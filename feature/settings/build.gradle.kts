@@ -14,4 +14,10 @@ android {
 dependencies {
     implementation(project(":core:datastore"))
     implementation(project(":core:network"))
+    // ServerHealthChecker (prueba del candidato con GET {base}/api/health sin
+    // pasar por el singleton de Retrofit, ver ServerHealthChecker.kt).
+    implementation(libs.okhttp.core)
+
+    // Tests unitarios puros de normalización/validación de URL (ServerUrlRulesTest).
+    testImplementation(libs.junit)
 }

@@ -9,11 +9,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -28,11 +32,12 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -74,6 +79,8 @@ import com.esseanalytics.android.core.model.VideoFile
 import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
 import java.io.File
 
+private val FloatingNavClearance = 80.dp
+
 // Historial de todo lo importado -- no solo una lista, cada tarjeta muestra
 // el estado real por plataforma (publicado/descartado/pendiente, ver
 // VideoFile.platforms/platformsDiscarded). Tocarla decide adónde ir según
@@ -106,6 +113,7 @@ fun LibraryScreen(
     var editingRemoteVideo by remember { mutableStateOf<RemoteLibraryVideoDto?>(null) }
     var editingLan by remember { mutableStateOf<LibraryListItem.LanVideo?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val systemNavigationBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     LaunchedEffect(canUseCloudStorage) {
         if (canUseCloudStorage) viewModel.refreshRemote()
@@ -128,16 +136,31 @@ fun LibraryScreen(
         // (MainAppScaffold, compartido por las 4 pestañas del bottom nav) ya
         // consumió con su TopAppBar/NavigationBar. Se veía como una franja
         // vacía extra arriba y abajo SOLO en esta pantalla, porque es la
-        // única con un Scaffold propio (lo necesita para el FAB).
+        // única con un Scaffold propio (lo necesita para el SnackbarHost).
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        floatingActionButton = {
-            FloatingActionButton(onClick = onImportClick) {
-                Icon(Icons.Outlined.Add, contentDescription = "Importar video")
-            }
-        },
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
+            // Arriba del contenido y antes de los filtros, como el botón
+            // superior de iOS: un FAB abajo quedaba apretado contra la barra
+            // flotante global y la navegación del sistema.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                Button(onClick = onImportClick) {
+                    Icon(
+                        Icons.Outlined.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(ButtonDefaults.IconSize),
+                    )
+                    Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                    Text("Importar video")
+                }
+            }
+
             if (canUseCloudStorage || canSeeLanLibrary) {
                 LibraryFilterChips(
                     filter = filter,
@@ -150,21 +173,25 @@ fun LibraryScreen(
             if (items.isEmpty()) {
                 PlaceholderScreen(
                     title = "Todavía no hay videos",
-                    note = "Tocá + para importar uno, o compartilo desde Galería con \"Compartir → EsseAnalytics\".",
+                    note = "Tocá \"Importar video\" arriba para agregar uno, o compartilo desde Galería con \"Compartir → EsseAnalytics\".",
                     icon = Icons.Outlined.VideoLibrary,
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    // bottom=80: el FloatingActionButton de Scaffold flota SOBRE
-                    // el contenido, no reserva espacio propio -- sin este margen
-                    // extra abajo, el "+" tapaba la última tarjeta visible. FAB
-                    // (56dp) + su margen por default de Scaffold (16dp) + 8dp de
-                    // aire = 80dp -- lo mínimo para despejarlo (antes 96dp dejaba
-                    // una franja vacía innecesariamente grande con listas cortas,
-                    // que se ve como un borde oscuro pegado al bottom nav).
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 80.dp),
+                    // La barra flotante global (FloatingBottomNavigation en
+                    // EsseAnalyticsNavHost) es un overlay sobre el contenido, no
+                    // reserva espacio propio ni aplica la barra de navegación del
+                    // sistema a este contenido -- sin este margen abajo, tapaba la
+                    // última tarjeta. Cápsula (62dp) + su margen inferior (2dp) +
+                    // 16dp de aire, más el inset real de la navegación del sistema.
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 16.dp,
+                        bottom = FloatingNavClearance + systemNavigationBarInset,
+                    ),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(

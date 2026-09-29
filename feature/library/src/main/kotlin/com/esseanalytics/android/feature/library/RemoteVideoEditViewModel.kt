@@ -2,6 +2,7 @@ package com.esseanalytics.android.feature.library
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.esseanalytics.android.core.database.FileRepository
 import com.esseanalytics.android.core.database.PlatformTransitionRepository
 import com.esseanalytics.android.core.database.entity.PlatformTransitionOutboxEntity.Companion.ACTION_DISCARD
 import com.esseanalytics.android.core.database.entity.PlatformTransitionOutboxEntity.Companion.ACTION_MARK_PUBLISHED
@@ -12,6 +13,7 @@ import com.esseanalytics.android.core.network.CausalPlatformOutbox
 import com.esseanalytics.android.core.network.di.PlatformOkHttp
 import com.esseanalytics.android.core.network.dto.RemoteLibraryPlatformLinkDto
 import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
+import com.esseanalytics.android.feature.ingest.ImportUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +36,9 @@ class RemoteVideoEditViewModel @Inject constructor(
     private val causalPlatformOutbox: CausalPlatformOutbox,
     private val tokenStore: TokenStore,
     @PlatformOkHttp private val platformOkHttpClient: OkHttpClient,
+    private val fileRepository: FileRepository,
+    private val importUseCase: ImportUseCase,
+    private val remoteGallerySaver: RemoteGallerySaver,
 ) : ViewModel(), VideoDetailEditor {
     private val _video = MutableStateFlow<RemoteLibraryVideoDto?>(null)
     val video: StateFlow<RemoteLibraryVideoDto?> = _video.asStateFlow()
@@ -41,9 +46,53 @@ class RemoteVideoEditViewModel @Inject constructor(
     override val isSaving: StateFlow<Boolean> = _isSaving.asStateFlow()
     private val _errorMessage = MutableStateFlow<String?>(null)
     override val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+    private val saveCoordinator = VideoSaveCoordinator()
+    internal val appSaveStatus: StateFlow<VideoSaveStatus> = saveCoordinator.appStatus
+    internal val gallerySaveStatus: StateFlow<VideoSaveStatus> = saveCoordinator.galleryStatus
+    private val _saveErrorMessage = MutableStateFlow<String?>(null)
+    val saveErrorMessage: StateFlow<String?> = _saveErrorMessage.asStateFlow()
 
     fun setInitial(initial: RemoteLibraryVideoDto) {
-        if (_video.value?._id != initial._id) _video.value = initial
+        if (_video.value?._id != initial._id) {
+            _video.value = initial
+            saveCoordinator.reset()
+            _saveErrorMessage.value = null
+        }
+    }
+
+    fun refreshSavedState(remoteLibraryVideoId: String) {
+        viewModelScope.launch {
+            val existing = runCatching {
+                fileRepository.findByRemoteLibraryVideoId(remoteLibraryVideoId)
+            }.getOrNull()
+            if (_video.value?._id == remoteLibraryVideoId && existing != null) {
+                saveCoordinator.markSaved(VideoSaveTarget.APP)
+            }
+        }
+    }
+
+    fun saveToApp(video: RemoteLibraryVideoDto) {
+        if (!saveCoordinator.begin(VideoSaveTarget.APP)) return
+        _saveErrorMessage.value = null
+        viewModelScope.launch {
+            val status = importUseCase.importFromRemoteLibrary(video).toVideoSaveStatus()
+            if (_video.value?._id == video._id) {
+                saveCoordinator.complete(VideoSaveTarget.APP, status)
+                _saveErrorMessage.value = (status as? VideoSaveStatus.Failed)?.message
+            }
+        }
+    }
+
+    fun saveToGallery(video: RemoteLibraryVideoDto) {
+        if (!saveCoordinator.begin(VideoSaveTarget.GALLERY)) return
+        _saveErrorMessage.value = null
+        viewModelScope.launch {
+            val status = remoteGallerySaver.save(video).toVideoSaveStatus()
+            if (_video.value?._id == video._id) {
+                saveCoordinator.complete(VideoSaveTarget.GALLERY, status)
+                _saveErrorMessage.value = (status as? VideoSaveStatus.Failed)?.message
+            }
+        }
     }
 
     fun existingLink(platform: Platform): String? =
@@ -67,6 +116,10 @@ class RemoteVideoEditViewModel @Inject constructor(
                     userKey = session.userKey,
                     contentId = session.contentId,
                     remoteLibraryVideoId = current._id,
+                    // Este editor trabaja sobre un video de la NUBE: no hay
+                    // archivo local del cual sacar un clientFileId, y no hace
+                    // falta -- la identidad (contentId) ya vino en el DTO.
+                    clientFileId = null,
                     fileName = current.fileName,
                     platform = platform,
                     action = action,
@@ -99,6 +152,7 @@ class RemoteVideoEditViewModel @Inject constructor(
                         userKey = session.userKey,
                         contentId = session.contentId,
                         remoteLibraryVideoId = current._id,
+                        clientFileId = null,
                         fileName = current.fileName,
                         platform = platform,
                         action = ACTION_UNLINK,
@@ -120,10 +174,18 @@ class RemoteVideoEditViewModel @Inject constructor(
                     platformLinks = current.platformLinks.filter { it.platform != platform.apiValue } + link,
                 )
                 runCatching {
-                    platformTransitionRepository.enqueueManualLink(
+                    // enqueueKnownLink (y no enqueueManualLink): acá el
+                    // contentId YA se conoce -- lo trajo el DTO y
+                    // requireCausalIdentity lo exigió. enqueueManualLink lo
+                    // buscaría en el cache local, y si ese lookup fallara la
+                    // fila quedaría sin identidad Y sin clientFileId (no hay
+                    // archivo local), o sea bloqueada para siempre.
+                    platformTransitionRepository.enqueueKnownLink(
                         userKey = session.userKey,
-                        fileName = current.fileName,
+                        contentId = session.contentId,
                         remoteLibraryVideoId = current._id,
+                        clientFileId = null,
+                        fileName = current.fileName,
                         platform = platform,
                         platformId = platformId,
                         platformUrl = trimmed,

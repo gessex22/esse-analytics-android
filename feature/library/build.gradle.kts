@@ -9,6 +9,9 @@ android {
 dependencies {
     implementation(project(":core:database"))
     implementation(project(":core:media"))
+    // Reutiliza el único importador de videos remotos para "Guardar en app".
+    // feature:ingest solo depende de core:*; por eso esta arista no crea ciclo.
+    implementation(project(":feature:ingest"))
     // Fusión Videos local+remoto (Parte D del plan): RemoteLibraryApi vive en
     // core:network, el entitlement canUseCloudStorage se lee de TokenStore.
     implementation(project(":core:network"))
@@ -26,4 +29,6 @@ dependencies {
     // estática), ver LocalVideoPlayerScreen.
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
+
+    testImplementation(libs.junit)
 }

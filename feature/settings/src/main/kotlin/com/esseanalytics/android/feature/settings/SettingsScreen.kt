@@ -6,7 +6,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -20,7 +25,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
@@ -41,16 +45,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.launch
 import com.esseanalytics.android.core.model.WorkflowMode
 
-// Preset de Ajustes → Servidor, SOLO en builds DEBUG (buildFeatures.buildConfig
-// habilitado en build.gradle.kts de este módulo -- nunca compila en Release/
-// Play Store). Desde el emulador, 10.0.2.2 es el alias fijo de Android para
-// "localhost de la máquina host" (127.0.0.1 desde el emulador apunta al
-// EMULADOR mismo, no a tu PC -- trampa de entorno distinta a la de iOS/
-// Electron, confirmado en UIEssePanel/CLAUDE.md). Desde un teléfono físico
-// hay que editar el campo a mano con la IP LAN de la PC que corre lab-backend,
-// igual que ya hace falta para "PC local".
-private const val LAB_PRESET_URL = "http://10.0.2.2:5055"
-private const val CENTRAL_PRESET_URL = ""
+// Clearance vertical para la barra de navegación flotante global, que es un
+// overlay y no reserva espacio en el layout (mismo criterio que
+// FloatingNavClearance en LibraryScreen).
+private val FloatingNavClearance = 80.dp
 
 // Junta los settings que ya existían sueltos (workflowMode, wifiOnlyUploads)
 // más el selector de tema Rojo/Ámbar -- ver SettingsViewModel.
@@ -59,13 +57,12 @@ fun SettingsScreen(modifier: Modifier = Modifier, viewModel: SettingsViewModel =
     val colorTheme by viewModel.colorTheme.collectAsState()
     val workflowMode by viewModel.workflowMode.collectAsState()
     val wifiOnly by viewModel.wifiOnlyUploads.collectAsState()
-    val serverUrl by viewModel.serverUrl.collectAsState()
-    var serverUrlDraft by remember(serverUrl) { mutableStateOf(serverUrl) }
     var pendingWorkflowMode by remember { mutableStateOf<WorkflowMode?>(null) }
     val connections by viewModel.connections.collectAsState()
-    val discoveredPc by viewModel.discoveredPc.collectAsState()
     val uriHandler = LocalUriHandler.current
     val scope = rememberCoroutineScope()
+    // Inset inferior real del sistema (gestos o navegación de 3 botones).
+    val systemNavigationBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     // Sin scroll acá, la sección "Cuenta" (con el botón de cerrar sesión) al
     // final de 3 secciones + un divisor quedaba cortada fuera de la pantalla
@@ -77,12 +74,8 @@ fun SettingsScreen(modifier: Modifier = Modifier, viewModel: SettingsViewModel =
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
-        val isLabMode by viewModel.isLabMode.collectAsState()
-
         LaunchedEffect(Unit) {
             viewModel.refreshConnections()
-            viewModel.discoverPc()
-            viewModel.refreshLabMode()
         }
         SettingsSection(title = "Tema") {
             ThemeOptionRow(
@@ -129,61 +122,7 @@ fun SettingsScreen(modifier: Modifier = Modifier, viewModel: SettingsViewModel =
         }
 
         SettingsSection(title = "Servidor de la PC") {
-            discoveredPc?.let { (name, url) ->
-                Text("PC encontrada: $name", color = MaterialTheme.colorScheme.primary)
-                TextButton(onClick = { serverUrlDraft = url }) { Text("Usar esta PC ($url)") }
-            }
-            if (BuildConfig.DEBUG) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    OutlinedButton(onClick = { serverUrlDraft = CENTRAL_PRESET_URL }) { Text("Central") }
-                    OutlinedButton(
-                        onClick = { discoveredPc?.let { (_, url) -> serverUrlDraft = url } },
-                        enabled = discoveredPc != null,
-                    ) { Text("PC local") }
-                    OutlinedButton(onClick = { serverUrlDraft = LAB_PRESET_URL }) { Text("Laboratorio") }
-                }
-            }
-            OutlinedTextField(
-                value = serverUrlDraft,
-                onValueChange = { serverUrlDraft = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                label = { Text("URL opcional") },
-                placeholder = { Text("http://192.168.1.50:4000") },
-            )
-            Text(
-                "Dejá vacío para usar la central. Después de guardar, reiniciá la app para aplicar el servidor.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-            Text(
-                "La PC y el telefono deben estar en la misma red. Si no aparece, permite EsseAnalytics en el firewall de Windows para el puerto 4000.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-            OutlinedButton(
-                onClick = { viewModel.setServerUrl(serverUrlDraft) },
-                modifier = Modifier.padding(top = 8.dp),
-            ) { Text("Guardar servidor") }
-            if (isLabMode) {
-                Row(
-                    modifier = Modifier.padding(top = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("🧪", modifier = Modifier.padding(end = 6.dp))
-                    Text(
-                        "Laboratorio · Datos simulados",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color(0xFF7C3AED),
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
-            }
+            ServerSettingsContent(viewModel = viewModel)
         }
 
         SettingsSection(title = "Cuentas conectadas") {
@@ -212,6 +151,14 @@ fun SettingsScreen(modifier: Modifier = Modifier, viewModel: SettingsViewModel =
         SettingsSection(title = "Cuenta") {
             LogoutRow(onLogout = viewModel::logout)
         }
+
+        // Clearance dentro del contenido desplazable: como el padding(16.dp)
+        // del Column está antes de verticalScroll, el margen inferior no
+        // scrollea y "Cerrar sesión" quedaba bajo la barra flotante global y
+        // el inset del sistema. Este Spacer sí es contenido desplazable, así
+        // el botón puede subir completamente visible y pulsable (mismo
+        // criterio que LibraryScreen).
+        Spacer(modifier = Modifier.height(FloatingNavClearance + systemNavigationBarInset))
     }
 
     pendingWorkflowMode?.let { mode ->

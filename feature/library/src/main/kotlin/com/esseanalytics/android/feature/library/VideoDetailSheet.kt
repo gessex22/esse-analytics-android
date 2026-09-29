@@ -49,6 +49,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -76,7 +77,8 @@ fun VideoDetailSheet(
         .collectAsState(initial = emptySet())
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    var galleryMessage by remember { mutableStateOf<String?>(null) }
+    var galleryStatus by remember { mutableStateOf<VideoSaveStatus>(VideoSaveStatus.Idle) }
+    var galleryError by remember { mutableStateOf<String?>(null) }
     var linkEditorPlatform by remember { mutableStateOf<Platform?>(null) }
     var linkEditorText by remember { mutableStateOf("") }
 
@@ -112,7 +114,7 @@ fun VideoDetailSheet(
                 linkEditorPlatform = platform
             }
         },
-        errorMessage = errorMessage,
+        errorMessage = errorMessage ?: galleryError,
         player = {
             AndroidView(
                 factory = { PlayerView(context).apply { this.player = player } },
@@ -120,20 +122,33 @@ fun VideoDetailSheet(
             )
         },
         actions = {
-            TextButton(
-                onClick = { scope.launch { galleryMessage = saveVideoToGallery(context, shownFile) } },
+            val galleryRunning = galleryStatus is VideoSaveStatus.Running
+            DetailPrimaryAction(
+                text = "Publicar",
+                icon = Icons.Outlined.CloudUpload,
+                enabled = !galleryRunning,
+                onClick = onPublish,
                 modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(Icons.Outlined.Download, contentDescription = null)
-                Text("Guardar en galería")
-            }
-            TextButton(onClick = onPublish, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Outlined.CloudUpload, contentDescription = null)
-                Text("Publicar")
-            }
-            galleryMessage?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-            }
+            )
+            Spacer(Modifier.height(10.dp))
+            DetailSaveAction(
+                idleText = "Guardar en galería",
+                subtitle = "Crea una copia en la galería del teléfono",
+                savedText = "Guardado en galería",
+                icon = Icons.Outlined.Download,
+                status = galleryStatus,
+                enabled = !galleryRunning,
+                onClick = {
+                    galleryError = null
+                    galleryStatus = VideoSaveStatus.Running
+                    scope.launch {
+                        val status = saveVideoToGallery(context, shownFile).toVideoSaveStatus()
+                        galleryStatus = status
+                        galleryError = (status as? VideoSaveStatus.Failed)?.message
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
         },
     )
 
@@ -152,9 +167,12 @@ fun VideoDetailSheet(
     }
 }
 
-private suspend fun saveVideoToGallery(context: android.content.Context, file: VideoFile): String =
+private suspend fun saveVideoToGallery(
+    context: android.content.Context,
+    file: VideoFile,
+): GallerySaveResult =
     withContext(Dispatchers.IO) {
-        runCatching {
+        try {
             val source = File(file.filePath)
             require(source.exists()) { "No se encontró el archivo de video." }
             val values = ContentValues().apply {
@@ -172,12 +190,15 @@ private suspend fun saveVideoToGallery(context: android.content.Context, file: V
                 values.clear()
                 values.put(MediaStore.Video.Media.IS_PENDING, 0)
                 resolver.update(uri, values, null, null)
-                "Video guardado en Películas/EsseAnalytics"
+                GallerySaveResult.Saved
             } catch (error: Throwable) {
                 resolver.delete(uri, null, null)
                 throw error
             }
-        }.getOrElse { "No se pudo guardar: ${it.message ?: "error desconocido"}" }
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            GallerySaveResult.Failed("No se pudo guardar: ${error.message ?: "error desconocido"}")
+        }
     }
 
 @Composable

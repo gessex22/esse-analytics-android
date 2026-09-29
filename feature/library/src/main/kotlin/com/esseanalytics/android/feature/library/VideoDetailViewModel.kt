@@ -139,6 +139,7 @@ class VideoDetailViewModel @Inject constructor(
                 if (userKey != null) {
                     platformTransitionRepository.enqueueUnlink(
                         userKey = userKey,
+                        clientFileId = file.clientFileId,
                         fileName = file.fileName,
                         remoteLibraryVideoId = file.remoteLibraryVideoId,
                         platform = platform,
@@ -160,6 +161,7 @@ class VideoDetailViewModel @Inject constructor(
                 if (userKey != null) {
                     platformTransitionRepository.enqueueManualLink(
                         userKey = userKey,
+                        clientFileId = file.clientFileId,
                         fileName = file.fileName,
                         remoteLibraryVideoId = file.remoteLibraryVideoId,
                         platform = platform,

@@ -1,12 +1,12 @@
 package com.esseanalytics.android.feature.library
 
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CloudUpload
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.Save
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -34,10 +34,18 @@ fun RemoteVideoDetailSheet(
     onPublish: () -> Unit = {},
     viewModel: RemoteVideoEditViewModel = hiltViewModel(),
 ) {
-    LaunchedEffect(video._id) { viewModel.setInitial(video) }
+    LaunchedEffect(video._id) {
+        viewModel.setInitial(video)
+        viewModel.refreshSavedState(video._id)
+    }
     val current by viewModel.video.collectAsState()
     val isSaving by viewModel.isSaving.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
+    val appSaveStatus by viewModel.appSaveStatus.collectAsState()
+    val gallerySaveStatus by viewModel.gallerySaveStatus.collectAsState()
+    val saveErrorMessage by viewModel.saveErrorMessage.collectAsState()
+    val saveRunning = appSaveStatus is VideoSaveStatus.Running ||
+        gallerySaveStatus is VideoSaveStatus.Running
     val shown = current ?: video
     val context = LocalContext.current
     val player = remember(streamUrl) {
@@ -72,7 +80,7 @@ fun RemoteVideoDetailSheet(
             linkEditorText = viewModel.existingLink(platform) ?: ""
             linkEditorPlatform = platform
         },
-        errorMessage = errorMessage,
+        errorMessage = errorMessage ?: saveErrorMessage,
         player = {
             AndroidView(
                 factory = { PlayerView(context).apply { this.player = player } },
@@ -80,10 +88,35 @@ fun RemoteVideoDetailSheet(
             )
         },
         actions = {
-            TextButton(onClick = onPublish, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Outlined.CloudUpload, contentDescription = null)
-                Text("Publicar")
-            }
+            DetailPrimaryAction(
+                text = "Publicar",
+                icon = Icons.Outlined.CloudUpload,
+                enabled = !saveRunning,
+                onClick = onPublish,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(10.dp))
+            DetailSaveAction(
+                idleText = "Guardar en app",
+                subtitle = "Disponible sin conexión dentro de EsseAnalytics",
+                savedText = "Guardado en app",
+                icon = Icons.Outlined.Save,
+                status = appSaveStatus,
+                enabled = !saveRunning,
+                onClick = { viewModel.saveToApp(shown) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(10.dp))
+            DetailSaveAction(
+                idleText = "Guardar en galería",
+                subtitle = "Crea una copia en la galería del teléfono",
+                savedText = "Guardado en galería",
+                icon = Icons.Outlined.Download,
+                status = gallerySaveStatus,
+                enabled = !saveRunning,
+                onClick = { viewModel.saveToGallery(shown) },
+                modifier = Modifier.fillMaxWidth(),
+            )
         },
     )
 
