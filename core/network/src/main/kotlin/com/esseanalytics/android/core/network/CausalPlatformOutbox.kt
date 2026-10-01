@@ -36,16 +36,22 @@ class CausalFlusher @Inject constructor(
         drainChains(userKey)
     }
 
+    // El handle de deduplicación y de hidratación es (remoteLibraryVideoId,
+    // clientFileId) -- nunca el fileName. La guarda de clientFileId en blanco
+    // repite a propósito el filtro que ya hace dao.getUnresolved: una fila
+    // legacy sin identidad local no puede cumplir el contrato de
+    // resolve-identity, así que se conserva encolada y no se toca la red,
+    // independientemente de qué DAO esté detrás.
     private suspend fun bootstrapIdentities(userKey: String) {
         val unresolved = dao.getUnresolved(userKey)
-        val attempted = HashSet<Pair<String?, String?>>()
+        val attempted = HashSet<Pair<String?, String>>()
         for (row in unresolved) {
-            val handle = row.remoteLibraryVideoId to row.fileName
-            if (!attempted.add(handle)) continue
+            val clientFileId = row.clientFileId?.takeIf { it.isNotBlank() } ?: continue
+            if (!attempted.add(row.remoteLibraryVideoId to clientFileId)) continue
             val contentId = identityResolver
-                .resolveContentId(userKey, row.remoteLibraryVideoId, row.fileName) ?: continue
+                .resolveContentId(userKey, row.remoteLibraryVideoId, clientFileId, row.fileName) ?: continue
             row.remoteLibraryVideoId?.let { dao.hydrateContentIdByRemoteId(userKey, it, contentId) }
-            row.fileName?.let { dao.hydrateContentIdByFileName(userKey, it, contentId) }
+            dao.hydrateContentIdByClientFileId(userKey, clientFileId, contentId)
         }
     }
 

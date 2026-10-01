@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.esseanalytics.android.core.model.User
+import com.esseanalytics.android.core.model.EffectiveCapability
+import com.esseanalytics.android.core.model.EffectiveEntitlements
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -72,10 +74,15 @@ class TokenStore @Inject constructor(
         _authState.value = AuthState.LoggedIn(user)
     }
 
-    fun updateUser(user: User) {
-        prefs.edit().putString(KEY_USER, json.encodeToString(UserDto.fromDomain(user))).apply()
-        _authState.value = AuthState.LoggedIn(user)
-    }
+    fun updateUserIfSession(expectedToken: String, expectedUserId: String, user: User): Boolean =
+        synchronized(writeLock) {
+            if (tokenGuard.get() != expectedToken) return@synchronized false
+            if (user.id != expectedUserId || readUser()?.id != expectedUserId) return@synchronized false
+
+            prefs.edit().putString(KEY_USER, json.encodeToString(UserDto.fromDomain(user))).apply()
+            _authState.value = AuthState.LoggedIn(user)
+            true
+        }
 
     fun clear() = synchronized(writeLock) {
         prefs.edit().clear().apply()
@@ -112,6 +119,34 @@ sealed interface AuthState {
 }
 
 @kotlinx.serialization.Serializable
+private data class CapabilitySnapshotDto(
+    val enabled: Boolean,
+    val limit: Int? = null,
+    val sources: List<String> = emptyList(),
+) {
+    fun toDomain() = EffectiveCapability(enabled, limit, sources)
+
+    companion object {
+        fun fromDomain(value: EffectiveCapability) = CapabilitySnapshotDto(value.enabled, value.limit, value.sources)
+    }
+}
+
+@kotlinx.serialization.Serializable
+private data class EntitlementsSnapshotDto(
+    val userId: String,
+    val isOwner: Boolean,
+    val capabilities: Map<String, CapabilitySnapshotDto>,
+) {
+    fun toDomain() = EffectiveEntitlements(userId, isOwner, capabilities.mapValues { it.value.toDomain() })
+
+    companion object {
+        fun fromDomain(value: EffectiveEntitlements) = EntitlementsSnapshotDto(
+            value.userId, value.isOwner, value.capabilities.mapValues { CapabilitySnapshotDto.fromDomain(it.value) },
+        )
+    }
+}
+
+@kotlinx.serialization.Serializable
 private data class UserDto(
     val id: String,
     val username: String,
@@ -120,11 +155,15 @@ private data class UserDto(
     val isOwner: Boolean,
     val hasCloudStorage: Boolean = false,
     val theme: String? = null,
+    val entitlements: EntitlementsSnapshotDto? = null,
 ) {
-    fun toDomain() = User(id, username, role, tier, isOwner, hasCloudStorage, theme)
+    fun toDomain() = User(id, username, role, tier, isOwner, hasCloudStorage, theme, entitlements?.toDomain())
 
     companion object {
-        fun fromDomain(u: User) = UserDto(u.id, u.username, u.role, u.tier, u.isOwner, u.hasCloudStorage, u.theme)
+        fun fromDomain(u: User) = UserDto(
+            u.id, u.username, u.role, u.tier, u.isOwner, u.hasCloudStorage, u.theme,
+            u.entitlements?.let(EntitlementsSnapshotDto::fromDomain),
+        )
     }
 }
 

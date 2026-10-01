@@ -1,7 +1,9 @@
 package com.esseanalytics.android.core.network.di
 
 import android.content.Context
+import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.network.CausalIdentityResolver
+import com.esseanalytics.android.core.network.DeviceIdProvider
 import com.esseanalytics.android.core.network.PlatformIdentityStore
 import com.esseanalytics.android.core.network.api.AuthApi
 import com.esseanalytics.android.core.network.api.BackupApi
@@ -142,4 +144,14 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideCausalIdentityResolver(store: PlatformIdentityStore): CausalIdentityResolver = store
+
+    // deviceId estable del contrato de resolve-identity: el MISMO installId que
+    // ya viaja en link-install y record-publish (SettingsStore.getOrCreateInstallId).
+    // No se genera un identificador de dispositivo aparte -- serían dos
+    // identidades del mismo teléfono para la central.
+    @Provides
+    @Singleton
+    fun provideDeviceIdProvider(settingsStore: SettingsStore): DeviceIdProvider = object : DeviceIdProvider {
+        override suspend fun deviceId(): String = settingsStore.getOrCreateInstallId()
+    }
 }

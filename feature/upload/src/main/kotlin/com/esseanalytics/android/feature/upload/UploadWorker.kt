@@ -11,6 +11,7 @@ import androidx.work.workDataOf
 import com.esseanalytics.android.core.database.FileRepository
 import com.esseanalytics.android.core.database.PlatformVideoRepository
 import com.esseanalytics.android.core.datastore.SettingsStore
+import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.HistoryOutbox
 import com.esseanalytics.android.core.network.LabModeStatus
@@ -47,6 +48,7 @@ class UploadWorker @AssistedInject constructor(
     private val mockInstagramUploader: MockInstagramUploader,
     private val mockTiktokUploader: MockTiktokUploader,
     private val labModeStatus: LabModeStatus,
+    private val tokenStore: TokenStore,
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
@@ -87,9 +89,31 @@ class UploadWorker @AssistedInject constructor(
             crossPostFacebook = inputData.getBoolean(KEY_CROSS_POST_FACEBOOK, false),
         )
 
+        // Callback de progreso único para ambos caminos de subida.
+        val onProgress: (Float) -> Unit = { progress ->
+            runBlocking { setProgress(workDataOf(KEY_PROGRESS to progress)) }
+        }
+
         try {
-            val result = uploader.upload(resolved.file, metadata) { progress ->
-                runBlocking { setProgress(workDataOf(KEY_PROGRESS to progress)) }
+            // YouTube real sube por el camino durable (journal + reanudación);
+            // el token y Google solo entran en escena si el coordinador decide
+            // StartFresh. userKey/sourceId/operationId nulos o blank son un
+            // error del llamador, NO reintentable, y se rechazan ANTES de
+            // pedir token o tocar la red. Lab YouTube (isLabMode) y el resto
+            // de plataformas siguen por upload() normal.
+            val result = if (platform == Platform.YOUTUBE && !isLabMode) {
+                val userKey = tokenStore.currentUser?.id
+                val sourceId = videoFile.clientFileId
+                if (userKey.isNullOrBlank() || sourceId.isBlank() || operationId.isNullOrBlank()) {
+                    UploadResult.Failure(
+                        "Faltan datos de identidad para la subida durable de YouTube.",
+                        retryable = false,
+                    )
+                } else {
+                    youtubeUploader.uploadDurable(resolved.file, metadata, userKey, sourceId, operationId, onProgress)
+                }
+            } else {
+                uploader.upload(resolved.file, metadata, onProgress)
             }
 
             return when (result) {
@@ -108,7 +132,12 @@ class UploadWorker @AssistedInject constructor(
                     // central deriva el estado de la publicación del propio
                     // evento record-publish, y el estado editable a mano viaja
                     // por el camino causal (platform-transition), no por acá.
-                    reportPublish(platform, result.platformId, result.platformUrl, videoFile.fileName, title, videoFile.remoteLibraryVideoId, operationId)
+                    // El éxito durable de YouTube reporta con el operationId del
+                    // journal (durableOperationId); los demás uploaders devuelven
+                    // null ahí, así que conservan exactamente el operationId del
+                    // input. El crosspost de Facebook (rama de Instagram de abajo)
+                    // sigue usando siempre el del input.
+                    reportPublish(platform, result.platformId, result.platformUrl, videoFile.fileName, title, videoFile.remoteLibraryVideoId, result.durableOperationId ?: operationId)
 
                     // Facebook NO pasa por onPlatformPublished (no está en
                     // Platform.publishable) -- si le pidiéramos eso también,
@@ -194,10 +223,24 @@ class UploadWorker @AssistedInject constructor(
             runCatching {
                 val tempDir = File(applicationContext.cacheDir, "uploads").apply { mkdirs() }
                 val tempFile = File(tempDir, "${UUID.randomUUID()}.mp4")
-                applicationContext.contentResolver.openInputStream(storedPath.toUri())?.use { input ->
-                    tempFile.outputStream().use { output -> input.copyTo(output) }
-                } ?: return@runCatching null
-                ResolvedFile(tempFile, isTemp = true)
+                try {
+                    val input = applicationContext.contentResolver.openInputStream(storedPath.toUri())
+                    if (input == null) {
+                        tempFile.delete()
+                        null
+                    } else {
+                        input.use { source ->
+                            tempFile.outputStream().use { output -> source.copyTo(output) }
+                        }
+                        ResolvedFile(tempFile, isTemp = true)
+                    }
+                } catch (error: Exception) {
+                    // Si la copia SAF falla, resolveUploadFile nunca devuelve
+                    // ResolvedFile y el finally del worker no podría conocer
+                    // esta ruta. Borramos aquí el parcial.
+                    tempFile.delete()
+                    throw error
+                }
             }.getOrNull()
         }
     }

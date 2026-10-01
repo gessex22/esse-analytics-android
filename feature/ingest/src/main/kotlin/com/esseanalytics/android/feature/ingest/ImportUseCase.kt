@@ -91,6 +91,9 @@ class ImportUseCase @Inject constructor(
             val thumbnailFile = File(thumbnailsDir, "${UUID.randomUUID()}.jpg")
             val hasThumbnail = thumbnailGenerator.generate(mediaSource, thumbnailFile)
 
+            // Acá (y solo acá) nace el clientFileId del archivo: VideoFile lo
+            // genera con su default al construirse. De ahí en más se propaga
+            // intacto -- insert, copy(id = ...), mappers y updates lo conservan.
             val videoFile = VideoFile(
                 fileName = displayName,
                 filePath = filePathForStorage,
@@ -151,6 +154,10 @@ class ImportUseCase @Inject constructor(
             val thumbnailFile = File(thumbnailsDir, "${UUID.randomUUID()}.jpg")
             val hasThumbnail = thumbnailGenerator.generate(mediaSource, thumbnailFile)
 
+            // Igual que en importVideo: el clientFileId se genera acá una sola
+            // vez. NO se deriva de video._id a propósito -- el mismo video de
+            // Nube bajado a dos teléfonos tiene que tener dos identidades
+            // locales distintas; lo que los une es el remoteLibraryVideoId.
             val videoFile = VideoFile(
                 fileName = video.fileName,
                 filePath = destination.absolutePath,

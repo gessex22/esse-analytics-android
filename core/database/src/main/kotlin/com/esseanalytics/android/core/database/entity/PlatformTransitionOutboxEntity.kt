@@ -31,12 +31,23 @@ data class PlatformTransitionOutboxEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val userKey: String,
     val kind: String,
-    // Identidad causal -- null hasta que se resuelva desde la central. Se guarda
-    // remoteLibraryVideoId como handle local para volver a resolver contentId
-    // más tarde; fileName es solo para el registro de historial (record-publish)
-    // y trazas, NUNCA para inferir un contentId.
+    // Identidad causal -- null hasta que se resuelva desde la central. Los
+    // handles con los que se puede volver a resolver el contentId son
+    // clientFileId (identidad local estable del archivo) y remoteLibraryVideoId
+    // (identidad que asignó la central). fileName viaja SOLO como metadato para
+    // la central y para trazas/historial: nunca se busca, cachea ni hidrata por
+    // él.
+    //
+    // clientFileId es nullable por dos motivos legítimos: las filas de un video
+    // de la COLA REMOTA no tienen archivo local (su handle es
+    // remoteLibraryVideoId + contentId ya conocido), y las filas LEGACY
+    // migradas desde v6 pueden no tener evidencia inequívoca de a qué archivo
+    // pertenecen. Esas últimas quedan bloqueadas: sin clientFileId y sin
+    // contentId no se puede resolver identidad, así que no salen a la red (ver
+    // CausalPlatformDao.getUnresolved / CausalFlusher.bootstrapIdentities).
     val contentId: String?,
     val remoteLibraryVideoId: String?,
+    val clientFileId: String?,
     val fileName: String?,
     val platform: String,
     val action: String?,

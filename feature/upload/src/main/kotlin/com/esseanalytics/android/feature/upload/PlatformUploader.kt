@@ -24,6 +24,11 @@ sealed interface UploadResult {
         val platformId: String,
         val platformUrl: String,
         val facebookCrossPost: FacebookCrossPostResult? = null,
+        // Identidad durable del journal (PublishOperationEntity.operationId) —
+        // solo la llena el flujo durable de YouTube (publicación nueva,
+        // reanudación o AlreadyConfirmed); el resto de uploaders devuelve null
+        // y el caller conserva el operationId del batch de UI.
+        val durableOperationId: String? = null,
     ) : UploadResult
     data class Failure(val message: String, val retryable: Boolean) : UploadResult
 }

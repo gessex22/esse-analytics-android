@@ -96,6 +96,10 @@ class AndroidTrimProcessor @Inject constructor() : TrimProcessor {
                     muxer.release()
                     extractor.release()
                 }
+            }.onFailure {
+                // Un fallo del muxer puede dejar un MP4 truncado; no debe
+                // sobrevivir al resultado fallido.
+                output.delete()
             }
         }
 

@@ -2,6 +2,7 @@ package com.esseanalytics.android.feature.upload
 
 import android.graphics.Bitmap
 import android.util.Base64
+import com.esseanalytics.android.core.database.PublishOperationStore
 import com.esseanalytics.android.core.media.AndroidFrameThumbnailGenerator
 import com.esseanalytics.android.core.media.MediaSource
 import com.esseanalytics.android.core.network.api.PlatformAuthApi
@@ -35,10 +36,19 @@ import javax.inject.Singleton
 class YoutubeUploader @Inject constructor(
     private val platformAuthApi: PlatformAuthApi,
     private val thumbnailGenerator: AndroidFrameThumbnailGenerator,
+    private val publishOperationStore: PublishOperationStore,
     @field:PlatformOkHttp private val httpClient: OkHttpClient,
 ) : PlatformUploader {
 
     private val json = Json { ignoreUnknownKeys = true }
+
+    // Coordinador durable interno: mismo store y transporte que usa el test
+    // JVM del coordinador, armado acá para no filtrar la decisión de journal
+    // fuera del uploader.
+    private val durableCoordinator = DurableYoutubeUploadCoordinator(
+        publishOperationStore,
+        OkHttpYoutubeResumableTransport(httpClient),
+    )
 
     override suspend fun upload(file: File, metadata: UploadMetadata, onProgress: (Float) -> Unit): UploadResult {
         return try {
@@ -78,6 +88,36 @@ class YoutubeUploader @Inject constructor(
             UploadResult.Failure(e.message ?: "Error desconocido en YouTube.", retryable = false)
         }
     }
+
+    // Subida durable (journal + reanudación) para UploadWorker: misma
+    // semántica de UploadResult que upload() legacy pero sin riesgo de
+    // duplicar la publicación entre reintentos de WorkManager. El token SOLO
+    // se pide dentro de tokenProvider — es el coordinador el que decide cuándo
+    // hace falta (StartFresh); en reanudaciones o desenlaces Already* no hay
+    // llamada a la central ni a Google antes de tiempo.
+    //
+    // CUSTOM_THUMBNAIL_ENABLED sigue en false: este camino NO agrega red de
+    // miniatura al resultado AlreadyConfirmed (el video ya está publicado y su
+    // Success se resuelve cero-red desde el journal). Si la miniatura custom
+    // se reactiva algún día, acá se conecta SOLO mediante un callback
+    // posterior a Confirmed — nunca inline — para no bloquear el éxito
+    // durable ni reabrir red sobre un resultado ya confirmado.
+    suspend fun uploadDurable(
+        file: File,
+        metadata: UploadMetadata,
+        userKey: String,
+        sourceId: String,
+        operationId: String,
+        onProgress: (Float) -> Unit,
+    ): UploadResult = durableCoordinator.upload(
+        file = file,
+        metadata = metadata,
+        userKey = userKey,
+        sourceId = sourceId,
+        operationId = operationId,
+        tokenProvider = { platformAuthApi.youtubeToken().access_token },
+        onProgress = onProgress,
+    )
 
     // youtube.thumbnails.set vive en la CENTRAL (backend/), no en la subida
     // directa -- YouTube tarda unos segundos en aceptar una miniatura recién

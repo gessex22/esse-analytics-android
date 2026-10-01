@@ -5,6 +5,7 @@ import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -19,6 +20,7 @@ import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.designsystem.theme.EsseAnalyticsColorTheme
 import com.esseanalytics.android.core.designsystem.theme.EsseAnalyticsTheme
+import com.esseanalytics.android.feature.auth.AuthRepository
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -42,6 +44,13 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var tokenStore: TokenStore
+
+    @Inject
+    lateinit var authRepository: AuthRepository
+
+    private val entitlementsRefreshGate = EntitlementsRefreshGate(
+        clockMs = SystemClock::elapsedRealtime,
+    )
 
     private var pendingImportUris by mutableStateOf<List<Uri>>(emptyList())
 
@@ -96,6 +105,19 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+
+        val userId = tokenStore.currentUser?.id ?: return
+        if (tokenStore.token == null || !entitlementsRefreshGate.shouldRefresh(userId)) return
+
+        // No bloquea el inicio ni borra el snapshot local si no hay conexión.
+        // El servidor sigue siendo la autoridad para cualquier operación
+        // protegida; este refresh mantiene los gates visuales sincronizados al
+        // volver a la app.
+        lifecycleScope.launch { authRepository.refreshUser() }
     }
 
     override fun onNewIntent(intent: Intent) {

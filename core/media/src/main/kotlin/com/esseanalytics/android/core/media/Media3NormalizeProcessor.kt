@@ -86,6 +86,10 @@ class Media3NormalizeProcessor @Inject constructor(
                 continuation.invokeOnCancellation { transformer.cancel() }
             }
         }
+    }.onFailure {
+        // Transformer puede haber creado bytes parciales antes de fallar o
+        // cancelarse. El caller no recibe una salida usable en ese caso.
+        output.delete()
     }
 
     // Mismo criterio que scale=min(iw,MAX_WIDTH):min(ih,MAX_HEIGHT):force_original_aspect_ratio=decrease

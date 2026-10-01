@@ -26,4 +26,7 @@ dependencies {
     // remoteLibraryThumbnailUrl) -- core:network lo declara `implementation`,
     // no es transitivo.
     implementation(libs.retrofit.core)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
 }

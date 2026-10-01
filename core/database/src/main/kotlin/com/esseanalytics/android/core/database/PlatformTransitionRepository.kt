@@ -29,9 +29,11 @@ import javax.inject.Singleton
 //
 // El `userKey` (id del usuario logueado) lo pasa el caller -- core:database no
 // depende de la sesión/red a propósito. La identidad (contentId) se resuelve
-// desde el cache local (content_identity); si todavía no se conoce, la fila
-// queda con contentId=null y el flusher la resuelve por resolve-identity antes
-// de enviar (nunca se infiere del fileName acá).
+// desde el cache local (content_identity) por clientFileId/remoteLibraryVideoId;
+// si todavía no se conoce, la fila queda con contentId=null y el flusher la
+// resuelve por resolve-identity antes de enviar. El fileName que reciben estos
+// métodos es METADATO (viaja a la central y al historial): en ninguna rama de
+// este archivo decide identidad ni empareja filas.
 @Singleton
 class PlatformTransitionRepository @Inject constructor(
     private val db: EsseAnalyticsDatabase,
@@ -68,8 +70,9 @@ class PlatformTransitionRepository @Inject constructor(
             }
             enqueueTransitionInternal(
                 userKey = userKey,
-                contentId = resolveCachedContentId(userKey, file.remoteLibraryVideoId, file.fileName),
+                contentId = resolveCachedContentId(userKey, file.remoteLibraryVideoId, file.clientFileId),
                 remoteLibraryVideoId = file.remoteLibraryVideoId,
+                clientFileId = file.clientFileId,
                 fileName = file.fileName,
                 platform = platform,
                 action = action,
@@ -89,6 +92,7 @@ class PlatformTransitionRepository @Inject constructor(
     // VideoDetailViewModel.saveLink).
     suspend fun enqueueManualLink(
         userKey: String,
+        clientFileId: String?,
         fileName: String,
         remoteLibraryVideoId: String?,
         platform: Platform,
@@ -99,8 +103,9 @@ class PlatformTransitionRepository @Inject constructor(
     ) = db.withTransaction {
         enqueueLinkInternal(
             userKey = userKey,
-            contentId = resolveCachedContentId(userKey, remoteLibraryVideoId, fileName),
+            contentId = resolveCachedContentId(userKey, remoteLibraryVideoId, clientFileId),
             remoteLibraryVideoId = remoteLibraryVideoId,
+            clientFileId = clientFileId,
             fileName = fileName,
             platform = platform,
             platformId = platformId,
@@ -113,14 +118,16 @@ class PlatformTransitionRepository @Inject constructor(
     // Borrar el link de un archivo local -> transición unlink causal.
     suspend fun enqueueUnlink(
         userKey: String,
+        clientFileId: String?,
         fileName: String,
         remoteLibraryVideoId: String?,
         platform: Platform,
     ) = db.withTransaction {
         enqueueTransitionInternal(
             userKey = userKey,
-            contentId = resolveCachedContentId(userKey, remoteLibraryVideoId, fileName),
+            contentId = resolveCachedContentId(userKey, remoteLibraryVideoId, clientFileId),
             remoteLibraryVideoId = remoteLibraryVideoId,
+            clientFileId = clientFileId,
             fileName = fileName,
             platform = platform,
             action = ACTION_UNLINK,
@@ -130,11 +137,14 @@ class PlatformTransitionRepository @Inject constructor(
     // Editor de un video de la cola remota: la identidad (contentId) y la
     // revisión (platformRev) YA vienen en el DTO -- se pasan explícitas. El
     // caller (RemoteVideoEditViewModel) ya validó que existan (si no, falla y
-    // revierte la UI sin llegar acá).
+    // revierte la UI sin llegar acá). `clientFileId` es null cuando el video
+    // vive SOLO en la nube (no hay archivo local del cual sacarlo) -- no hace
+    // falta: con contentId ya resuelto, la fila no pasa por resolve-identity.
     suspend fun enqueueKnownTransition(
         userKey: String,
         contentId: String,
         remoteLibraryVideoId: String?,
+        clientFileId: String?,
         fileName: String?,
         platform: Platform,
         action: String,
@@ -144,6 +154,7 @@ class PlatformTransitionRepository @Inject constructor(
             userKey = userKey,
             contentId = contentId,
             remoteLibraryVideoId = remoteLibraryVideoId,
+            clientFileId = clientFileId,
             fileName = fileName,
             platform = platform,
             action = action,
@@ -155,6 +166,7 @@ class PlatformTransitionRepository @Inject constructor(
         userKey: String,
         contentId: String,
         remoteLibraryVideoId: String?,
+        clientFileId: String?,
         fileName: String?,
         platform: Platform,
         platformId: String,
@@ -166,6 +178,7 @@ class PlatformTransitionRepository @Inject constructor(
             userKey = userKey,
             contentId = contentId,
             remoteLibraryVideoId = remoteLibraryVideoId,
+            clientFileId = clientFileId,
             fileName = fileName,
             platform = platform,
             platformId = platformId,
@@ -181,12 +194,13 @@ class PlatformTransitionRepository @Inject constructor(
         userKey: String,
         contentId: String?,
         remoteLibraryVideoId: String?,
+        clientFileId: String?,
         fileName: String?,
         platform: Platform,
         action: String,
         knownBaseVersion: Long? = null,
     ) {
-        val existing = existingForTarget(userKey, platform, contentId, remoteLibraryVideoId, fileName)
+        val existing = existingForTarget(userKey, platform, contentId, remoteLibraryVideoId, clientFileId)
         // Dedup SOLO del mismo cambio pendiente: si la última fila encolada de
         // esta cadena es una transición idéntica (misma acción), no se apila
         // otra. Un cambio distinto (o el mismo separado por otros) sí encola --
@@ -212,6 +226,7 @@ class PlatformTransitionRepository @Inject constructor(
                 kind = KIND_TRANSITION,
                 contentId = contentId,
                 remoteLibraryVideoId = remoteLibraryVideoId,
+                clientFileId = clientFileId,
                 fileName = fileName,
                 platform = platform.apiValue,
                 action = action,
@@ -229,6 +244,7 @@ class PlatformTransitionRepository @Inject constructor(
         userKey: String,
         contentId: String?,
         remoteLibraryVideoId: String?,
+        clientFileId: String?,
         fileName: String?,
         platform: Platform,
         platformId: String,
@@ -236,7 +252,7 @@ class PlatformTransitionRepository @Inject constructor(
         title: String?,
         publishedAt: String?,
     ) {
-        val existing = existingForTarget(userKey, platform, contentId, remoteLibraryVideoId, fileName)
+        val existing = existingForTarget(userKey, platform, contentId, remoteLibraryVideoId, clientFileId)
         val tail = existing.maxByOrNull { it.createdAtEpochMs * 1_000_000 + it.id }
         if (tail != null && tail.kind == KIND_LINK && tail.platformId == platformId && tail.platformUrl == platformUrl) return
         causalDao.insertOutbox(
@@ -245,6 +261,7 @@ class PlatformTransitionRepository @Inject constructor(
                 kind = KIND_LINK,
                 contentId = contentId,
                 remoteLibraryVideoId = remoteLibraryVideoId,
+                clientFileId = clientFileId,
                 fileName = fileName,
                 platform = platform.apiValue,
                 action = null,
@@ -261,10 +278,10 @@ class PlatformTransitionRepository @Inject constructor(
     private suspend fun resolveCachedContentId(
         userKey: String,
         remoteLibraryVideoId: String?,
-        fileName: String?,
+        clientFileId: String?,
     ): String? {
         remoteLibraryVideoId?.let { causalDao.findContentId(userKey, CausalKeys.forRemote(it))?.let { c -> return c } }
-        fileName?.let { causalDao.findContentId(userKey, CausalKeys.forFile(it))?.let { c -> return c } }
+        clientFileId?.let { causalDao.findContentId(userKey, CausalKeys.forClientFile(it))?.let { c -> return c } }
         return null
     }
 
@@ -273,11 +290,25 @@ class PlatformTransitionRepository @Inject constructor(
         platform: Platform,
         contentId: String?,
         remoteLibraryVideoId: String?,
-        fileName: String?,
+        clientFileId: String?,
     ): List<PlatformTransitionOutboxEntity> =
-        causalDao.pendingForPlatform(userKey, platform.apiValue).filter { row ->
-            (contentId != null && row.contentId == contentId) ||
-                (remoteLibraryVideoId != null && row.remoteLibraryVideoId == remoteLibraryVideoId) ||
-                (fileName != null && row.fileName == fileName)
-        }
+        causalDao.pendingForPlatform(userKey, platform.apiValue)
+            .filter { row -> targetMatches(row, contentId, remoteLibraryVideoId, clientFileId) }
 }
+
+// ¿Esta fila del outbox pertenece a la MISMA cadena causal que el cambio que se
+// está por encolar? Vive suelta (no como método privado) para poder ejercitarla
+// en un test JVM puro, sin Room: es la regla que antes emparejaba por fileName y
+// hacía que dos videos homónimos se dedupliquen entre sí, perdiendo un cambio.
+//
+// Solo se comparan handles de identidad REALES (contentId, remoteLibraryVideoId,
+// clientFileId). fileName no participa a propósito.
+fun targetMatches(
+    row: PlatformTransitionOutboxEntity,
+    contentId: String?,
+    remoteLibraryVideoId: String?,
+    clientFileId: String?,
+): Boolean =
+    (contentId != null && row.contentId == contentId) ||
+        (remoteLibraryVideoId != null && row.remoteLibraryVideoId == remoteLibraryVideoId) ||
+        (clientFileId != null && row.clientFileId == clientFileId)

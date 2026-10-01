@@ -20,6 +20,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
 import java.io.IOException
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -65,20 +66,26 @@ class InstagramUploader @Inject constructor(
             // Media3NormalizeProcessor.kt).
             var container = attemptContainer(igUserId, token, metadata, file, onProgress)
             var uploadedFile = file
+            var trimmedReady = false
 
             if (container == null) {
-                val trimmed = File(context.cacheDir, "ig_trim_${System.currentTimeMillis()}.mp4")
+                val trimmed = File(context.cacheDir, "ig_trim_${UUID.randomUUID()}.mp4")
+                // Registrar antes de iniciar el processor: un resultado fallido
+                // también puede dejar un archivo parcial que el finally debe borrar.
+                tempTrimmed = trimmed
                 if (trimProcessor.trim(file, trimmed).isSuccess) {
-                    tempTrimmed = trimmed
+                    trimmedReady = true
                     uploadedFile = trimmed
                     container = attemptContainer(igUserId, token, metadata, trimmed, onProgress)
                 }
             }
 
-            if (container == null && tempTrimmed != null) {
-                val normalized = File(context.cacheDir, "ig_normalized_${System.currentTimeMillis()}.mp4")
+            if (container == null && trimmedReady && tempTrimmed != null) {
+                val normalized = File(context.cacheDir, "ig_normalized_${UUID.randomUUID()}.mp4")
+                // Igual para una normalización cancelada/fallida: dejarla en
+                // el finally desde antes de arrancar Media3 Transformer.
+                tempNormalized = normalized
                 if (normalizeProcessor.normalize(tempTrimmed, normalized).isSuccess) {
-                    tempNormalized = normalized
                     uploadedFile = normalized
                     container = attemptContainer(igUserId, token, metadata, normalized, onProgress)
                 }

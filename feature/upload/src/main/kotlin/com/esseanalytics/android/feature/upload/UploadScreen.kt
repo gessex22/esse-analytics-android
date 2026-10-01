@@ -93,6 +93,7 @@ import java.io.File
 fun UploadScreen(
     modifier: Modifier = Modifier,
     initialFileId: Long? = null,
+    canUseCloudStorage: Boolean = false,
     // Se llama tras un éxito TOTAL (todas las plataformas elegidas
     // publicadas) -- EsseAnalyticsNavHost lo usa para redirigir a Inicio.
     onPublishedAllSuccess: () -> Unit = {},
@@ -107,6 +108,8 @@ fun UploadScreen(
 ) {
     val files by viewModel.files.collectAsState()
     val remoteVideos by viewModel.remoteVideos.collectAsState()
+    val remoteVideosLoading by viewModel.remoteVideosLoading.collectAsState()
+    val remoteVideosError by viewModel.remoteVideosError.collectAsState()
     val importingRemoteId by viewModel.importingRemoteId.collectAsState()
     val remoteImportError by viewModel.remoteImportError.collectAsState()
     val nextUploads by viewModel.nextUploads.collectAsState()
@@ -115,15 +118,14 @@ fun UploadScreen(
     val canSeeLanLibrary by viewModel.canSeeLanLibrary.collectAsState()
     val lanVideos by viewModel.lanVideos.collectAsState()
     val lanBaseUrl by viewModel.lanBaseUrl.collectAsState()
+    val lanLoadError by viewModel.lanLoadError.collectAsState()
     var selectedFile by remember { mutableStateOf<VideoFile?>(null) }
     var selectedLan by remember { mutableStateOf<Pair<LocalPcVideoDto, String>?>(null) }
     var showSuccessDialog by remember { mutableStateOf(false) }
 
-    // Best-effort: si el usuario no tiene el entitlement de Nube, la API
-    // devuelve 403 y remoteVideos queda vacío -- la sección de Nube
-    // simplemente no aparece, sin error visible (mismo criterio que
-    // RemoteLibraryViewModel/LibraryViewModel).
-    LaunchedEffect(Unit) { viewModel.refreshRemoteVideos() }
+    LaunchedEffect(canUseCloudStorage) {
+        if (canUseCloudStorage) viewModel.refreshRemoteVideos()
+    }
     LaunchedEffect(Unit) { viewModel.refreshNextUploads() }
     // Mismo patrón ref-counted que LibraryScreen.kt (feature:library) --
     // LanLibraryRepository soporta los dos consumidores activos a la vez sin
@@ -185,7 +187,7 @@ fun UploadScreen(
     // criterio que showsChips en LibraryView.swift (iOS): el chip/sección
     // existe apenas hay una PC autorizada, sin esperar a que termine de
     // traer su lista.
-    if (files.isEmpty() && remoteVideos.isEmpty() && !canSeeLanLibrary) {
+    if (files.isEmpty() && !canUseCloudStorage && !canSeeLanLibrary) {
         PlaceholderScreen(
             title = "Nada para subir todavía",
             note = "Importá un video primero desde la pestaña Videos.",
@@ -235,39 +237,57 @@ fun UploadScreen(
             // local (mismo criterio que VideoPickerView en iOS). Antes esta
             // pantalla solo consultaba el catálogo local, la cola remota no
             // aparecía acá aunque sí existiera en la pestaña Nube.
-            if (remoteVideos.isNotEmpty()) {
-                RemoteVideoStrip(
-                    videos = remoteVideos,
-                    importingId = importingRemoteId,
-                    nextUploads = nextUploads,
-                    thumbnailUrl = viewModel::thumbnailUrl,
-                    onSelect = { video ->
-                        viewModel.importFromRemote(video) { file ->
-                            if (file != null) {
-                                selectedFile = file
-                                browsingList = false
+            if (canUseCloudStorage) {
+                when {
+                    remoteVideosLoading -> SourceStatusRow("Nube", "Cargando videos…", loading = true)
+                    remoteVideosError != null -> SourceStatusRow(
+                        title = "Nube",
+                        message = remoteVideosError ?: "No se pudo cargar la nube.",
+                        onRetry = viewModel::refreshRemoteVideos,
+                    )
+                    remoteVideos.isEmpty() -> SourceStatusRow("Nube", "No hay videos pendientes en la nube.")
+                    else -> RemoteVideoStrip(
+                        videos = remoteVideos,
+                        importingId = importingRemoteId,
+                        nextUploads = nextUploads,
+                        thumbnailUrl = viewModel::thumbnailUrl,
+                        onSelect = { video ->
+                            viewModel.importFromRemote(video) { file ->
+                                if (file != null) {
+                                    selectedFile = file
+                                    browsingList = false
+                                }
                             }
-                        }
-                    },
-                )
+                        },
+                    )
+                }
             }
             // FIX 2026-08-18: mismo gap que BUG-2026-08-16-03 (ver
             // docs/bug-reports.md en content-automation-dashboard) -- antes
             // este picker no tenía forma de cambiar a un video de la PC en
             // Biblioteca LAN. Solo aparece con PC autorizada ahora mismo
             // (canSeeLanLibrary), sin fallback a ningún mirror.
-            val currentLanBaseUrl = lanBaseUrl
-            if (canSeeLanLibrary && currentLanBaseUrl != null && lanVideos.isNotEmpty()) {
-                LanVideoStrip(
-                    videos = lanVideos,
-                    nextUploads = nextUploads,
-                    thumbnailUrl = { video -> viewModel.lanThumbnailUrl(video, currentLanBaseUrl) },
-                    onSelect = { video ->
-                        selectedFile = null
-                        selectedLan = video to currentLanBaseUrl
-                        browsingList = false
-                    },
-                )
+            if (canSeeLanLibrary) {
+                val currentLanBaseUrl = lanBaseUrl
+                when {
+                    lanLoadError != null -> SourceStatusRow(
+                        title = "PC local",
+                        message = lanLoadError ?: "No se pudo cargar la biblioteca de la PC.",
+                        onRetry = viewModel::refreshLanLibrary,
+                    )
+                    currentLanBaseUrl == null -> SourceStatusRow("PC local", "Conectando con la PC…", loading = true)
+                    lanVideos.isEmpty() -> SourceStatusRow("PC local", "No hay videos pendientes en la PC.")
+                    else -> LanVideoStrip(
+                        videos = lanVideos,
+                        nextUploads = nextUploads,
+                        thumbnailUrl = { video -> viewModel.lanThumbnailUrl(video, currentLanBaseUrl) },
+                        onSelect = { video ->
+                            selectedFile = null
+                            selectedLan = video to currentLanBaseUrl
+                            browsingList = false
+                        },
+                    )
+                }
             }
             FileList(
                 files = files,
@@ -333,6 +353,47 @@ private fun PublishSuccessDialog(batch: PublishBatchState?, onDismiss: () -> Uni
     )
 }
 
+@Composable
+private fun SourceStatusRow(
+    title: String,
+    message: String,
+    loading: Boolean = false,
+    onRetry: (() -> Unit)? = null,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(top = 6.dp),
+        ) {
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                )
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(
+                message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            if (onRetry != null) {
+                TextButton(onClick = onRetry) { Text("Reintentar") }
+            }
+        }
+    }
+}
+
 // Tira horizontal aparte (no mezclada en el LazyColumn de locales) -- son
 // fuentes distintas (uno ya está en el teléfono, el otro hay que bajarlo
 // primero), mezclarlas en una sola lista larga sería confuso sobre cuál
@@ -347,7 +408,7 @@ private fun RemoteVideoStrip(
 ) {
     Column(modifier = Modifier.padding(bottom = 8.dp)) {
         Text(
-            "Cola remota",
+            "Nube",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 4.dp),
@@ -418,7 +479,7 @@ private fun LanVideoStrip(
 ) {
     Column(modifier = Modifier.padding(bottom = 8.dp)) {
         Text(
-            "Biblioteca LAN",
+            "PC local",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 4.dp),
@@ -605,6 +666,8 @@ private fun PublishForm(
     var thumbnailOffsetSec by remember(file.id) { mutableFloatStateOf(0f) }
     var crossPostFacebook by remember(file.id) { mutableStateOf(false) }
     var showExitConfirmation by remember { mutableStateOf(false) }
+    val blockedPlatforms by viewModel.blockedPlatformsForActiveFile.collectAsState()
+    val blockedConfirmationError by viewModel.blockedConfirmationError.collectAsState()
     val isPublishing = activeBatch?.isActive == true
 
     // Mismo criterio que iOS (interactiveDismissDisabled + confirmationDialog):
@@ -660,6 +723,8 @@ private fun PublishForm(
         if (activeBatch != null && !activeBatch.isActive && activeBatch.stage != BatchStage.COMPLETED) {
             BatchResultSummary(
                 batch = activeBatch,
+                blockedPlatforms = blockedPlatforms,
+                confirmationError = blockedConfirmationError,
                 onRetryFailed = {
                     viewModel.retryFailedInBatch(
                         file,
@@ -669,6 +734,7 @@ private fun PublishForm(
                         crossPostFacebook = crossPostFacebook && Platform.INSTAGRAM in selectedPlatforms,
                     )
                 },
+                onConfirmNotPublished = viewModel::confirmNotPublished,
                 onDismiss = viewModel::dismissBatch,
             )
         }
@@ -870,11 +936,34 @@ private fun PlatformBatchStatusLabel(state: PlatformPublishState) {
 // Resumen post-lote cuando NO fue éxito total -- éxito total lo maneja
 // PublishSuccessDialog (modal notorio en vez de esto). Acá se cubre falla
 // total y parcial: qué salió, qué no, y reintentar solo lo que falta.
+//
+// Recuperación de publicación ambigua (docs/ambiguous-publish-recovery-design-
+// 2026-09-22.md): una plataforma cuya fila del journal está `blocked` NO se
+// reintenta con el botón normal — la plataforma pudo procesar el pedido aunque
+// el teléfono no haya confirmado la respuesta, y reintentar a ciegas podría
+// duplicar el video. Su única salida es la confirmación humana «Revisé la
+// plataforma y el video no se publicó» (doble confirmación Material), que
+// registra la evidencia y habilita UN intento nuevo limpio vía publish().
 @Composable
-private fun BatchResultSummary(batch: PublishBatchState, onRetryFailed: () -> Unit, onDismiss: () -> Unit) {
+private fun BatchResultSummary(
+    batch: PublishBatchState,
+    blockedPlatforms: Set<Platform>,
+    confirmationError: String?,
+    onRetryFailed: () -> Unit,
+    onConfirmNotPublished: (Platform) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    // El retry normal cubre solo lo fallido/cancelado que NO está blocked --
+    // lo blocked queda exclusivamente para la confirmación humana.
     val hasRetriable = batch.platforms.any {
-        it.stage == PlatformPublishStage.FAILED || it.stage == PlatformPublishStage.CANCELLED
+        (it.stage == PlatformPublishStage.FAILED || it.stage == PlatformPublishStage.CANCELLED) &&
+            it.platform !in blockedPlatforms
     }
+    // Plataforma cuya confirmación está pidiendo el usuario ahora mismo;
+    // cancelar el diálogo la vuelve a null y NO toca Room (la fila queda
+    // como estaba).
+    var confirmTarget by remember { mutableStateOf<Platform?>(null) }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -889,15 +978,32 @@ private fun BatchResultSummary(batch: PublishBatchState, onRetryFailed: () -> Un
             )
             Spacer(modifier = Modifier.height(8.dp))
             batch.platforms.forEach { state ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 3.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(state.platform.displayName, modifier = Modifier.weight(1f))
-                    PlatformBatchStatusLabel(state)
+                Column(modifier = Modifier.padding(vertical = 3.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(state.platform.displayName, modifier = Modifier.weight(1f))
+                        PlatformBatchStatusLabel(state)
+                    }
+                    // Desenlace ambiguo respaldado por una fila `blocked` del
+                    // journal: la salida es la confirmación humana, no el
+                    // retry. El gate del journal excluye de facto al flujo
+                    // LAN (la PC publica y nunca escribe publish_operations).
+                    if (state.platform in blockedPlatforms) {
+                        TextButton(onClick = { confirmTarget = state.platform }) {
+                            Text("Revisé la plataforma y el video no se publicó")
+                        }
+                    }
                 }
+            }
+            if (confirmationError != null) {
+                Text(
+                    confirmationError,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
             }
             if (hasRetriable) {
                 Button(
@@ -910,6 +1016,35 @@ private fun BatchResultSummary(batch: PublishBatchState, onRetryFailed: () -> Un
                 TextButton(onClick = onDismiss, modifier = Modifier.padding(top = 4.dp)) { Text("Descartar") }
             }
         }
+    }
+
+    // Doble confirmación Material (mismo patrón que showExitConfirmation):
+    // el dismiss solo cierra — cancelar no cambia la fila. El copy es parte
+    // del diseño: si el video SÍ aparece, se vincula por el flujo de Matching
+    // (Sincronización → "Vincular con archivo local", o el link manual en el
+    // detalle del video), jamás se re-sube.
+    confirmTarget?.let { platform ->
+        AlertDialog(
+            onDismissRequest = { confirmTarget = null },
+            icon = { Icon(Icons.Outlined.Warning, contentDescription = null) },
+            title = { Text("¿Confirmás que no se publicó?") },
+            text = {
+                Text(
+                    "Solo reintentá si ya revisaste ${platform.displayName} y el video NO está público. " +
+                        "Si el video sí aparece, no lo subas de nuevo: vinculalo desde Sincronización " +
+                        "→ «Vincular con archivo local».",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmTarget = null
+                    onConfirmNotPublished(platform)
+                }) { Text("Sí, no se publicó") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmTarget = null }) { Text("Cancelar") }
+            },
+        )
     }
 }
 

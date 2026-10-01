@@ -5,3 +5,7 @@ plugins {
 android {
     namespace = "com.esseanalytics.android.core.model"
 }
+
+dependencies {
+    testImplementation(libs.junit)
+}

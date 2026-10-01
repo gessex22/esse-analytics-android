@@ -14,8 +14,13 @@ internal fun String.toPlatformSet(): Set<Platform> =
 
 internal fun Set<Platform>.toCsv(): String = joinToString(",") { it.apiValue }
 
+// clientFileId se propaga EXPLÍCITO en los dos sentidos -- si se omitiera acá,
+// VideoFile tomaría su default (un UUID nuevo) y la identidad causal del
+// archivo cambiaría en cada lectura de la base. Es el único campo del mapeo
+// donde olvidarse no se nota al compilar.
 fun FileEntity.toDomain() = VideoFile(
     id = id,
+    clientFileId = clientFileId,
     fileName = fileName,
     filePath = filePath,
     status = runCatching { FileStatus.valueOf(status) }.getOrDefault(FileStatus.ERROR),
@@ -35,6 +40,7 @@ fun FileEntity.toDomain() = VideoFile(
 
 fun VideoFile.toEntity() = FileEntity(
     id = id,
+    clientFileId = clientFileId,
     fileName = fileName,
     filePath = filePath,
     status = status.name,

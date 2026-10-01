@@ -4,12 +4,14 @@ import com.esseanalytics.android.core.network.dto.LinkInstallRequest
 import com.esseanalytics.android.core.network.dto.LoginRequest
 import com.esseanalytics.android.core.network.dto.RegisterRequest
 import com.esseanalytics.android.core.network.dto.LoginResponse
+import com.esseanalytics.android.core.network.dto.AuthMeResponse
 import com.esseanalytics.android.core.network.dto.UpdateCloudStorageRequest
 import com.esseanalytics.android.core.network.dto.UpdateTierRequest
 import com.esseanalytics.android.core.network.dto.UserDto
 import com.esseanalytics.android.core.network.dto.UsersListResponse
 import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.Headers
 import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Path
@@ -22,10 +24,10 @@ interface AuthApi {
     @POST("api/auth/register")
     suspend fun register(@Body body: RegisterRequest): LoginResponse
 
-    // Re-lee tier/role frescos SIN emitir un token nuevo — no hay refresh token,
-    // esto solo sirve para refrescar el user object guardado localmente.
+    // Relee perfil y capacidades efectivas desde central, SIN emitir token nuevo.
+    @Headers("Cache-Control: no-cache")
     @GET("api/auth/me")
-    suspend fun me(): UserDto
+    suspend fun me(): AuthMeResponse
 
     @POST("api/auth/link-install")
     suspend fun linkInstall(@Body body: LinkInstallRequest)

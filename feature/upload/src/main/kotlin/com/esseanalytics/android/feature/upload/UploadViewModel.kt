@@ -12,6 +12,8 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.esseanalytics.android.core.database.FileRepository
+import com.esseanalytics.android.core.database.PublishOperationStore
+import com.esseanalytics.android.core.database.PublishOperationStoreException
 import com.esseanalytics.android.core.datastore.PendingBatchStore
 import com.esseanalytics.android.core.datastore.PendingPublishBatch
 import com.esseanalytics.android.core.datastore.SettingsStore
@@ -42,6 +44,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -68,6 +71,10 @@ class UploadViewModel @Inject constructor(
     // autorizada por Bonjour) sin reimplementar discovery/fetch acá.
     private val lanLibraryRepository: LanLibraryRepository,
     @CentralRetrofit private val retrofit: Retrofit,
+    // Journal durable anti-duplicados (ver PublishOperationEntity): la
+    // confirmación humana de una publicación ambigua (fila `blocked`) pasa
+    // por este store — nunca se toca el DAO del journal desde acá.
+    private val publishOperationStore: PublishOperationStore,
 ) : ViewModel() {
 
     private val workManager = WorkManager.getInstance(context)
@@ -81,6 +88,7 @@ class UploadViewModel @Inject constructor(
     // LanLibraryRepository.refresh()) -- evita el caso borde de leer un
     // baseUrl más nuevo que la lista de videos que efectivamente trajo.
     val lanBaseUrl: StateFlow<String?> = lanLibraryRepository.activeBaseUrl
+    val lanLoadError: StateFlow<String?> = lanLibraryRepository.loadError
 
     fun lanThumbnailUrl(video: LocalPcVideoDto, baseUrl: String): String? =
         localPcThumbnailUrl(baseUrl, video._id, tokenStore.token)
@@ -89,6 +97,8 @@ class UploadViewModel @Inject constructor(
     fun startLanDiscovery() = lanLibraryRepository.start()
 
     fun stopLanDiscovery() = lanLibraryRepository.stop()
+
+    fun refreshLanLibrary() = lanLibraryRepository.refresh()
 
     // Solo archivos que todavía tienen alguna plataforma pendiente -- no
     // tiene sentido ofrecer "subir" uno que ya está resuelto en las 3.
@@ -102,6 +112,12 @@ class UploadViewModel @Inject constructor(
     // todavía tiene alguna plataforma pendiente, igual que `files` arriba.
     private val _remoteVideos = MutableStateFlow<List<RemoteLibraryVideoDto>>(emptyList())
     val remoteVideos: StateFlow<List<RemoteLibraryVideoDto>> = _remoteVideos.asStateFlow()
+
+    private val _remoteVideosLoading = MutableStateFlow(false)
+    val remoteVideosLoading: StateFlow<Boolean> = _remoteVideosLoading.asStateFlow()
+
+    private val _remoteVideosError = MutableStateFlow<String?>(null)
+    val remoteVideosError: StateFlow<String?> = _remoteVideosError.asStateFlow()
 
     private val _importingRemoteId = MutableStateFlow<String?>(null)
     val importingRemoteId: StateFlow<String?> = _importingRemoteId.asStateFlow()
@@ -139,6 +155,42 @@ class UploadViewModel @Inject constructor(
     private val _pendingBatchFileId = MutableStateFlow<Long?>(null)
     val pendingBatchFileId: StateFlow<Long?> = _pendingBatchFileId.asStateFlow()
 
+    // --- Recuperación de publicación ambigua (fila `blocked` del journal) ---
+    // Diseño: docs/ambiguous-publish-recovery-design-2026-09-22.md. Nunca se
+    // reintenta automáticamente una operación blocked: solo la confirmación
+    // humana «Revisé la plataforma y el video no se publicó» habilita un
+    // intento nuevo. El userKey actual se resuelve acá (desde TokenStore,
+    // como hace UploadWorker para la subida durable) y se observan las filas
+    // `blocked` del journal en vivo.
+    private val blockedJournalRows = tokenStore.currentUser?.id
+        ?.let { userKey -> publishOperationStore.observeBlocked(userKey) }
+        ?: flowOf(emptyList())
+
+    // Plataformas cuya fila del journal está `blocked` para el archivo del
+    // lote activo. El journal identifica por clientFileId — NUNCA por
+    // fileName (ver PublishOperationEntity): se resuelve el VideoFile del
+    // lote y se matchea por sourceId + apiValue de plataforma. Alimenta el
+    // botón de confirmación por plataforma y el filtro del retry normal.
+    val blockedPlatformsForActiveFile: StateFlow<Set<Platform>> =
+        combine(activeBatch, blockedJournalRows) { batch, rows ->
+            if (batch == null) return@combine emptySet()
+            val clientFileId = fileRepository.findById(batch.fileId)?.clientFileId
+                ?: return@combine emptySet()
+            rows.filter { it.sourceId == clientFileId }
+                .mapNotNull { Platform.fromApiValue(it.platform) }
+                .toSet()
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    // Fallo de la última confirmación (sesión sin usuario, archivo borrado,
+    // transición rechazada por el store): se muestra en el resumen del lote.
+    // La fila del journal queda como estaba — cancelar no toca Room.
+    private val _blockedConfirmationError = MutableStateFlow<String?>(null)
+    val blockedConfirmationError: StateFlow<String?> = _blockedConfirmationError.asStateFlow()
+
+    fun clearBlockedConfirmationError() {
+        _blockedConfirmationError.value = null
+    }
+
     init {
         viewModelScope.launch {
             val pending = pendingBatchStore.currentValue() ?: return@launch
@@ -170,12 +222,18 @@ class UploadViewModel @Inject constructor(
 
     fun refreshRemoteVideos() {
         viewModelScope.launch {
+            _remoteVideosLoading.value = true
+            _remoteVideosError.value = null
             runCatching { withContext(Dispatchers.IO) { remoteLibraryApi.listVideos().videos } }
                 .onSuccess { videos ->
                     _remoteVideos.value = videos.filter { video ->
                         !Platform.publishable.all { it.apiValue in video.platforms || it.apiValue in video.platformsDiscarded }
                     }
                 }
+                .onFailure { error ->
+                    _remoteVideosError.value = error.message ?: "No se pudo leer la biblioteca de la nube."
+                }
+            _remoteVideosLoading.value = false
         }
     }
 
@@ -258,7 +316,49 @@ class UploadViewModel @Inject constructor(
         batchObserverJob = null
         _activeBatch.value = null
         _pendingBatchFileId.value = null
+        _blockedConfirmationError.value = null
         viewModelScope.launch { pendingBatchStore.clear() }
+    }
+
+    // Confirma, tras revisar la plataforma a mano, que el video NO se
+    // publicó: registra la confirmación en el journal (transición explícita
+    // blocked -> pending limpio con operationId nuevo, ver
+    // PublishOperationStore.confirmNotPublished y el diseño
+    // docs/ambiguous-publish-recovery-design-2026-09-22.md) y habilita UN
+    // intento nuevo por el flujo normal de publish() — el getOrCreate del
+    // camino durable nunca pisa la fila, así que la limpieza la garantiza la
+    // transición del store. Si el video SÍ aparece en la plataforma, esto NO
+    // es el camino: corresponde vincularlo desde Sincronización, no
+    // re-subirlo.
+    fun confirmNotPublished(platform: Platform) {
+        val batch = _activeBatch.value ?: return
+        viewModelScope.launch {
+            val userKey = tokenStore.currentUser?.id
+            if (userKey.isNullOrBlank()) {
+                _blockedConfirmationError.value = "No hay una sesión activa para registrar la confirmación."
+                return@launch
+            }
+            val file = fileRepository.findById(batch.fileId)
+            if (file == null || file.clientFileId.isBlank()) {
+                _blockedConfirmationError.value =
+                    "No se encontró el archivo del lote en la biblioteca local, o no tiene identidad estable."
+                return@launch
+            }
+            try {
+                publishOperationStore.confirmNotPublished(
+                    userKey = userKey,
+                    sourceId = file.clientFileId,
+                    platform = platform.apiValue,
+                    newOperationId = UUID.randomUUID().toString(),
+                )
+                _blockedConfirmationError.value = null
+            } catch (e: PublishOperationStoreException) {
+                // Fallo ruidoso del store traducido a error visible: la fila
+                // queda como estaba (nada que deshacer) y el usuario puede
+                // volver a intentar la confirmación.
+                _blockedConfirmationError.value = e.message
+            }
+        }
     }
 
     fun retryFailedInBatch(
@@ -269,8 +369,18 @@ class UploadViewModel @Inject constructor(
         crossPostFacebook: Boolean = false,
     ) {
         val batch = _activeBatch.value ?: return
+        val blocked = blockedPlatformsForActiveFile.value
         val retriable = batch.platforms
-            .filter { it.stage == PlatformPublishStage.FAILED || it.stage == PlatformPublishStage.CANCELLED }
+            .filter {
+                (it.stage == PlatformPublishStage.FAILED || it.stage == PlatformPublishStage.CANCELLED) &&
+                    // Una fila `blocked` NUNCA se reintenta con el botón
+                    // normal — queda solo accesible vía la confirmación humana
+                    // «Revisé la plataforma y el video no se publicó» (diseño
+                    // docs/ambiguous-publish-recovery-design-2026-09-22.md):
+                    // reintentar a ciegas un desenlace ambiguo podría duplicar
+                    // el video.
+                    it.platform !in blocked
+            }
             .map { it.platform }
             .toSet()
         if (retriable.isEmpty()) return

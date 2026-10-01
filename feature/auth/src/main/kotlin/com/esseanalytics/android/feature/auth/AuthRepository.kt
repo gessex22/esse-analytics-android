@@ -39,7 +39,7 @@ class AuthRepository @Inject constructor(
         val user = response.user.toDomain(userId)
         tokenStore.save(response.token, user)
         ensureInstallLinked()
-        return user
+        return refreshUser().getOrNull() ?: user
     }
 
     // POST /api/auth/link-install una sola vez por instalación — requerido
@@ -53,10 +53,15 @@ class AuthRepository @Inject constructor(
     }
 
     suspend fun refreshUser(): Result<User> = runCatching {
-        val dto = authApi.me()
+        val expectedToken = tokenStore.token ?: error("No hay sesión activa")
         val current = tokenStore.currentUser ?: error("No hay sesión activa")
-        val refreshed = dto.toDomain(current.id)
-        tokenStore.updateUser(refreshed)
+        val dto = authApi.me()
+        if (dto.entitlements?.userId?.let { it != current.id } == true) {
+            error("La respuesta de permisos no corresponde a la sesión activa")
+        }
+        val refreshed = dto.user.toDomain(current.id).copy(entitlements = dto.entitlements?.toDomain())
+        val updated = tokenStore.updateUserIfSession(expectedToken, current.id, refreshed)
+        if (!updated) error("La sesión cambió mientras se actualizaban los permisos")
         refreshed
     }
 

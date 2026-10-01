@@ -71,17 +71,31 @@ data class PlatformCausalResponse(
 
 // POST /api/sync/resolve-identity -- bootstrap de identidad para un archivo que
 // NO pasó por la cola remota (no tiene RemoteLibraryVideoDto del que hidratar
-// contentId). La central resuelve su propia identidad canónica a partir del
-// fileName (y el remoteLibraryVideoId si existe); el cliente NUNCA fabrica el
-// contentId a partir del nombre -- lo pide y lo cachea tal cual lo devuelve la
-// central (ver PlatformIdentityStore.resolveContentId). Si la central todavía
-// no conoce ese contenido, responde sin `contentId` (o 404) y la transición
-// queda excluida hasta el próximo intento -- degradación segura, nunca se
-// manda a ciegas.
+// contentId). El contrato real de la central identifica el archivo por el par
+// (deviceId, clientFileId): son los dos campos con los que decide/crea SU
+// identidad canónica. Antes acá se mandaba solo fileName, que la central no usa
+// para identificar -- por eso las transiciones de archivos locales quedaban
+// atascadas sin contentId para siempre.
+//
+//   deviceId      instalación estable (SettingsStore.getOrCreateInstallId, el
+//                 mismo que ya viaja en link-install / record-publish).
+//   clientFileId  identidad local estable del archivo (ver newClientFileId).
+//   fileName      METADATO: la central lo guarda para mostrarlo/emparejar en su
+//                 propio historial. NO identifica: dos archivos distintos
+//                 pueden llamarse igual y renombrar no cambia la identidad.
+//   remoteLibraryVideoId  opcional, cuando el archivo salió de la cola remota.
+//
+// El cliente NUNCA fabrica el contentId: lo pide y lo cachea tal cual lo
+// devuelve la central (ver PlatformIdentityStore). Si la central todavía no
+// conoce ese contenido, responde sin `contentId` (o 404) y la transición queda
+// excluida hasta el próximo intento -- degradación segura, nunca se manda a
+// ciegas.
 @Serializable
 data class ResolveIdentityRequest(
     val fileName: String,
     val remoteLibraryVideoId: String? = null,
+    val deviceId: String,
+    val clientFileId: String,
 )
 
 @Serializable
