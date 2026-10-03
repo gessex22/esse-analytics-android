@@ -51,7 +51,7 @@ import com.esseanalytics.android.core.model.WorkflowMode
 private val FloatingNavClearance = 80.dp
 
 // Junta los settings que ya existían sueltos (workflowMode, wifiOnlyUploads)
-// más el selector de tema Rojo/Ámbar -- ver SettingsViewModel.
+// más el selector de tema Rojo/Ámbar/Morado -- ver SettingsViewModel.
 @Composable
 fun SettingsScreen(modifier: Modifier = Modifier, viewModel: SettingsViewModel = hiltViewModel()) {
     val colorTheme by viewModel.colorTheme.collectAsState()
@@ -88,6 +88,11 @@ fun SettingsScreen(modifier: Modifier = Modifier, viewModel: SettingsViewModel =
                 swatch = Color(0xFFF59E0B),
                 selected = colorTheme == "ambar",
             ) { viewModel.setColorTheme("ambar") }
+            ThemeOptionRow(
+                label = "Morado",
+                swatch = Color(0xFFA855F7),
+                selected = colorTheme == "morado",
+            ) { viewModel.setColorTheme("morado") }
         }
 
         SettingsSection(title = "Modo de flujo") {

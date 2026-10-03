@@ -8,10 +8,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
-// El frontend web es dark-only (sin modo claro real, ver Color.kt) con dos
+// El frontend web es dark-only (sin modo claro real, ver Color.kt) con tres
 // temas de color conmutables — se refleja acá igual, en vez de inventar un
 // light mode que el resto de la marca no tiene.
-enum class EsseAnalyticsColorTheme { ROJO, AMBAR }
+enum class EsseAnalyticsColorTheme { ROJO, AMBAR, MORADO }
 
 // darkColorScheme() rellena con la paleta "Purple" default de Material3
 // cualquier rol que no se pase acá (primaryContainer, surfaceContainer*,
@@ -100,6 +100,43 @@ private val AmbarColors = darkColorScheme(
     surfaceContainerLowest = BackgroundAmbar,
 )
 
+private val MoradoColors = darkColorScheme(
+    primary = PrimaryMorado,
+    onPrimary = Color.White,
+    primaryContainer = PrimaryMorado,
+    onPrimaryContainer = Color.White,
+    inversePrimary = PrimaryMorado,
+    secondary = PrimaryMorado,
+    onSecondary = Color.White,
+    secondaryContainer = SurfaceVariantMorado,
+    onSecondaryContainer = OnSurfaceVariantMorado,
+    tertiary = PrimaryMorado,
+    onTertiary = Color.White,
+    tertiaryContainer = SurfaceVariantMorado,
+    onTertiaryContainer = OnSurfaceVariantMorado,
+    background = BackgroundMorado,
+    onBackground = OnSurfaceMorado,
+    surface = SurfaceMorado,
+    onSurface = OnSurfaceMorado,
+    surfaceVariant = SurfaceVariantMorado,
+    onSurfaceVariant = OnSurfaceVariantMorado,
+    inverseSurface = OnSurfaceMorado,
+    inverseOnSurface = BackgroundMorado,
+    error = DestructiveMorado,
+    onError = Color.White,
+    errorContainer = DestructiveMorado,
+    onErrorContainer = Color.White,
+    outline = OutlineMorado,
+    outlineVariant = OutlineMorado,
+    surfaceBright = InputBackgroundMorado,
+    surfaceDim = BackgroundMorado,
+    surfaceContainer = SurfaceMorado,
+    surfaceContainerHigh = PopoverMorado,
+    surfaceContainerHighest = InputBackgroundMorado,
+    surfaceContainerLow = BackgroundMorado,
+    surfaceContainerLowest = BackgroundMorado,
+)
+
 @Composable
 fun EsseAnalyticsTheme(
     colorTheme: EsseAnalyticsColorTheme = EsseAnalyticsColorTheme.ROJO,
@@ -116,6 +153,7 @@ fun EsseAnalyticsTheme(
             dynamicDarkColorScheme(LocalContext.current)
         }
         colorTheme == EsseAnalyticsColorTheme.AMBAR -> AmbarColors
+        colorTheme == EsseAnalyticsColorTheme.MORADO -> MoradoColors
         else -> RojoColors
     }
 

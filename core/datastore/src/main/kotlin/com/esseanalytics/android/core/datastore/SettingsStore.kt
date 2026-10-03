@@ -59,7 +59,7 @@ class SettingsStore @Inject constructor(
         context.dataStore.edit { it[KEY_DELETE_ORIGINAL] = enabled }
     }
 
-    // "rojo" | "ambar" -- valor crudo, no el enum de core:designsystem
+    // "rojo" | "ambar" | "morado" -- valor crudo, no el enum de core:designsystem
     // (EsseAnalyticsColorTheme): core:datastore no depende de designsystem
     // a propósito (iría en contra del sentido de la dependencia), así que el
     // mapeo string→enum vive en :app, que ya depende de los dos.

@@ -96,7 +96,11 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val colorThemeRaw by settingsStore.colorTheme.collectAsState(initial = "rojo")
-            val colorTheme = if (colorThemeRaw == "ambar") EsseAnalyticsColorTheme.AMBAR else EsseAnalyticsColorTheme.ROJO
+            val colorTheme = when (colorThemeRaw) {
+                "ambar" -> EsseAnalyticsColorTheme.AMBAR
+                "morado" -> EsseAnalyticsColorTheme.MORADO
+                else -> EsseAnalyticsColorTheme.ROJO
+            }
 
             EsseAnalyticsTheme(colorTheme = colorTheme) {
                 EsseAnalyticsNavHost(

@@ -26,9 +26,7 @@ val UrgencySoon = Color(0xFFD97706)
 // Portados 1:1 de frontend/src/styles/theme.css — el frontend web es
 // dark-only (el bloque .dark/:root claro de ahí es boilerplate de shadcn sin
 // usar, nunca se aplica) con dos temas de color conmutables por
-// localStorage['videx-theme']: "rojo" (default) y "ámbar". Se define acá el
-// tema completo "ámbar" también para cuando exista un selector de tema en
-// Ajustes (Fase 2) — hoy solo se usa el de "rojo".
+// localStorage['videx-theme']: "rojo" (default), "ámbar" y "morado".
 
 // Tema "rojo" (default) — theme.css:185-206
 val PrimaryRojo = Color(0xFFE63946)
@@ -53,3 +51,15 @@ val OutlineAmbar = Color(0x1FF59E0B) // --border: rgba(245,158,11,0.12)
 val PopoverAmbar = Color(0xFF181818) // --popover
 val InputBackgroundAmbar = Color(0xFF1C1C1C) // --input-background
 val DestructiveAmbar = Color(0xFFEF4444) // --destructive
+
+// Tema "morado" — theme.css: .theme-morado
+val PrimaryMorado = Color(0xFFA855F7)
+val BackgroundMorado = Color(0xFF0E0B14)
+val SurfaceMorado = Color(0xFF161020) // --card
+val OnSurfaceMorado = Color(0xFFF2EEF9) // --foreground / --card-foreground
+val SurfaceVariantMorado = Color(0xFF1A1327) // --muted
+val OnSurfaceVariantMorado = Color(0xFF7D7398) // --muted-foreground
+val OutlineMorado = Color(0x24A855F7) // --border: rgba(168,85,247,0.14)
+val PopoverMorado = Color(0xFF1D1529) // --popover
+val InputBackgroundMorado = Color(0xFF231A35) // --input-background
+val DestructiveMorado = Color(0xFFEF4444) // --destructive
