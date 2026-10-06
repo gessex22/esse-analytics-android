@@ -15,6 +15,7 @@ import coil.transition.Transition
 import coil.transition.TransitionTarget
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
+import com.esseanalytics.android.core.network.ApiUsageReporter
 
 // Configuration.Provider + HiltWorkerFactory: sin esto, los @HiltWorker de
 // feature:upload (UploadWorker) no podrían recibir sus dependencias vía
@@ -26,6 +27,11 @@ class EsseAnalyticsApp : Application(), Configuration.Provider, ImageLoaderFacto
 
     @Inject
     lateinit var workerFactory: HiltWorkerFactory
+
+    // Construye el singleton al arrancar, para recuperar pendientes aunque
+    // todavía no se haya abierto el formulario de subida.
+    @Inject
+    lateinit var apiUsageReporter: ApiUsageReporter
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder().setWorkerFactory(workerFactory).build()

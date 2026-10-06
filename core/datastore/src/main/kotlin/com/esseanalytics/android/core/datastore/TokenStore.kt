@@ -65,6 +65,14 @@ class TokenStore @Inject constructor(
     override val token: String? get() = tokenGuard.get()
     val currentUser: User? get() = readUser()
 
+    // Captura atómica para trabajo en curso: un login concurrente no puede
+    // mezclar el JWT de una cuenta con el usuario de otra.
+    fun currentSession(): Pair<String, String>? = synchronized(writeLock) {
+        val currentToken = tokenGuard.get() ?: return@synchronized null
+        val userId = readUser()?.id ?: return@synchronized null
+        currentToken to userId
+    }
+
     fun save(token: String, user: User) = synchronized(writeLock) {
         prefs.edit()
             .putString(KEY_TOKEN, token)

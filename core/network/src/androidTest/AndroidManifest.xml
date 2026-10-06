@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Solo el host de instrumentación: el Lab temporal se alcanza por adb reverse. -->
+    <application android:usesCleartextTraffic="true" />
+</manifest>

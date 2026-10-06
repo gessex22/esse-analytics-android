@@ -5,6 +5,7 @@ import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.network.CausalIdentityResolver
 import com.esseanalytics.android.core.network.DeviceIdProvider
 import com.esseanalytics.android.core.network.PlatformIdentityStore
+import com.esseanalytics.android.core.network.ApiUsageReporter
 import com.esseanalytics.android.core.network.api.AuthApi
 import com.esseanalytics.android.core.network.api.BackupApi
 import com.esseanalytics.android.core.network.api.HealthApi
@@ -13,6 +14,7 @@ import com.esseanalytics.android.core.network.api.RemoteLibraryApi
 import com.esseanalytics.android.core.network.api.SyncApi
 import com.esseanalytics.android.core.network.interceptor.AuthAuthenticator
 import com.esseanalytics.android.core.network.interceptor.AuthInterceptor
+import com.esseanalytics.android.core.network.interceptor.PlatformUsageInterceptor
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -94,7 +96,8 @@ object NetworkModule {
     @Provides
     @Singleton
     @PlatformOkHttp
-    fun providePlatformOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
+    fun providePlatformOkHttpClient(usageReporter: ApiUsageReporter): OkHttpClient = OkHttpClient.Builder()
+        .addInterceptor(PlatformUsageInterceptor(usageReporter::begin))
         // Timeouts largos: subir un video de varios MB/minutos por 3G/4G
         // puede tardar bastante más que el default de 10s de OkHttp.
         .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
