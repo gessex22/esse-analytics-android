@@ -10,6 +10,8 @@ import com.esseanalytics.android.core.network.dto.PlatformCausalResponse
 import com.esseanalytics.android.core.network.dto.PlatformRecentPageDto
 import com.esseanalytics.android.core.network.dto.PlatformTransitionRequest
 import com.esseanalytics.android.core.network.dto.RecordPublishRequest
+import com.esseanalytics.android.core.network.dto.UploadJobReportRequest
+import com.esseanalytics.android.core.network.dto.UploadJobReportResponse
 import com.esseanalytics.android.core.network.dto.ResolveIdentityRequest
 import com.esseanalytics.android.core.network.dto.ResolveIdentityResponse
 import com.esseanalytics.android.core.network.dto.ResolveCrossMatchSlotRequest
@@ -30,6 +32,9 @@ import retrofit2.http.Query
 // Cubre lo que necesita el MVP (Calendario básico + Estadísticas + Sync de
 // Fase 2). Mismos endpoints que ya consume frontend/src/components/SyncPanel.tsx.
 interface SyncApi {
+    @POST("api/upload-jobs")
+    suspend fun reportUploadJob(@Body body: UploadJobReportRequest): Response<UploadJobReportResponse>
+
     @GET("api/sync/calendar-config")
     suspend fun getCalendarConfig(): List<CalendarConfigDto>
 

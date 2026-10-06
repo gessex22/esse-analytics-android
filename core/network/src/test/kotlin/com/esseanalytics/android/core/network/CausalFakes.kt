@@ -26,6 +26,8 @@ import com.esseanalytics.android.core.network.dto.SyncStatsDto
 import com.esseanalytics.android.core.network.dto.TriggerSyncResponse
 import com.esseanalytics.android.core.network.dto.UpdateFilePlatformsRequest
 import com.esseanalytics.android.core.network.dto.UploadHistoryResponse
+import com.esseanalytics.android.core.network.dto.UploadJobReportRequest
+import com.esseanalytics.android.core.network.dto.UploadJobReportResponse
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import retrofit2.Response
@@ -176,6 +178,7 @@ open class FakeSyncApi : SyncApi {
         unexpected("cross-match/candidates")
     override suspend fun resolveCrossMatchSlot(body: ResolveCrossMatchSlotRequest) = unexpected("cross-match/resolve")
     override suspend fun recordPublish(body: RecordPublishRequest) = unexpected("record-publish")
+    override suspend fun reportUploadJob(body: UploadJobReportRequest): Response<UploadJobReportResponse> = unexpected("upload-jobs")
     override suspend fun updateFilePlatforms(body: UpdateFilePlatformsRequest) = unexpected("file-platforms")
 }
 

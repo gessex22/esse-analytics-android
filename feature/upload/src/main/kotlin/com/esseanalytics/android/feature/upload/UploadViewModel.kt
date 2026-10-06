@@ -275,7 +275,7 @@ class UploadViewModel @Inject constructor(
 
             platformList.forEach { platform ->
                 val request = OneTimeWorkRequestBuilder<UploadWorker>()
-                    .setInputData(UploadWorker.buildInputData(file.id, platform, metadata, operationId))
+                    .setInputData(UploadWorker.buildInputData(file.id, platform, metadata, operationId, file.fileName))
                     .setConstraints(Constraints.Builder().setRequiredNetworkType(networkType).build())
                     .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                     .build()

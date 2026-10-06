@@ -208,6 +208,22 @@ data class RecordPublishRequest(
     val deviceName: String? = null,
 )
 
+@Serializable
+data class UploadJobReportRequest(
+    val clientJobId: String,
+    val operationId: String?,
+    val platform: String,
+    val source: String,
+    val status: String,
+    val progress: Int? = null,
+    val title: String? = null,
+    val fileName: String? = null,
+    val message: String? = null,
+)
+
+@Serializable
+data class UploadJobReportResponse(val ok: Boolean? = null)
+
 // POST /api/sync/file-platforms -- sincroniza el estado COMPLETO de
 // publicado/descartado hacia la central. Antes solo RecordPublishRequest
 // (arriba) llegaba ahí; "descartar" era 100% local (Room), y solo

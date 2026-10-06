@@ -15,16 +15,22 @@ import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.HistoryOutbox
 import com.esseanalytics.android.core.network.LabModeStatus
+import com.esseanalytics.android.core.network.api.SyncApi
 import com.esseanalytics.android.core.network.dto.RecordPublishRequest
+import com.esseanalytics.android.core.network.dto.UploadJobReportRequest
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.io.File
 import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
 
 // Un worker por (archivo, plataforma) -- UploadScreen encola uno por cada
 // plataforma elegida. Resuelve qué PlatformUploader real usar y, si sale
@@ -41,6 +47,7 @@ class UploadWorker @AssistedInject constructor(
     private val platformVideoRepository: PlatformVideoRepository,
     private val settingsStore: SettingsStore,
     private val historyOutbox: HistoryOutbox,
+    private val syncApi: SyncApi,
     private val youtubeUploader: YoutubeUploader,
     private val instagramUploader: InstagramUploader,
     private val tiktokUploader: TiktokUploader,
@@ -67,6 +74,16 @@ class UploadWorker @AssistedInject constructor(
         // remota) sigue exactamente igual sea cual sea el resultado. Ver
         // Core/Network/LabModeStatus.swift (iOS) para el mismo criterio.
         val isLabMode = labModeStatus.isActive()
+        val clientJobId = "${operationId ?: id}:${platform.apiValue}"
+        fun report(status: String, progress: Int? = null, message: String? = null) {
+            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                runCatching { syncApi.reportUploadJob(UploadJobReportRequest(
+                    clientJobId = clientJobId, operationId = operationId, platform = platform.apiValue,
+                    source = "android", status = status, progress = progress, title = title, fileName = inputData.getString(KEY_FILE_NAME), message = message,
+                )) }
+            }
+        }
+        report("queued", 0)
 
         // Facebook es crossposting (Fase 3, ver el plan), no un uploader
         // directo -- no debería llegar acá nunca, pero se cubre el caso.
@@ -74,12 +91,21 @@ class UploadWorker @AssistedInject constructor(
             Platform.YOUTUBE -> if (isLabMode) mockYoutubeUploader else youtubeUploader
             Platform.INSTAGRAM -> if (isLabMode) mockInstagramUploader else instagramUploader
             Platform.TIKTOK -> if (isLabMode) mockTiktokUploader else tiktokUploader
-            Platform.FACEBOOK -> return Result.failure(workDataOf(KEY_ERROR to "Facebook no es una subida directa."))
+            Platform.FACEBOOK -> {
+                report("failed", message = "Facebook no es una subida directa.")
+                return Result.failure(workDataOf(KEY_ERROR to "Facebook no es una subida directa."))
+            }
         }
 
-        val videoFile = fileRepository.findById(fileId) ?: return Result.failure()
+        val videoFile = fileRepository.findById(fileId) ?: run {
+            report("failed", message = "El archivo ya no existe.")
+            return Result.failure()
+        }
         val resolved = resolveUploadFile(videoFile.filePath)
-            ?: return Result.failure(workDataOf(KEY_ERROR to "El archivo local ya no existe."))
+            ?: run {
+                report("failed", message = "El archivo local ya no existe.")
+                return Result.failure(workDataOf(KEY_ERROR to "El archivo local ya no existe."))
+            }
 
         val metadata = UploadMetadata(
             title = title,
@@ -90,8 +116,13 @@ class UploadWorker @AssistedInject constructor(
         )
 
         // Callback de progreso único para ambos caminos de subida.
+        val lastReportedProgress = AtomicInteger(-5)
         val onProgress: (Float) -> Unit = { progress ->
             runBlocking { setProgress(workDataOf(KEY_PROGRESS to progress)) }
+            val percent = (progress * 100).toInt().coerceIn(0, 100)
+            if (percent - lastReportedProgress.get() >= 5 && lastReportedProgress.getAndSet(percent) != percent) {
+                report("uploading", percent)
+            }
         }
 
         try {
@@ -118,6 +149,7 @@ class UploadWorker @AssistedInject constructor(
 
             return when (result) {
                 is UploadResult.Success -> {
+                    report("processing", 95)
                     platformVideoRepository.upsertPublished(
                         platform = platform,
                         platformId = result.platformId,
@@ -138,6 +170,7 @@ class UploadWorker @AssistedInject constructor(
                     // input. El crosspost de Facebook (rama de Instagram de abajo)
                     // sigue usando siempre el del input.
                     reportPublish(platform, result.platformId, result.platformUrl, videoFile.fileName, title, videoFile.remoteLibraryVideoId, result.durableOperationId ?: operationId)
+                    report("succeeded", 100)
 
                     // Facebook NO pasa por onPlatformPublished (no está en
                     // Platform.publishable) -- si le pidiéramos eso también,
@@ -171,12 +204,17 @@ class UploadWorker @AssistedInject constructor(
                 }
                 is UploadResult.Failure -> {
                     if (result.retryable && runAttemptCount < MAX_RETRIES) {
+                        report("uploading", null, "Reintento pendiente.")
                         Result.retry()
                     } else {
+                        report("failed", null, result.message)
                         Result.failure(workDataOf(KEY_ERROR to result.message))
                     }
                 }
             }
+        } catch (error: Exception) {
+            report("failed", message = error.message ?: "La subida se interrumpió por un error inesperado.")
+            throw error
         } finally {
             if (resolved.isTemp) resolved.file.delete()
         }
@@ -251,6 +289,7 @@ class UploadWorker @AssistedInject constructor(
         const val KEY_FILE_ID = "fileId"
         const val KEY_PLATFORM = "platform"
         const val KEY_TITLE = "title"
+        const val KEY_FILE_NAME = "fileName"
         const val KEY_DESCRIPTION = "description"
         const val KEY_PRIVACY = "privacy"
         const val KEY_THUMBNAIL_OFFSET_MS = "thumbnailOffsetMs"
@@ -267,10 +306,11 @@ class UploadWorker @AssistedInject constructor(
         const val KEY_ERROR = "error"
         private const val MAX_RETRIES = 3
 
-        fun buildInputData(fileId: Long, platform: Platform, metadata: UploadMetadata, operationId: String) = workDataOf(
+        fun buildInputData(fileId: Long, platform: Platform, metadata: UploadMetadata, operationId: String, fileName: String) = workDataOf(
             KEY_FILE_ID to fileId,
             KEY_PLATFORM to platform.apiValue,
             KEY_TITLE to metadata.title,
+            KEY_FILE_NAME to fileName,
             KEY_DESCRIPTION to metadata.description,
             KEY_PRIVACY to metadata.privacyStatus,
             // -1 = sin elegir (ver doWork, .takeIf { it >= 0 }) -- workDataOf
