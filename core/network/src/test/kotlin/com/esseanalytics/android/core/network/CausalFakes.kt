@@ -193,7 +193,7 @@ class FakeDeviceIdProvider(private val id: String = "device-fijo-1234") : Device
 // Helper para armar filas del outbox en los tests sin repetir 14 argumentos.
 fun outboxRow(
     id: Long = 0,
-    userKey: String = "u1",
+    userKey: String = "user-1",
     kind: String = PlatformTransitionOutboxEntity.KIND_TRANSITION,
     contentId: String? = null,
     remoteLibraryVideoId: String? = null,
