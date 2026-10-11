@@ -67,10 +67,14 @@ fun LoginScreen(
     val state by viewModel.uiState.collectAsState()
     val serverLabel by viewModel.serverLabel.collectAsState()
     var registerMode by remember { mutableStateOf(false) }
+    var forgotMode by remember { mutableStateOf(false) }
     var confirmPassword by remember { mutableStateOf("") }
 
     LaunchedEffect(state.loggedIn) {
         if (state.loggedIn) onLoggedIn()
+    }
+    LaunchedEffect(state.registeredEmail) {
+        if (state.registeredEmail != null) registerMode = false
     }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -87,7 +91,7 @@ fun LoginScreen(
         ) {
             LoginLogo()
             Text(
-                text = if (registerMode) "Crear cuenta" else "Iniciar sesión",
+                text = when { registerMode -> "Crear cuenta"; forgotMode -> "Recuperar contraseña"; else -> "Iniciar sesión" },
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
@@ -101,7 +105,7 @@ fun LoginScreen(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             ) {
-                LoginTextField(
+                if (!forgotMode) LoginTextField(
                     value = state.username,
                     onValueChange = viewModel::onUsernameChange,
                     label = "Usuario",
@@ -109,8 +113,17 @@ fun LoginScreen(
                         Icon(Icons.Outlined.Person, contentDescription = null)
                     },
                 )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                LoginTextField(
+                if (registerMode || forgotMode) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    LoginTextField(
+                        value = state.email,
+                        onValueChange = viewModel::onEmailChange,
+                        label = "Correo electrónico",
+                        leadingIcon = { Icon(Icons.Outlined.Person, contentDescription = null) },
+                    )
+                }
+                if (!forgotMode) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                if (!forgotMode) LoginTextField(
                     value = state.password,
                     onValueChange = viewModel::onPasswordChange,
                     label = "Contraseña",
@@ -143,13 +156,18 @@ fun LoginScreen(
                         .padding(top = 12.dp),
                 )
             }
+            state.info?.let { info ->
+                Text(info, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().padding(top = 10.dp))
+            }
 
             Button(
                 onClick = {
-                    if (registerMode && state.password != confirmPassword) {
+                    if (forgotMode) {
+                        viewModel.forgotPassword(state.email)
+                    } else if (registerMode && state.password != confirmPassword) {
                         viewModel.setPasswordMismatch()
                     } else if (registerMode) {
-                        viewModel.register(state.username, state.password)
+                        viewModel.register(state.username, state.email, state.password)
                     } else {
                         viewModel.login()
                     }
@@ -174,19 +192,25 @@ fun LoginScreen(
                     )
                 } else {
                     Text(
-                        text = if (registerMode) "Crear cuenta" else "Entrar",
+                        text = when { registerMode -> "Crear cuenta"; forgotMode -> "Enviar enlace"; else -> "Entrar" },
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
             }
-            TextButton(
+            if (state.registeredEmail != null && !registerMode && !forgotMode) {
+                TextButton(onClick = viewModel::resendVerification, enabled = !state.loading) { Text("Reenviar confirmación") }
+            }
+            if (!forgotMode) TextButton(
                 onClick = {
                     registerMode = !registerMode
+                    forgotMode = false
                     confirmPassword = ""
                 },
             ) {
                 Text(if (registerMode) "Ya tengo una cuenta" else "Crear cuenta")
             }
+            if (!registerMode && !forgotMode) TextButton(onClick = { forgotMode = true; viewModel.onEmailChange("") }) { Text("¿Olvidaste tu contraseña?") }
+            if (forgotMode) TextButton(onClick = { forgotMode = false }) { Text("Volver al inicio de sesión") }
         }
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

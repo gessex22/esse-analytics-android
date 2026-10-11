@@ -3,6 +3,8 @@ package com.esseanalytics.android.core.network.api
 import com.esseanalytics.android.core.network.dto.LinkInstallRequest
 import com.esseanalytics.android.core.network.dto.LoginRequest
 import com.esseanalytics.android.core.network.dto.RegisterRequest
+import com.esseanalytics.android.core.network.dto.RegisterResponse
+import com.esseanalytics.android.core.network.dto.ResendEmailRequest
 import com.esseanalytics.android.core.network.dto.LoginResponse
 import com.esseanalytics.android.core.network.dto.AuthMeResponse
 import com.esseanalytics.android.core.network.dto.UpdateCloudStorageRequest
@@ -22,7 +24,13 @@ interface AuthApi {
     suspend fun login(@Body body: LoginRequest): LoginResponse
 
     @POST("api/auth/register")
-    suspend fun register(@Body body: RegisterRequest): LoginResponse
+    suspend fun register(@Body body: RegisterRequest): RegisterResponse
+
+    @POST("api/auth/email/resend")
+    suspend fun resendVerification(@Body body: ResendEmailRequest): Map<String, String>
+
+    @POST("api/auth/password/forgot")
+    suspend fun forgotPassword(@Body body: ResendEmailRequest): Map<String, String>
 
     // Relee perfil y capacidades efectivas desde central, SIN emitir token nuevo.
     @Headers("Cache-Control: no-cache")

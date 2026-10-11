@@ -16,7 +16,10 @@ import javax.inject.Inject
 
 data class LoginUiState(
     val username: String = "",
+    val email: String = "",
     val password: String = "",
+    val registeredEmail: String? = null,
+    val info: String? = null,
     val loading: Boolean = false,
     val error: String? = null,
     val loggedIn: Boolean = false,
@@ -40,6 +43,7 @@ class LoginViewModel @Inject constructor(
 
     fun onUsernameChange(value: String) = _uiState.update { it.copy(username = value, error = null) }
     fun onPasswordChange(value: String) = _uiState.update { it.copy(password = value, error = null) }
+    fun onEmailChange(value: String) = _uiState.update { it.copy(email = value, error = null) }
 
     fun login() {
         val state = _uiState.value
@@ -55,16 +59,37 @@ class LoginViewModel @Inject constructor(
         }
     }
 
-    fun register(username: String, password: String) {
-        if (username.isBlank() || password.length < 6) {
-            _uiState.update { it.copy(error = "Usuario requerido y contraseña de al menos 6 caracteres") }
+    fun register(username: String, email: String, password: String) {
+        if (username.isBlank() || !email.contains('@') || password.length !in 15..128) {
+            _uiState.update { it.copy(error = "Usuario, correo válido y contraseña de 15 a 128 caracteres requeridos") }
             return
         }
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, error = null) }
-            authRepository.register(username.trim(), password)
-                .onSuccess { _uiState.update { it.copy(loading = false, loggedIn = true) } }
+            authRepository.register(username.trim(), password, email.trim())
+                .onSuccess { destination -> _uiState.update { it.copy(loading = false, registeredEmail = destination, info = "Enviamos un enlace a $destination. Confirma tu correo antes de iniciar sesión.") } }
                 .onFailure { e -> _uiState.update { it.copy(loading = false, error = e.message ?: "Error al registrar") } }
+        }
+    }
+
+    fun resendVerification() {
+        val email = _uiState.value.registeredEmail ?: _uiState.value.email
+        if (email.isBlank()) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(loading = true, error = null) }
+            authRepository.resendVerification(email)
+                .onSuccess { message -> _uiState.update { it.copy(loading = false, info = message) } }
+                .onFailure { e -> _uiState.update { it.copy(loading = false, error = e.message ?: "No se pudo reenviar") } }
+        }
+    }
+
+    fun forgotPassword(email: String) {
+        if (!email.contains('@')) { _uiState.update { it.copy(error = "Ingresa un correo válido") }; return }
+        viewModelScope.launch {
+            _uiState.update { it.copy(loading = true, error = null, info = null) }
+            authRepository.forgotPassword(email.trim())
+                .onSuccess { message -> _uiState.update { it.copy(loading = false, info = message) } }
+                .onFailure { e -> _uiState.update { it.copy(loading = false, error = e.message ?: "No se pudo enviar la solicitud") } }
         }
     }
 

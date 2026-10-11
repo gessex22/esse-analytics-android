@@ -26,7 +26,9 @@ data class LoginRequest(
     val source: String? = null,
 )
 @Serializable
-data class RegisterRequest(val username: String, val password: String, val email: String? = null)
+data class RegisterRequest(val username: String, val password: String, val email: String)
+data class RegisterResponse(val nextAction: String, val email: String)
+data class ResendEmailRequest(val email: String, val purpose: String = "verify_email")
 
 @Serializable
 data class UserDto(

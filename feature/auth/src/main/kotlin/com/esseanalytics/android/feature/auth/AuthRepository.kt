@@ -8,6 +8,7 @@ import com.esseanalytics.android.core.network.api.AuthApi
 import com.esseanalytics.android.core.network.dto.LinkInstallRequest
 import com.esseanalytics.android.core.network.dto.LoginRequest
 import com.esseanalytics.android.core.network.dto.RegisterRequest
+import com.esseanalytics.android.core.network.dto.ResendEmailRequest
 import com.esseanalytics.android.core.network.dto.UserDto
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -29,8 +30,16 @@ class AuthRepository @Inject constructor(
         saveLogin(authApi.login(request))
     }
 
-    suspend fun register(username: String, password: String, email: String? = null): Result<User> = runCatching {
-        saveLogin(authApi.register(RegisterRequest(username, password, email)))
+    suspend fun register(username: String, password: String, email: String): Result<String> = runCatching {
+        authApi.register(RegisterRequest(username, password, email)).email
+    }
+
+    suspend fun resendVerification(email: String): Result<String> = runCatching {
+        authApi.resendVerification(ResendEmailRequest(email)).getValue("message")
+    }
+
+    suspend fun forgotPassword(email: String): Result<String> = runCatching {
+        authApi.forgotPassword(ResendEmailRequest(email, purpose = "password_reset")).getValue("message")
     }
 
     private suspend fun saveLogin(response: com.esseanalytics.android.core.network.dto.LoginResponse): User {
