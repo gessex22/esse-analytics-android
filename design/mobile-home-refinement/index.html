@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Esse · Home móvil</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="phone" aria-label="Vista previa del inicio móvil">
+      <header class="topbar">
+        <a class="brand" href="#home" aria-label="Esse, inicio">
+          <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span>esse<span class="brand-period">.</span></span>
+        </a>
+        <div class="top-actions">
+          <button class="icon-button notification" aria-label="Notificaciones">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
+            <i></i>
+          </button>
+          <button class="avatar" aria-label="Perfil de Alex">A</button>
+        </div>
+      </header>
+
+      <section class="greeting" aria-labelledby="hello">
+        <div><p class="eyebrow">MIÉRCOLES, 14 DE OCTUBRE</p><h1 id="hello">Hola, Alex <span aria-hidden="true">✳</span></h1></div>
+        <button class="icon-button quiet" aria-label="Más opciones">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></svg>
+        </button>
+      </section>
+
+      <section class="metric-card" aria-labelledby="metric-title">
+        <div class="metric-card-top">
+          <div><p class="card-kicker">TU CONTENIDO EN MOVIMIENTO</p><label class="sr-only" for="period">Periodo de métricas</label>
+            <select id="period" class="period-select" aria-label="Periodo de métricas">
+              <option>Últimos 7 días</option><option>Últimos 30 días</option><option>Todo el tiempo</option>
+            </select>
+          </div>
+          <button class="period-icon" aria-label="Cambiar periodo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3m10-3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13H4V6a1 1 0 0 1 1-1Z" /></svg></button>
+        </div>
+
+        <div class="metric-summary" aria-live="polite">
+          <div class="metric-number-line"><strong id="metric-value">24.8k</strong><span class="growth-pill"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 10 4-4 3 3 4-5M10 4h4v4" /></svg><span id="metric-growth">12.6%</span></span></div>
+          <h2 id="metric-title">Vistas</h2>
+          <p class="compare-copy">vs. periodo anterior</p>
+        </div>
+
+        <div class="chart" role="img" aria-label="Actividad de la métrica en los últimos siete días">
+          <div class="chart-guides" aria-hidden="true"><i></i><i></i><i></i></div>
+          <div class="bars" id="metric-bars" aria-hidden="true"></div>
+          <div class="chart-days" aria-hidden="true"><span>J</span><span>V</span><span>S</span><span>D</span><span>L</span><span>M</span><span>H</span></div>
+        </div>
+
+        <div class="metric-selector" role="group" aria-label="Métrica principal">
+          <button class="metric-option is-active" data-metric="views" aria-pressed="true"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 10s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5Z"/><circle cx="10" cy="10" r="2"/></svg><span>Vistas</span></button>
+          <button class="metric-option" data-metric="likes" aria-pressed="false"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M17.2 4.7a4.2 4.2 0 0 0-5.9 0L10 6 8.8 4.7a4.2 4.2 0 0 0-5.9 5.9L10 17l7.2-6.4a4.2 4.2 0 0 0 0-5.9Z"/></svg><span>Likes</span></button>
+          <button class="metric-option" data-metric="comments" aria-pressed="false"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M17 9.5a7 7 0 0 1-7 7H5l-2 1v-4a7 7 0 1 1 14-4Z"/><path d="M6.5 9.5h.01M10 9.5h.01M13.5 9.5h.01"/></svg><span>Comentarios</span></button>
+        </div>
+      </section>
+
+      <section class="recent-section" aria-labelledby="recent-title">
+        <div class="section-heading"><div><p class="eyebrow">SIGUE CREANDO</p><h2 id="recent-title">Videos recientes</h2></div><button class="text-button">Ver todos <span aria-hidden="true">↗</span></button></div>
+        <div class="video-list">
+          <article class="video-item">
+            <div class="thumbnail thumb-one"><span class="play-icon" aria-hidden="true">▶</span><small>0:32</small></div>
+            <div class="video-copy"><h3>Un día creando sin prisa</h3><div class="video-meta"><span class="platforms"><i class="platform platform-ig">◎</i><i class="platform platform-tt">♪</i></span><span>Hace 2 h</span></div></div>
+            <div class="video-stat"><strong>8.2k</strong><span>vistas</span></div>
+            <button class="more-button" aria-label="Más opciones para Un día creando sin prisa">···</button>
+          </article>
+          <article class="video-item">
+            <div class="thumbnail thumb-two"><span class="play-icon" aria-hidden="true">▶</span><small>0:18</small></div>
+            <div class="video-copy"><h3>Mi setup para editar</h3><div class="video-meta"><span class="platforms"><i class="platform platform-yt">▶</i><i class="platform platform-ig">◎</i></span><span>Ayer</span></div></div>
+            <div class="video-stat"><strong>5.6k</strong><span>vistas</span></div>
+            <button class="more-button" aria-label="Más opciones para Mi setup para editar">···</button>
+          </article>
+          <article class="video-item">
+            <div class="thumbnail thumb-three"><span class="play-icon" aria-hidden="true">▶</span><small>0:41</small></div>
+            <div class="video-copy"><h3>3 ideas para esta semana</h3><div class="video-meta"><span class="platforms"><i class="platform platform-tt">♪</i></span><span>Hace 3 días</span></div></div>
+            <div class="video-stat"><strong>3.1k</strong><span>vistas</span></div>
+            <button class="more-button" aria-label="Más opciones para 3 ideas para esta semana">···</button>
+          </article>
+        </div>
+      </section>
+
+      <nav class="bottom-nav" aria-label="Navegación principal">
+        <div class="nav-capsule">
+          <button class="nav-item is-current" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/></svg><span>Inicio</span></button>
+          <button class="nav-item"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M8 3v4m8-4v4M4 10h16"/></svg><span>Agenda</span></button>
+          <button class="nav-create" aria-label="Crear publicación"><span>+</span></button>
+          <button class="nav-item"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="4"/><path d="m10 9 5 3-5 3V9Z"/></svg><span>Videos</span></button>
+          <button class="nav-item"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9m5 10V5m5 14v-7m5 7V7"/></svg><span>Datos</span></button>
+        </div>
+      </nav>
+    </main>
+    <script src="./prototype.js"></script>
+  </body>
+</html>

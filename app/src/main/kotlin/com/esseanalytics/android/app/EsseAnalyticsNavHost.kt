@@ -1,12 +1,18 @@
 package com.esseanalytics.android.app
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.net.Uri
 import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -56,6 +62,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -70,11 +77,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.core.view.WindowCompat
 import androidx.navigation.NavDestination
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -85,6 +95,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.esseanalytics.android.core.designsystem.component.CreatorBottomNav
+import com.esseanalytics.android.core.designsystem.component.CreatorNavItem
+import com.esseanalytics.android.core.designsystem.theme.CreatorHomeTheme
 import com.esseanalytics.android.core.datastore.AuthState
 import com.esseanalytics.android.feature.auth.LoginScreen
 import com.esseanalytics.android.feature.calendar.CalendarScreen
@@ -151,15 +164,35 @@ private val floatingMainDestinations = bottomDestinations.filter { it.route != R
 // transición). El fade+slide se queda para las pantallas de detalle
 // colgadas de "Más" (Sync/Users/Gems/Historial/Ajustes/Biblioteca remota),
 // donde sí comunica "entrar en profundidad".
+private fun String?.matchesDestination(route: String): Boolean =
+    this == route || this?.startsWith("$route?") == true || this?.startsWith("$route/") == true
+
 private fun isMainTabRoute(route: String?): Boolean =
-    route != null && bottomDestinations.any { route.startsWith(it.route) }
+    bottomDestinations.any { route.matchesDestination(it.route) }
+
+private tailrec fun Context.hostActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.hostActivity()
+    else -> null
+}
 
 // Navegación de la barra inferior: conserva el estado de cada pestaña.
 private fun NavHostController.navigateToMainTab(route: String) {
+    if (currentDestination?.route.matchesDestination(route)) return
     navigate(route) {
         popUpTo(graph.findStartDestination().id) { saveState = true }
         launchSingleTop = true
         restoreState = true
+    }
+}
+
+// La selección se entrega a la pestaña conservada, sin apilar otra instancia
+// de Estadísticas ni volver a crear su ViewModel y sus consultas.
+private fun NavHostController.openStatsVideo(videoKey: String) {
+    navigateToMainTab(Routes.STATS)
+    currentBackStackEntry?.savedStateHandle?.let { state ->
+        state["statsVideoKey"] = videoKey
+        state["statsVideoRequest"] = (state.get<Long>("statsVideoRequest") ?: 0L) + 1L
     }
 }
 
@@ -169,78 +202,28 @@ private fun FloatingBottomNavigation(
     onDestinationClick: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Misma composición de iOS: cinco accesos en una cápsula centrada y
-    // "Más" como acción circular separada. La separación deja ver el fondo
-    // y hace que la navegación flote, en vez de formar una franja opaca.
-    Row(
-        modifier = Modifier
-            .then(modifier)
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            // Apenas separada del área de gestos: antes el margen vertical de
-            // 10.dp la dejaba demasiado arriba para una barra flotante.
-            .padding(start = 16.dp, end = 16.dp, bottom = 2.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Surface(
-            shape = RoundedCornerShape(31.dp),
-            // Material translúcido: deja percibir el fondo sin sacrificar la
-            // legibilidad de los iconos, como la barra flotante de Telegram.
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
-            tonalElevation = 3.dp,
-            shadowElevation = 6.dp,
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                floatingMainDestinations.forEach { dest ->
-                    val selected = currentDestination?.hierarchy?.any {
-                        it.route?.startsWith(dest.route) == true
-                    } == true
-                    Box(
-                        modifier = Modifier
-                            .size(54.dp, 50.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent,
-                            )
-                            .clickable { onDestinationClick(dest.route) },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            dest.icon,
-                            contentDescription = dest.label,
-                            tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-        }
-        Box(modifier = Modifier.width(10.dp))
-        val more = bottomDestinations.last { it.route == Routes.MORE }
-        Surface(
-            onClick = { onDestinationClick(more.route) },
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
-            tonalElevation = 3.dp,
-            shadowElevation = 6.dp,
-            modifier = Modifier.size(56.dp),
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    more.icon,
-                    contentDescription = more.label,
-                    tint = if (currentDestination?.hierarchy?.any { it.route?.startsWith(more.route) == true } == true) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
+    val selectedRoute = bottomDestinations.firstOrNull { destination ->
+        currentDestination?.hierarchy?.any { it.route.matchesDestination(destination.route) } == true
+    }?.route
+    CreatorHomeTheme {
+        CreatorBottomNav(
+            items = floatingMainDestinations.map { destination ->
+                CreatorNavItem(
+                    route = destination.route,
+                    label = when (destination.route) {
+                        Routes.CALENDAR -> "Agenda"
+                        Routes.STATS -> "Datos"
+                        else -> destination.label
                     },
+                    icon = destination.icon,
                 )
-            }
-        }
+            },
+            selectedRoute = selectedRoute,
+            createRoute = Routes.UPLOAD,
+            moreRoute = Routes.MORE,
+            onNavigate = onDestinationClick,
+            modifier = modifier,
+        )
     }
 }
 
@@ -333,6 +316,25 @@ private fun MainAppScaffold(
     // qué tab está parado el usuario cuando suelta el gesto.
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
+    // Inicio y Datos tienen modo claro propio; los iconos del sistema deben seguir
+    // ese fondo. Al salir se restaura la apariencia del resto de la app.
+    val homeUsesLightColors = (
+        currentDestination?.route.matchesDestination(Routes.DASHBOARD) == true ||
+            currentDestination?.route.matchesDestination(Routes.STATS) == true
+        ) && !isSystemInDarkTheme()
+    val hostActivity = LocalContext.current.hostActivity()
+    val view = LocalView.current
+    DisposableEffect(hostActivity, view, homeUsesLightColors) {
+        val controller = hostActivity?.let { WindowCompat.getInsetsController(it.window, view) }
+        val previousStatus = controller?.isAppearanceLightStatusBars ?: false
+        val previousNavigation = controller?.isAppearanceLightNavigationBars ?: false
+        controller?.isAppearanceLightStatusBars = homeUsesLightColors
+        controller?.isAppearanceLightNavigationBars = homeUsesLightColors
+        onDispose {
+            controller?.isAppearanceLightStatusBars = previousStatus
+            controller?.isAppearanceLightNavigationBars = previousNavigation
+        }
+    }
     // Feature B (pedido del usuario): spinner de refresh en la barra
     // compartida, a la izquierda del avatar -- ver TopBarViewModel/
     // RefreshActivityTracker. AppTopBar es UNA sola instancia acá (a
@@ -340,31 +342,30 @@ private fun MainAppScaffold(
     // puede leer isLoading directo de cada ViewModel de tab.
     val topBarViewModel: TopBarViewModel = hiltViewModel()
     val isAnyRefreshing by topBarViewModel.isAnyRefreshing.collectAsState()
-    // Pedido del usuario (mismo criterio ya aplicado en iOS, ver AppTopBar.swift
-    // allá): repetir el logo + "EsseAnalytics" en las 5 pestañas era redundante
-    // -- acá AppTopBar es UNA sola instancia compartida (no una por pantalla
-    // como en iOS), así que en vez de que cada pantalla decida su propio
-    // título, se deriva acá de `currentDestination` -- null en Inicio (marca
-    // completa), el label de bottomDestinations en el resto. Detail routes
-    // (Sync/Users/Gems/Historial/Ajustes/Biblioteca remota, alcanzadas desde
-    // "Más") no matchean ningún bottomDestination -- se quedan con la marca
-    // por default, tienen su propio DetailScaffold con título+volver encima.
+    // En las pestañas principales la barra muestra el título de navegación;
+    // Inicio usa solo el logo. Los destinos de detalle usan DetailScaffold y
+    // no necesitan una segunda barra compartida.
     val screenTitle = bottomDestinations
         .firstOrNull { dest ->
-            currentDestination?.hierarchy?.any { it.route?.startsWith(dest.route) == true } == true
+            currentDestination?.hierarchy?.any { it.route.matchesDestination(dest.route) } == true
         }
-        ?.takeIf { it.route != Routes.DASHBOARD }
+        ?.takeIf { it.route != Routes.DASHBOARD && it.route != Routes.STATS }
         ?.label
 
     Scaffold(
         modifier = Modifier.nestedScroll(topBarScrollBehavior.nestedScrollConnection),
         topBar = {
-            AppTopBar(
-                username = username,
-                screenTitle = screenTitle,
-                scrollBehavior = topBarScrollBehavior,
-                isRefreshing = isAnyRefreshing,
-            ) { navController.navigate(Routes.SETTINGS) }
+            // Inicio y Datos dibujan sus controles flotantes dentro de su contenido.
+            val hideTopBar = currentDestination?.route.matchesDestination(Routes.DASHBOARD) == true ||
+                currentDestination?.route.matchesDestination(Routes.STATS) == true
+            if (!hideTopBar && (currentDestination == null || isMainTabRoute(currentDestination.route))) {
+                AppTopBar(
+                    username = username,
+                    screenTitle = screenTitle,
+                    scrollBehavior = topBarScrollBehavior,
+                    isRefreshing = isAnyRefreshing,
+                ) { navController.navigate(Routes.SETTINGS) }
+            }
         },
         // Bug real reportado 2026-09-01: la cápsula flotante quedaba mucho
         // más separada del borde inferior de lo que su propio
@@ -390,10 +391,8 @@ private fun MainAppScaffold(
         // en vez de repetirlo en cada composable(...).
         val navAnimSpec = tween<Float>(220, easing = FastOutSlowInEasing)
         val navOffsetSpec = tween<IntOffset>(220, easing = FastOutSlowInEasing)
-        // Las pestañas hermanas usan un fundido corto: evita el corte seco de
-        // una transición de 1 ms sin volver al fade+slide de 220 ms que
-        // duplicaba el trabajo de composición durante demasiado tiempo.
-        val tabAnimSpec = tween<Float>(120, easing = FastOutSlowInEasing)
+        // Las pestañas cambian sin fundido: así no dibujamos simultáneamente
+        // las dos listas, gráficas y fondos ni retenemos una transición activa.
         
         // Box para permitir que el bottom nav flote SOBRE el contenido (Overlay real).
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -409,34 +408,45 @@ private fun MainAppScaffold(
                     // salir de las pantallas de detalle de "Más").
                     enterTransition = {
                         if (isMainTabRoute(initialState.destination.route) && isMainTabRoute(targetState.destination.route)) {
-                            fadeIn(tabAnimSpec)
+                            EnterTransition.None
                         } else {
                             fadeIn(navAnimSpec) + slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, navOffsetSpec) { it / 10 }
                         }
                     },
                     exitTransition = {
                         if (isMainTabRoute(initialState.destination.route) && isMainTabRoute(targetState.destination.route)) {
-                            fadeOut(tabAnimSpec)
+                            ExitTransition.None
                         } else {
                             fadeOut(navAnimSpec) + slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Start, navOffsetSpec) { it / 10 }
                         }
                     },
                     popEnterTransition = {
                         if (isMainTabRoute(initialState.destination.route) && isMainTabRoute(targetState.destination.route)) {
-                            fadeIn(tabAnimSpec)
+                            EnterTransition.None
                         } else {
                             fadeIn(navAnimSpec) + slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.End, navOffsetSpec) { it / 10 }
                         }
                     },
                     popExitTransition = {
                         if (isMainTabRoute(initialState.destination.route) && isMainTabRoute(targetState.destination.route)) {
-                            fadeOut(tabAnimSpec)
+                            ExitTransition.None
                         } else {
                             fadeOut(navAnimSpec) + slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, navOffsetSpec) { it / 10 }
                         }
                     },
                 ) {
-                    composable(Routes.DASHBOARD) { DashboardScreen() }
+                    composable(Routes.DASHBOARD) {
+                        DashboardScreen(
+                            username = username,
+                            onProfileClick = { navController.navigate(Routes.SETTINGS) },
+                            onSeeAllClick = { navController.navigateToMainTab(Routes.STATS) },
+                            onVideoClick = { video ->
+                                val key = video.fileId.ifBlank { video.fileName }
+                                navController.openStatsVideo(key)
+                            },
+                            onNotificationClick = { navController.navigateToMainTab(Routes.CALENDAR) },
+                        )
+                    }
                     composable(Routes.LIBRARY) {
                         LibraryScreen(
                             onImportClick = { navController.navigate(Routes.INGEST) },
@@ -479,9 +489,26 @@ private fun MainAppScaffold(
                     composable(Routes.SYNC) {
                         DetailScaffold("Sincronización", onBack = navController::popBackStack) { SyncScreen() }
                     }
-                    composable(Routes.STATS) { StatsScreen() }
+                    composable(
+                        route = "${Routes.STATS}?video={video}",
+                        arguments = listOf(navArgument("video") { type = NavType.StringType; nullable = true; defaultValue = null }),
+                    ) { statsEntry ->
+                        val videoKey by statsEntry.savedStateHandle.getStateFlow<String?>(
+                            "statsVideoKey", statsEntry.arguments?.getString("video"),
+                        ).collectAsState()
+                        val videoRequest by statsEntry.savedStateHandle.getStateFlow("statsVideoRequest", 0L).collectAsState()
+                        StatsScreen(
+                            username = username,
+                            onProfileClick = { navController.navigate(Routes.SETTINGS) },
+                            onNotificationClick = { navController.navigateToMainTab(Routes.CALENDAR) },
+                            initialVideoKey = videoKey,
+                            initialVideoRequest = videoRequest,
+                        )
+                    }
                     composable(Routes.STATS_DETAIL) {
-                        DetailScaffold("Estadísticas", onBack = navController::popBackStack) { StatsScreen() }
+                        DetailScaffold("Estadísticas", onBack = navController::popBackStack) {
+                            StatsScreen(showFloatingHeader = false)
+                        }
                     }
                     composable(Routes.HISTORY) {
                         DetailScaffold("Historial", onBack = navController::popBackStack) { HistoryScreen() }
@@ -519,8 +546,8 @@ private fun MainAppScaffold(
 
 // Barra compartida por las 4 pestañas del bottom nav (Videos/Calendario/
 // Subir/Más) -- un solo topBar en el Scaffold de MainAppScaffold, no uno por
-// pantalla. Logo + nombre a la izquierda (mismo ícono que el launcher real,
-// ver AndroidManifest/res/drawable-xxxhdpi), campana de notificaciones
+// pantalla. El logo aparece solo en Inicio; en las otras pestañas el título
+// de navegación basta. Campana de notificaciones
 // (TODAVÍA sin datos reales -- ver la nota de arriba, la app no tiene
 // sistema de notificaciones, esto es el gancho visual para cuando exista) y
 // avatar del usuario a la derecha, que lleva a Ajustes (ahí vive logout).
@@ -528,9 +555,7 @@ private fun MainAppScaffold(
 @Composable
 private fun AppTopBar(
     username: String,
-    // null = Inicio (logo + "EsseAnalytics" completo). Con valor = el resto
-    // de las pestañas, muestra su propio nombre en vez de repetir la marca
-    // -- mismo criterio que AppTopBarScreenTitle en iOS.
+    // null = Inicio (solo el logo). Las otras pestañas muestran su nombre.
     screenTitle: String?,
     scrollBehavior: TopAppBarScrollBehavior,
     isRefreshing: Boolean,
@@ -558,39 +583,12 @@ private fun AppTopBar(
                     fontWeight = FontWeight.Bold,
                 )
             } else {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // ic_launcher_foreground.png tiene el padding de "safe zone"
-                    // de ícono adaptativo (el dibujo real ocupa ~60% del lienzo,
-                    // pensado para que el SO lo recorte con una máscara) -- acá
-                    // se muestra tal cual, sin ese recorte, así que hace falta
-                    // un tamaño bastante más grande que el de un ícono normal
-                    // para que el trazo se lea a simple vista.
-                    Icon(
-                        painterResource(R.drawable.ic_launcher_foreground),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(40.dp),
-                    )
-                    // Split en dos Text, no un string único: la web (App.tsx,
-                    // Sidebar.tsx, LoginPage.tsx, LandingPage.tsx) siempre pinta
-                    // "Esse" en --foreground y "Analytics" en --primary (rojo o
-                    // ámbar según el tema activo), nunca las dos palabras del
-                    // mismo color.
-                    Row(modifier = Modifier.padding(start = 8.dp)) {
-                        Text(
-                            "Esse",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Text(
-                            "Analytics",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                }
+                Icon(
+                    painterResource(R.drawable.ic_launcher_foreground),
+                    contentDescription = "EsseAnalytics",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(36.dp),
+                )
             }
         },
         actions = {

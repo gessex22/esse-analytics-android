@@ -65,9 +65,9 @@ private val RojoColors = darkColorScheme(
 
 private val AmbarColors = darkColorScheme(
     primary = PrimaryAmbar,
-    onPrimary = Color.Black,
+    onPrimary = Color(0xFF221A10),
     primaryContainer = PrimaryAmbar,
-    onPrimaryContainer = Color.Black,
+    onPrimaryContainer = Color(0xFF221A10),
     inversePrimary = PrimaryAmbar,
     secondary = PrimaryAmbar,
     onSecondary = Color.Black,

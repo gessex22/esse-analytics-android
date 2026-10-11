@@ -1,0 +1,4 @@
+Fuentes originales de Google Fonts, redistribuidas sin modificar bajo las licencias OFL adjuntas.
+Fraunces: https://github.com/google/fonts/tree/main/ofl/fraunces
+DM Sans: https://github.com/google/fonts/tree/main/ofl/dmsans
+Archivos originales: Fraunces[SOFT,WONK,opsz,wght].ttf y DMSans[opsz,wght].ttf

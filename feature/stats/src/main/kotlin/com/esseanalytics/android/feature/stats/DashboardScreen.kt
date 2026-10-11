@@ -3,239 +3,309 @@ package com.esseanalytics.android.feature.stats
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CalendarMonth
-import androidx.compose.material.icons.outlined.ChatBubble
-import androidx.compose.material.icons.outlined.Favorite
-import androidx.compose.material.icons.outlined.QueryStats
-import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VideoLibrary
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.esseanalytics.android.core.designsystem.component.CreatorChartBar
+import com.esseanalytics.android.core.designsystem.component.CreatorCommentPlatform
+import com.esseanalytics.android.core.designsystem.component.CreatorCommentsSummary
+import com.esseanalytics.android.core.designsystem.component.CreatorHomeBrand
+import com.esseanalytics.android.core.designsystem.component.CreatorFloatingHomeActions
+import com.esseanalytics.android.core.designsystem.component.CreatorMetric
+import com.esseanalytics.android.core.designsystem.component.CreatorLoadingBar
+import com.esseanalytics.android.core.designsystem.component.CreatorMetricCard
+import com.esseanalytics.android.core.designsystem.component.CreatorPlatformBadge
+import com.esseanalytics.android.core.designsystem.component.CreatorSerif
+import com.esseanalytics.android.core.designsystem.component.CreatorStudioBackdrop
+import com.esseanalytics.android.core.designsystem.component.CreatorVideoListItem
+import com.esseanalytics.android.core.designsystem.component.CreatorVideoStyle
+import com.esseanalytics.android.core.designsystem.component.formatCreatorMetric
 import com.esseanalytics.android.core.designsystem.component.RefreshErrorBanner
+import com.esseanalytics.android.core.designsystem.icon.FacebookLogo
 import com.esseanalytics.android.core.designsystem.icon.InstagramLogo
 import com.esseanalytics.android.core.designsystem.icon.PlatformIcons
 import com.esseanalytics.android.core.designsystem.icon.TiktokLogo
 import com.esseanalytics.android.core.designsystem.icon.YoutubeLogo
+import com.esseanalytics.android.core.designsystem.theme.CreatorHomeTheme
+import com.esseanalytics.android.core.designsystem.theme.FacebookBlue
 import com.esseanalytics.android.core.designsystem.theme.InstagramPurple
-import com.esseanalytics.android.core.designsystem.theme.TiktokPink
 import com.esseanalytics.android.core.designsystem.theme.YoutubeRed
-import com.esseanalytics.android.core.network.dto.CalendarConfigDto
+import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.dto.GroupStatsItemDto
 import com.esseanalytics.android.core.network.dto.GroupStatsSlotDto
-import com.esseanalytics.android.core.network.dto.UploadHistoryItemDto
-import com.esseanalytics.android.core.model.Platform
+import java.text.NumberFormat
+import java.util.Locale
 
-private val dashboardPlatforms = Platform.publishable
-
-// Pedido explícito del usuario: gesto de swipe-to-refresh de verdad en vez
-// del botón "Actualizar" que ya usa StatsScreen.kt -- Dashboard queda como
-// la primera pantalla de la app con esto (no hay PullToRefreshBox/similar en
-// ningún otro lado del proyecto todavía). Mirror funcional de `.refreshable`
-// en iOS y del pull-to-refresh de la web.
+// Home de estudio: acciones flotantes, métrica integrada y contenido identificable.
+// Conserva las consultas, caché y refresh del ViewModel existente.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
     modifier: Modifier = Modifier,
     viewModel: DashboardViewModel = hiltViewModel(),
+    username: String = "",
+    onVideoClick: (GroupStatsItemDto) -> Unit = {},
+    onNotificationClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {},
+    onSeeAllClick: () -> Unit = {},
 ) {
-    val state by viewModel.uiState.collectAsState()
-    // isRefreshing acá es el mismo que ya mueve el spinner de AppTopBar (ver
-    // RefreshActivityTracker) -- no un estado nuevo, solo se reusa para
-    // también mover el indicador nativo del gesto.
-    val isRefreshing = (state as? DashboardUiState.Success)?.isRefreshing == true
-    PullToRefreshBox(
-        isRefreshing = isRefreshing,
-        onRefresh = viewModel::refresh,
-        modifier = modifier.fillMaxSize(),
-    ) {
-        when (val current = state) {
-            DashboardUiState.Loading -> Box(Modifier.fillMaxWidth().height(240.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            is DashboardUiState.Error -> DashboardMessage("No se pudo cargar", current.message)
-            is DashboardUiState.Success -> LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                // bottom extra: FloatingBottomNavigation (EsseAnalyticsNavHost) es
-                // un overlay real, no un bottomBar de Scaffold -- no reserva
-                // espacio propio, así que sin este margen extra la última tarjeta
-                // (Próximas publicaciones) queda scrolleable hasta quedar tapada
-                // detrás de la cápsula flotante. Mismo criterio que PublishForm
-                // en UploadScreen.kt.
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp + 80.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    var metric by rememberSaveable { mutableStateOf(CreatorMetric.VIEWS) }
+    var selectedVideoId by rememberSaveable { mutableStateOf<String?>(null) }
+    val success = state as? DashboardUiState.Success
+    val pullState = rememberPullToRefreshState()
+    val isLoading = state == DashboardUiState.Loading || success?.isRefreshing == true
+    val recentVideos = remember(success?.data?.items, success?.data?.fallbackItem) {
+        val data = success?.data
+        (data?.items.orEmpty() + listOfNotNull(data?.fallbackItem))
+            .distinctBy(::homeVideoId)
+            .sortedByDescending { it.fecha_creacion }
+    }
+    val total = remember(recentVideos, metric) { recentVideos.sumOf { videoMetric(it, metric) } }
+    val bars = remember(recentVideos, metric) {
+        recentVideos.asReversed().map {
+            CreatorChartBar(
+                videoMetric(it, metric), videoTitle(it), homeVideoId(it), formatCreatorMetric(videoMetric(it, metric)),
+                viewModel.thumbnailUrl(it) ?: it.platforms.values.firstOrNull { slot -> slot.thumbnail.isNotBlank() }?.thumbnail,
+            )
+        }
+    }
+    val selectedId = selectedVideoId?.takeIf { id -> recentVideos.any { homeVideoId(it) == id } }
+        ?: recentVideos.firstOrNull()?.let(::homeVideoId)
+    CreatorHomeTheme {
+        BoxWithConstraints(modifier.fillMaxSize()) {
+            val showUsername = maxWidth >= 360.dp && (LocalDensity.current.fontScale <= 1.2f || maxWidth >= 400.dp)
+            CreatorStudioBackdrop()
+            PullToRefreshBox(
+                isRefreshing = success?.isRefreshing == true,
+                onRefresh = viewModel::refresh,
+                state = pullState,
+                indicator = {},
+                modifier = Modifier.fillMaxSize().statusBarsPadding(),
             ) {
-                // El spinner de refresh (pull-to-refresh, dashboardRefreshTrigger
-                // tras publicar) ya no va acá -- pedido del usuario: vive en
-                // AppTopBar (izquierda del avatar), ver RefreshActivityTracker.
-                current.refreshError?.let { message ->
-                    item { RefreshErrorBanner(message) }
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = CreatorVideoStyle.screenHorizontalPadding, end = CreatorVideoStyle.screenHorizontalPadding, top = 8.dp, bottom = 124.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    item(key = "brand") { CreatorHomeBrand(Modifier.padding(horizontal = 8.dp)) }
+                    when (val current = state) {
+                        DashboardUiState.Loading -> item(key = "loading") {
+                            Box(Modifier.fillMaxWidth().height(260.dp), contentAlignment = Alignment.Center) {
+                                Text("Cargando tus videos…", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                            }
+                        }
+                        is DashboardUiState.Error -> item(key = "error") {
+                            HomeMessage("No pudimos cargar tus videos", current.message, viewModel::refresh)
+                        }
+                        is DashboardUiState.Success -> {
+                            current.refreshError?.let { message ->
+                                item(key = "refreshError") { RefreshErrorBanner(message) }
+                            }
+                            item(key = "metrics") {
+                                CreatorMetricCard(
+                                    selectedMetric = metric,
+                                    onMetricSelected = { metric = it },
+                                    value = formatCreatorMetric(total),
+                                    rangeLabel = when (recentVideos.size) {
+                                        0 -> "Tus publicaciones"
+                                        1 -> "Último video"
+                                        else -> "Últimos ${recentVideos.size} videos"
+                                    },
+                                    bars = bars,
+                                    selectedBarId = selectedId,
+                                    onBarSelected = { selectedVideoId = it },
+                                    thumbnail = { bar, thumbnailModifier -> HomeThumbnail(bar.thumbnailUrl, thumbnailModifier) },
+                                )
+                            }
+                            item(key = "recentTitle") {
+                                Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Videos recientes", color = MaterialTheme.colorScheme.onBackground, fontSize = 20.sp, fontWeight = FontWeight.Bold, fontFamily = CreatorSerif, modifier = Modifier.weight(1f))
+                                    TextButton(onClick = onSeeAllClick, contentPadding = PaddingValues(horizontal = 0.dp)) {
+                                        Text("Ver todos ↗", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                            if (recentVideos.isEmpty()) {
+                                item(key = "empty") { HomeMessage("Tu próxima idea empieza aquí", "Cuando publiques un video, verás aquí sus métricas.") }
+                            }
+                            items(recentVideos, key = ::homeVideoId) { video ->
+                                HomeVideoRow(
+                                    video, metric, viewModel.thumbnailUrl(video),
+                                    highlighted = homeVideoId(video) == selectedId,
+                                    onClick = { onVideoClick(video) },
+                                    modifier = Modifier.animateItem(),
+                                )
+                            }
+                            item(key = "comments") {
+                                val platformComments = remember(recentVideos) {
+                                    Platform.entries.mapNotNull { platform ->
+                                        val slots = recentVideos.mapNotNull { it.platforms[platform.apiValue] }
+                                        if (slots.isEmpty()) null else platform to slots.sumOf { it.comments.toLong() }
+                                    }
+                                }
+                                CreatorCommentsSummary(
+                                    total = NumberFormat.getIntegerInstance(Locale("es")).format(platformComments.sumOf { it.second }),
+                                    scope = when (recentVideos.size) {
+                                        0 -> "Sin videos publicados"
+                                        1 -> "En el video de esta lista"
+                                        else -> "En los ${recentVideos.size} videos de esta lista"
+                                    },
+                                    platforms = platformComments.map { (platform, count) ->
+                                        CreatorCommentPlatform(
+                                            platform.displayName,
+                                            NumberFormat.getIntegerInstance(Locale("es")).format(count),
+                                            homePlatformIcon(platform), homePlatformColor(platform),
+                                        )
+                                    },
+                                    modifier = Modifier.padding(top = 14.dp),
+                                )
+                            }
+                        }
+                    }
                 }
-                item {
-                    val history = current.data.latestHistory
-                    val historyPlatform = history?.platform?.let { Platform.fromApiValue(it) }
-                    val statsItem = history?.fileName?.let { name -> current.data.items.firstOrNull { it.fileName == name } }
-                        ?: history?.linkedFileId?.let { fileId -> current.data.items.firstOrNull { it.fileId == fileId.toString() } }
-                        ?: historyPlatform?.let { platform -> current.data.items.firstOrNull { it.platforms[platform.apiValue]?.platformId == history.platformId } }
-                        ?: current.data.fallbackItem
-                        ?: if (history == null) current.data.items.firstOrNull() else null
-                    LatestVideoCard(history, statsItem, current.data.focusPlatform, statsItem?.let(viewModel::thumbnailUrl))
-                }
-                item { PlatformPodium(current.data.items, current.data.individualItems, current.data.podiumMode, viewModel::setPodiumMode) }
-                item { UpcomingCard(current.data.calendar) }
             }
+            CreatorFloatingHomeActions(
+                username = username,
+                onNotificationsClick = onNotificationClick,
+                onProfileClick = onProfileClick,
+                showUsername = showUsername,
+                modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 12.dp, end = 20.dp),
+            )
+            CreatorLoadingBar(
+                isLoading = isLoading,
+                pullProgress = pullState.distanceFraction,
+                modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().fillMaxWidth(),
+            )
         }
     }
 }
 
-// focusPlatform (modo avanzado): resalta la plataforma real de la última
-// subida y atenúa las otras dos -- mirror de DashboardView.tsx (escritorio)
-// y DashboardView.swift (iOS). En modo simple queda null y se comporta
-// como antes (suma las 3, ninguna atenuada).
 @Composable
-private fun LatestVideoCard(history: UploadHistoryItemDto?, item: GroupStatsItemDto?, focusPlatform: Platform?, remoteThumbnailUrl: String?) {
-    DashboardCard {
-        DashboardHeader(
-            "Último video publicado",
-            focusPlatform?.let { "Publicado en ${it.displayName}" } ?: "Rendimiento comparado entre plataformas",
-            Icons.Outlined.QueryStats,
-        )
-        if (history == null && item == null) {
-            DashboardMessage("Todavía no hay videos publicados", "Cuando se sincronicen tus publicaciones aparecerán aquí.")
-        } else {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val thumbnail = remember(item, remoteThumbnailUrl) { remoteThumbnailUrl ?: item?.let { dashboardPlatforms.firstNotNullOfOrNull { platform -> it.platforms[platform.apiValue]?.thumbnail } } }
-                if (thumbnail.isNullOrBlank()) {
-                    Box(Modifier.size(86.dp, 116.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Outlined.VideoLibrary, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                } else {
-                    AsyncImage(model = thumbnail, contentDescription = null, modifier = Modifier.size(86.dp, 116.dp).clip(RoundedCornerShape(10.dp)), contentScale = ContentScale.Crop)
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(history?.fileName ?: history?.title ?: item?.fileName.orEmpty(), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 3)
-                    Text(history?.publishedAt ?: item?.fecha_creacion.orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                    // Con focusPlatform, el número grande es SU métrica puntual (0 si
-                    // todavía no sincronizó, nunca la suma de las 3) -- sin este
-                    // distingo, un focusSlot nulo caía al total sumado igual.
-                    val focusSlot = focusPlatform?.let { item?.platforms?.get(it.apiValue) }
-                    Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.padding(top = 5.dp)) {
-                        Metric(Icons.Outlined.Visibility, if (focusPlatform != null) (focusSlot?.views ?: 0) else (item?.total { it.views } ?: 0), emphasized = true)
-                        Metric(Icons.Outlined.Favorite, if (focusPlatform != null) (focusSlot?.likes ?: 0) else (item?.total { it.likes } ?: 0))
-                        Metric(Icons.Outlined.ChatBubble, if (focusPlatform != null) (focusSlot?.comments ?: 0) else (item?.total { it.comments } ?: 0))
-                    }
-                }
-            }
-            Spacer(Modifier.height(12.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                dashboardPlatforms.forEach { platform ->
-                    PlatformMetricRow(platform, item?.platforms?.get(platform.apiValue), isDimmed = focusPlatform != null && platform != focusPlatform)
-                }
-            }
-        }
+private fun HomeMessage(title: String, message: String, onRetry: (() -> Unit)? = null) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+        if (onRetry != null) TextButton(onClick = onRetry) { Text("Reintentar") }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun PlatformPodium(
-    combinedItems: List<GroupStatsItemDto>,
-    individualItems: List<GroupStatsItemDto>,
-    mode: DashboardPodiumMode,
-    onModeChange: (DashboardPodiumMode) -> Unit,
+private fun HomeVideoRow(
+    video: GroupStatsItemDto,
+    metric: CreatorMetric,
+    remoteThumbnail: String?,
+    highlighted: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val items = if (mode == DashboardPodiumMode.COMBINED) combinedItems else individualItems
-    val ranking = remember(items) { dashboardPlatforms.map { platform -> platform to items.sumOf { it.platforms[platform.apiValue]?.views ?: 0 } }.sortedByDescending { it.second } }
-    DashboardCard {
-        DashboardHeader("Plataforma líder", if (mode == DashboardPodiumMode.COMBINED) "Vistas de videos comparados" else "Vistas de los últimos videos por red", Icons.Outlined.QueryStats)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = mode == DashboardPodiumMode.COMBINED, onClick = { onModeChange(DashboardPodiumMode.COMBINED) }, label = { Text("Conjunto") }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.surfaceVariant))
-            FilterChip(selected = mode == DashboardPodiumMode.INDIVIDUAL, onClick = { onModeChange(DashboardPodiumMode.INDIVIDUAL) }, label = { Text("Individual") }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.surfaceVariant))
-        }
-        if (ranking.none { it.second > 0 }) {
-            Text("Pendiente de datos", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth())
-        } else {
-            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth()) {
-                PodiumPlace(ranking.getOrNull(1), 2, 42.dp)
-                PodiumPlace(ranking.getOrNull(0), 1, 58.dp)
-                PodiumPlace(ranking.getOrNull(2), 3, 42.dp)
-            }
-        }
+    var menuOpen by remember { mutableStateOf(false) }
+    val thumbnail = remoteThumbnail ?: video.platforms.values.firstOrNull { it.thumbnail.isNotBlank() }?.thumbnail
+    val presentPlatforms = Platform.entries.filter { platform ->
+        val slot = video.platforms[platform.apiValue]
+        slot != null && (slot.platformId.isNotBlank() || slot.platformUrl.isNotBlank() || slot.thumbnail.isNotBlank())
     }
+    CreatorVideoListItem(
+        title = videoTitle(video),
+        value = formatCreatorMetric(videoMetric(video, metric)),
+        metricLabel = metric.unit,
+        highlighted = highlighted,
+        modifier = modifier,
+        onClick = onClick,
+        onMoreClick = { menuOpen = true },
+        thumbnail = { thumbnailModifier ->
+            HomeThumbnail(thumbnail, thumbnailModifier)
+        },
+        metadata = {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                presentPlatforms.forEach { platform ->
+                    CreatorPlatformBadge(homePlatformIcon(platform), platform.displayName, homePlatformColor(platform))
+                }
+                if (presentPlatforms.isEmpty()) Text("Pendiente", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+            }
+        },
+        menu = {
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(text = { Text("Ver estadísticas") }, onClick = { menuOpen = false; onClick() })
+            }
+        },
+    )
 }
 
 @Composable
-private fun UpcomingCard(configs: List<CalendarConfigDto>) {
-    DashboardCard {
-        DashboardHeader("Próximas publicaciones", "Tu agenda más cercana", Icons.Outlined.CalendarMonth)
-        val upcoming = configs.filter { it.nextVideo != null }.take(3)
-        if (upcoming.isEmpty()) Text("No hay publicaciones próximas.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        else Column(verticalArrangement = Arrangement.spacedBy(7.dp)) { upcoming.forEach { config ->
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp)).padding(10.dp)) {
-                PlatformMetricLogo(Platform.fromApiValue(config.platform))
-                Text(config.nextVideo?.title.orEmpty(), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, maxLines = 1, modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
-                Text(config.platform.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        } }
+private fun HomeThumbnail(imageUrl: String?, modifier: Modifier) {
+    Box(modifier.background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
+        Icon(Icons.Outlined.VideoLibrary, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+        if (imageUrl != null) AsyncImage(imageUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
     }
 }
 
-@Composable
-private fun DashboardCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) { Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(0.dp)) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), content = content) } }
+private fun homeVideoId(video: GroupStatsItemDto): String = video.fileId.ifBlank { video.fileName }
+
+private fun homePlatformIcon(platform: Platform): ImageVector = when (platform) {
+    Platform.YOUTUBE -> PlatformIcons.YoutubeLogo
+    Platform.INSTAGRAM -> PlatformIcons.InstagramLogo
+    Platform.TIKTOK -> PlatformIcons.TiktokLogo
+    Platform.FACEBOOK -> PlatformIcons.FacebookLogo
+}
 
 @Composable
-private fun DashboardHeader(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector) { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold); Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }; Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)) } }
+private fun homePlatformColor(platform: Platform) = when (platform) {
+    Platform.YOUTUBE -> YoutubeRed
+    Platform.INSTAGRAM -> InstagramPurple
+    Platform.TIKTOK -> MaterialTheme.colorScheme.onSurface
+    Platform.FACEBOOK -> FacebookBlue
+}
 
-@Composable
-private fun DashboardMessage(title: String, message: String) { Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold); Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+private fun videoTitle(video: GroupStatsItemDto): String =
+    video.platforms.values.firstOrNull { it.title.isNotBlank() }?.title
+        ?: video.fileName.substringBeforeLast('.').ifBlank { "Video sin título" }
 
-// isDimmed (modo avanzado): no esconde la plataforma que no fue la
-// publicada -- solo baja su opacidad, para que quede claro que no forma
-// parte de ESTE evento de publicación sin ocultar que la plataforma existe.
-@Composable
-private fun PlatformMetricRow(platform: Platform, slot: GroupStatsSlotDto?, isDimmed: Boolean = false) { Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().alpha(if (isDimmed) 0.4f else 1f).background(platformColor(platform).copy(alpha = .10f), RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 9.dp)) { PlatformMetricLogo(platform); Text(platform.displayName, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium); Spacer(Modifier.weight(1f)); if (slot == null) Text("Pendiente de datos", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) else { Metric(Icons.Outlined.Visibility, slot.views); Metric(Icons.Outlined.Favorite, slot.likes); Metric(Icons.Outlined.ChatBubble, slot.comments) } } }
+private fun slotValue(slot: GroupStatsSlotDto, metric: CreatorMetric): Long = when (metric) {
+    CreatorMetric.VIEWS -> slot.views.toLong()
+    CreatorMetric.LIKES -> slot.likes.toLong()
+    CreatorMetric.COMMENTS -> slot.comments.toLong()
+}
 
-@Composable
-private fun PlatformMetricLogo(platform: Platform?) { if (platform == null) Spacer(Modifier.size(18.dp)) else when (platform) { Platform.YOUTUBE -> Icon(PlatformIcons.YoutubeLogo, null, tint = YoutubeRed, modifier = Modifier.size(18.dp)); Platform.INSTAGRAM -> Icon(PlatformIcons.InstagramLogo, null, tint = InstagramPurple, modifier = Modifier.size(18.dp)); Platform.TIKTOK -> Icon(PlatformIcons.TiktokLogo, null, tint = TiktokPink, modifier = Modifier.size(18.dp)); else -> Spacer(Modifier.size(18.dp)) } }
-
-@Composable
-private fun Metric(icon: androidx.compose.ui.graphics.vector.ImageVector, value: Int, emphasized: Boolean = false) { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) { Icon(icon, null, modifier = Modifier.size(13.dp), tint = if (emphasized) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant); Text(formatDashboardCount(value), style = MaterialTheme.typography.labelSmall, fontWeight = if (emphasized) FontWeight.SemiBold else FontWeight.Normal) } }
-
-@Composable
-private fun RowScope.PodiumPlace(entry: Pair<Platform, Int>?, place: Int, size: androidx.compose.ui.unit.Dp) { Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) { if (entry != null) { Box(Modifier.size(size).background(platformColor(entry.first).copy(alpha = .14f), RoundedCornerShape(if (place == 1) 16.dp else 12.dp)), contentAlignment = Alignment.Center) { PlatformMetricLogo(entry.first) }; Text("${place}º ${entry.first.displayName}", style = MaterialTheme.typography.labelSmall, fontWeight = if (place == 1) FontWeight.SemiBold else FontWeight.Medium); Text(formatDashboardCount(entry.second), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold) } } }
-
-private fun platformColor(platform: Platform): Color = when (platform) { Platform.YOUTUBE -> YoutubeRed; Platform.INSTAGRAM -> InstagramPurple; Platform.TIKTOK -> TiktokPink; else -> Color.Gray }
-private fun GroupStatsItemDto.total(selector: (GroupStatsSlotDto) -> Int): Int = dashboardPlatforms.sumOf { platforms[it.apiValue]?.let(selector) ?: 0 }
-private fun formatDashboardCount(value: Int): String = when { value >= 1_000_000 -> "${value / 1_000_000}.${(value / 100_000) % 10}M"; value >= 1_000 -> "${value / 1_000}.${(value / 100) % 10}K"; else -> value.toString() }
+private fun videoMetric(video: GroupStatsItemDto, metric: CreatorMetric): Long =
+    video.platforms.values.sumOf { slotValue(it, metric) }

@@ -5,9 +5,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,15 +13,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -35,11 +32,7 @@ import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.PlayCircleOutline
 import androidx.compose.material.icons.outlined.VideoLibrary
-import androidx.compose.material.icons.outlined.WbSunny
-import androidx.compose.material.icons.outlined.WbTwilight
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -59,8 +52,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.esseanalytics.android.core.designsystem.component.SwissCard
+import com.esseanalytics.android.core.designsystem.component.SwissLabel
+import com.esseanalytics.android.core.designsystem.component.SwissSectionTitle
 import com.esseanalytics.android.core.designsystem.component.PlaceholderScreen
 import com.esseanalytics.android.core.designsystem.component.RefreshErrorBanner
 import com.esseanalytics.android.core.designsystem.icon.FacebookLogo
@@ -68,11 +65,10 @@ import com.esseanalytics.android.core.designsystem.icon.InstagramLogo
 import com.esseanalytics.android.core.designsystem.icon.PlatformIcons
 import com.esseanalytics.android.core.designsystem.icon.TiktokLogo
 import com.esseanalytics.android.core.designsystem.icon.YoutubeLogo
+import com.esseanalytics.android.core.designsystem.theme.Swiss
 import com.esseanalytics.android.core.designsystem.theme.FacebookBlue
 import com.esseanalytics.android.core.designsystem.theme.InstagramPurple
 import com.esseanalytics.android.core.designsystem.theme.TiktokPink
-import com.esseanalytics.android.core.designsystem.theme.UrgencySoon
-import com.esseanalytics.android.core.designsystem.theme.UrgencyToday
 import com.esseanalytics.android.core.designsystem.theme.YoutubeRed
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.dto.UploadHistoryItemDto
@@ -85,15 +81,12 @@ import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 
-// Rediseño 2026-09-01 (paridad visual con CalendarView.swift, iOS): agenda
-// semanal enfocada -- strip de "esta semana" con selección de día, secciones
-// Hoy/Mañana (agrupando lo ya publicado + lo que sigue en cola por
-// plataforma), descartar el próximo de una plataforma puntual. Antes Android
-// era una lista plana de tarjetas por plataforma, sin agrupar por día ni
-// poder descartar (Fase 1 del plan original, solo lectura). El dato
-// (GET /api/sync/calendar-config + historial) es el mismo de siempre --
-// esto es enteramente un cambio de presentación + la acción de descarte que
-// faltaba.
+// REDISEÑO BENTO: Calendario como retícula de tarjetas — la semana en foco
+// con celdas-tarjeta (hoy = tarjeta en el acento), Hoy y Mañana como
+// tarjetas de acento, y cada slot como tarjeta propia. Toda la funcionalidad
+// intacta: selección de día con su panel, descarte del próximo con
+// confirmación, último publicado expandible, estados de carga/error/vacío y
+// banner de error de refresh.
 @Composable
 fun CalendarScreen(modifier: Modifier = Modifier, viewModel: CalendarViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
@@ -124,7 +117,8 @@ fun CalendarScreen(modifier: Modifier = Modifier, viewModel: CalendarViewModel =
         } else {
             val slots = current.data.slots
             val history = current.data.history
-            val todaySlots = slots.filter { it.nextDate != null && daysFromToday(it.nextDate) <= 0 }
+            val overdueSlots = slots.filter { it.nextDate != null && daysFromToday(it.nextDate) < 0 }
+            val todaySlots = slots.filter { it.nextDate != null && daysFromToday(it.nextDate) == 0L }
             val tomorrowSlots = slots.filter { it.nextDate != null && daysFromToday(it.nextDate) == 1L }
             val todayPublished = history.filter { it.publishedLocalDate()?.let(::daysFromToday) == 0L }
             val tomorrowPublished = history.filter { it.publishedLocalDate()?.let(::daysFromToday) == 1L }
@@ -135,11 +129,16 @@ fun CalendarScreen(modifier: Modifier = Modifier, viewModel: CalendarViewModel =
                 modifier = modifier.fillMaxSize(),
                 // bottom extra: FloatingBottomNavigation (EsseAnalyticsNavHost) es
                 // un overlay real, no un bottomBar de Scaffold -- no reserva
-                // espacio propio, así que sin este margen extra la última tarjeta
-                // queda scrolleable hasta quedar tapada detrás de la cápsula
-                // flotante. Mismo criterio que PublishForm en UploadScreen.kt.
-                contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp + 80.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                // espacio propio, así que sin este margen extra el último bloque
+                // queda scrolleable hasta quedar tapado detrás de la cápsula
+                // flotante.
+                contentPadding = PaddingValues(
+                    start = Swiss.contentHorizontal,
+                    top = 16.dp,
+                    end = Swiss.contentHorizontal,
+                    bottom = 16.dp + 80.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 // Spinner de refresh: en AppTopBar (izquierda del avatar),
                 // no acá -- ver RefreshActivityTracker.
@@ -147,49 +146,59 @@ fun CalendarScreen(modifier: Modifier = Modifier, viewModel: CalendarViewModel =
                     item(key = "refreshError") { RefreshErrorBanner(message) }
                 }
 
-                item(key = "weekFocus") { CalendarWeekFocusCard(slots = slots, history = history) }
-
-                if (!hasToday && !hasTomorrow) {
-                    item(key = "emptyKinds") {
-                        Text(
-                            "Nada programado para hoy o mañana.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                if (overdueSlots.isNotEmpty()) {
+                    item(key = "overdueHeader") {
+                        DayBanner(
+                            title = "Atrasadas",
+                                                        count = overdueSlots.size,
+                            urgent = true,
                         )
+                    }
+                    items(overdueSlots, key = { "slot-overdue-${it.platform}" }) { slot ->
+                        CalendarSlotRow(slot = slot, onDiscardNext = { pendingDiscard = slot })
+                    }
+                }
+
+                if (!hasToday && !hasTomorrow && overdueSlots.isEmpty()) {
+                    item(key = "emptyKinds") {
+                        SwissCard {
+                            Text(
+                                "No hay publicaciones pendientes para hoy o mañana.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
 
                 if (hasToday) {
                     item(key = "todayHeader") {
-                        CalendarSectionHeader(
+                        DayBanner(
                             title = "Hoy",
-                            subtitle = fullDate(LocalDate.now()),
-                            icon = Icons.Outlined.WbSunny,
-                            tint = UrgencyToday,
-                            count = todaySlots.size + todayPublished.size,
+                                                        count = todaySlots.size + todayPublished.size,
+                            highlighted = true,
                         )
                     }
                     items(todayPublished, key = { "pub-today-${it.id}" }) { item -> CalendarPublishedRow(item) }
                     items(todaySlots, key = { "slot-today-${it.platform}" }) { slot ->
-                        CalendarSlotCard(slot = slot, onDiscardNext = { pendingDiscard = slot })
+                        CalendarSlotRow(slot = slot, onDiscardNext = { pendingDiscard = slot })
                     }
                 }
 
                 if (hasTomorrow) {
                     item(key = "tomorrowHeader") {
-                        CalendarSectionHeader(
+                        DayBanner(
                             title = "Mañana",
-                            subtitle = fullDate(LocalDate.now().plusDays(1)),
-                            icon = Icons.Outlined.WbTwilight,
-                            tint = UrgencySoon,
-                            count = tomorrowSlots.size + tomorrowPublished.size,
+                                                        count = tomorrowSlots.size + tomorrowPublished.size,
                         )
                     }
                     items(tomorrowPublished, key = { "pub-tomorrow-${it.id}" }) { item -> CalendarPublishedRow(item) }
                     items(tomorrowSlots, key = { "slot-tomorrow-${it.platform}" }) { slot ->
-                        CalendarSlotCard(slot = slot, onDiscardNext = { pendingDiscard = slot })
+                        CalendarSlotRow(slot = slot, onDiscardNext = { pendingDiscard = slot })
                     }
                 }
+
+                item(key = "weekFocus") { CalendarWeekFocus(slots = slots, history = history) }
             }
         }
     }
@@ -216,10 +225,60 @@ fun CalendarScreen(modifier: Modifier = Modifier, viewModel: CalendarViewModel =
     }
 }
 
+/** Encabezado compacto de día; el acento se reserva para urgencias. */
+@Composable
+private fun DayBanner(
+    title: String,
+    count: Int,
+    subtitle: String? = null,
+    urgent: Boolean = false,
+    highlighted: Boolean = false,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val labelColor = when {
+        urgent -> scheme.error
+        highlighted -> scheme.primary
+        else -> scheme.onSurface
+    }
+    val badgeColor = when {
+        urgent -> scheme.error.copy(alpha = 0.14f)
+        highlighted -> scheme.primary.copy(alpha = 0.14f)
+        else -> scheme.surfaceContainerHigh
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = labelColor,
+            )
+            if (subtitle != null) {
+                Text(subtitle, style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+            }
+        }
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(badgeColor)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "$count",
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                color = labelColor,
+            )
+        }
+    }
+}
+
 // ── Fecha ────────────────────────────────────────────────────────────────
 
 private val fullDateFormatter = DateTimeFormatter.ofPattern("EEEE d 'de' MMMM", Locale("es", "MX"))
-private val rangeEndFormatter = DateTimeFormatter.ofPattern("d MMMM", Locale("es", "MX"))
+private val shortRangeFormatter = DateTimeFormatter.ofPattern("d MMM", Locale("es", "MX"))
 private val apiDateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
 private fun daysFromToday(date: LocalDate): Long = ChronoUnit.DAYS.between(LocalDate.now(), date)
@@ -240,15 +299,19 @@ private fun publishedLabel(dateString: String): String? {
 // domingo=1), no hace falta configurar nada aparte.
 private fun startOfWeek(date: LocalDate): LocalDate = date.minusDays((date.dayOfWeek.value - 1).toLong())
 
-private fun weekDates(offsetWeeks: Long = 0): List<LocalDate> {
-    val start = startOfWeek(LocalDate.now()).plusWeeks(offsetWeeks)
+private fun weekDates(): List<LocalDate> {
+    val start = startOfWeek(LocalDate.now())
     return (0..6).map { start.plusDays(it.toLong()) }
 }
 
 private fun rangeLabel(week: List<LocalDate>): String {
     val first = week.firstOrNull() ?: return ""
     val last = week.lastOrNull() ?: return ""
-    return "${first.dayOfMonth}–${rangeEndFormatter.format(last)}"
+    return if (first.month == last.month) {
+        "${first.dayOfMonth}–${shortRangeFormatter.format(last)}"
+    } else {
+        "${shortRangeFormatter.format(first)}–${shortRangeFormatter.format(last)}"
+    }
 }
 
 private fun UploadHistoryItemDto.publishedLocalDate(): LocalDate? =
@@ -279,73 +342,44 @@ private fun platformIcon(platform: Platform): ImageVector = when (platform) {
     Platform.FACEBOOK -> PlatformIcons.FacebookLogo
 }
 
-// ── Cabecera de sección (Hoy/Mañana) ────────────────────────────────────────
-
-@Composable
-private fun CalendarSectionHeader(title: String, subtitle: String, icon: ImageVector, tint: Color, count: Int) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            modifier = Modifier
-                .size(32.dp)
-                .clip(CircleShape)
-                .background(tint.copy(alpha = 0.13f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
-        }
-        Column(modifier = Modifier.padding(start = 10.dp).weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(subtitle, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Box(
-            modifier = Modifier
-                .size(24.dp)
-                .clip(CircleShape)
-                .background(tint.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("$count", style = MaterialTheme.typography.labelSmall, color = tint, fontWeight = FontWeight.Bold)
-        }
-    }
-}
-
-// Fila compacta para un video ya publicado hoy/mañana -- mismo lenguaje
-// visual que la fila de selección de día (ícono + título + check verde).
+// Tarjeta para un video ya publicado hoy/mañana — acento verde a la
+// izquierda: lo publicado manda.
 @Composable
 private fun CalendarPublishedRow(item: UploadHistoryItemDto) {
     val title = item.title?.takeIf { it.isNotBlank() } ?: item.fileName ?: "—"
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .border(1.dp, Color(0xFF22C55E).copy(alpha = 0.25f), RoundedCornerShape(14.dp))
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        val platform = Platform.fromApiValue(item.platform)
-        if (platform != null) {
-            Icon(platformIcon(platform), contentDescription = null, tint = platformColor(platform), modifier = Modifier.size(16.dp))
+    SwissCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(width = 4.dp, height = 40.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color(0xFF22C55E)),
+            )
+            Spacer(Modifier.width(12.dp))
+            val platform = Platform.fromApiValue(item.platform)
+            if (platform != null) {
+                Icon(platformIcon(platform), contentDescription = null, tint = platformColor(platform), modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(12.dp))
+            }
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                maxLines = 1,
+                modifier = Modifier.weight(1f),
+            )
         }
-        Text(
-            title,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            modifier = Modifier.padding(start = 10.dp).weight(1f),
-        )
-        Icon(Icons.Filled.CheckCircle, contentDescription = "Publicado", tint = Color(0xFF22C55E), modifier = Modifier.size(18.dp))
     }
 }
 
 // ── Semana en foco ──────────────────────────────────────────────────────────
 
 @Composable
-private fun CalendarWeekFocusCard(slots: List<CalendarSlot>, history: List<UploadHistoryItemDto>) {
+private fun CalendarWeekFocus(slots: List<CalendarSlot>, history: List<UploadHistoryItemDto>) {
     var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
-    val previousWeek = remember { weekDates(-1) }
-    val currentWeek = remember { weekDates(0) }
-    val nextWeek = remember { weekDates(1) }
+    val currentWeek = remember { weekDates() }
 
     fun dotPlatformsOn(date: LocalDate): List<String> {
         val scheduled = slots.mapNotNull { if (it.nextDate == date) it.platform else null }
@@ -355,29 +389,16 @@ private fun CalendarWeekFocusCard(slots: List<CalendarSlot>, history: List<Uploa
         return seen.toList()
     }
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Esta semana", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(
-                        "En foco · ${rangeLabel(currentWeek)}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Icon(Icons.Outlined.CalendarMonth, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            }
-
-            CalendarGhostWeekRow(previousWeek)
+    Column(verticalArrangement = Arrangement.spacedBy(Swiss.gap)) {
+        SwissCard {
+            SwissSectionTitle(
+                index = "01",
+                title = rangeLabel(currentWeek),
+                subtitle = "Toca un día para ver lo publicado y lo pendiente.",
+            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 currentWeek.forEach { date ->
                     CalendarDayCell(
@@ -392,118 +413,83 @@ private fun CalendarWeekFocusCard(slots: List<CalendarSlot>, history: List<Uploa
                     )
                 }
             }
-            CalendarGhostWeekRow(nextWeek)
+        }
 
-            AnimatedVisibility(
-                visible = selectedDate != null,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically(),
-            ) {
-                selectedDate?.let { date ->
-                    CalendarDaySelectionPanel(
-                        date = date,
-                        scheduledSlots = slots.filter { it.nextDate == date },
-                        publishedItems = history
-                            .filter { it.publishedLocalDate() == date }
-                            .sortedByDescending { it.publishedAt },
-                    )
-                }
+        AnimatedVisibility(
+            visible = selectedDate != null,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            selectedDate?.let { date ->
+                CalendarDaySelectionPanel(
+                    date = date,
+                    scheduledSlots = slots.filter { it.nextDate == date },
+                    publishedItems = history
+                        .filter { it.publishedLocalDate() == date }
+                        .sortedByDescending { it.publishedAt },
+                )
             }
         }
     }
 }
 
-@Composable
-private fun CalendarGhostWeekRow(dates: List<LocalDate>) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        dates.forEach { date ->
-            Text(
-                "${date.dayOfMonth}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.34f),
-                modifier = Modifier.weight(1f),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            )
-        }
-    }
-}
-
+// Celda de día bento: tarjeta pequeña redondeada; hoy = tarjeta en el acento,
+// seleccionado = tarjeta tonal.
 @Composable
 private fun CalendarDayCell(date: LocalDate, platforms: List<String>, isSelected: Boolean, modifier: Modifier = Modifier) {
     val days = daysFromToday(date)
     val isToday = days == 0L
-    val isTomorrow = days == 1L
     val shortWeekday = date.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale("es", "MX")).uppercase(Locale("es", "MX"))
+    val scheme = MaterialTheme.colorScheme
 
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
             .background(
                 when {
-                    isToday -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                    isTomorrow -> MaterialTheme.colorScheme.surfaceVariant
-                    else -> Color.Transparent
+                    isToday -> scheme.primary
+                    isSelected -> scheme.primaryContainer
+                    else -> scheme.surfaceVariant.copy(alpha = 0.5f)
                 },
             )
-            .then(
-                if (isSelected) {
-                    Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp))
-                } else {
-                    Modifier
-                },
-            )
-            .padding(vertical = 7.dp),
+            .padding(vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
+        val onAccent = isToday
         Text(
             shortWeekday,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium, letterSpacing = 1.sp),
+            color = if (onAccent) scheme.onPrimary else scheme.onSurfaceVariant,
         )
-        Box(
-            modifier = Modifier
-                .size(32.dp)
-                .clip(CircleShape)
-                .background(if (isToday) MaterialTheme.colorScheme.primary else Color.Transparent),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                "${date.dayOfMonth}",
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (isToday) FontWeight.Bold else FontWeight.SemiBold,
-                color = if (isToday) Color.White else MaterialTheme.colorScheme.onSurface,
-            )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            "${date.dayOfMonth}",
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+            color = when {
+                onAccent -> scheme.onPrimary
+                isSelected -> scheme.onPrimaryContainer
+                else -> scheme.onSurface
+            },
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             platforms.forEach { key ->
-                val color = Platform.fromApiValue(key)?.let(::platformColor) ?: MaterialTheme.colorScheme.onSurfaceVariant
-                Box(
-                    modifier = Modifier
-                        .size(4.dp)
-                        .clip(CircleShape)
-                        .background(color),
-                )
+                val color = when {
+                    onAccent -> scheme.onPrimary
+                    isSelected -> scheme.primary
+                    else -> Platform.fromApiValue(key)?.let(::platformColor) ?: scheme.onSurfaceVariant
+                }
+                Box(modifier = Modifier.size(4.dp).clip(RoundedCornerShape(4.dp)).background(color))
             }
         }
-        Text(
-            if (isToday) "HOY" else if (isTomorrow) "MAÑ" else " ",
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-        )
     }
 }
 
-// Detalle del día tocado en el strip -- separa lo YA publicado (historial
-// real, con caption real) de lo programado para ese día (todavía no pasó).
+// Detalle del día tocado en tarjeta — separa lo YA publicado (historial real)
+// de lo programado para ese día (todavía no pasó).
 @Composable
 private fun CalendarDaySelectionPanel(date: LocalDate, scheduledSlots: List<CalendarSlot>, publishedItems: List<UploadHistoryItemDto>) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Spacer(modifier = Modifier.fillMaxWidth())
-        Text(fullDate(date), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+    SwissCard {
+        Text(fullDate(date), style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold))
 
         if (publishedItems.isEmpty() && scheduledSlots.isEmpty()) {
             Text(
@@ -512,22 +498,23 @@ private fun CalendarDaySelectionPanel(date: LocalDate, scheduledSlots: List<Cale
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         } else {
-            publishedItems.forEach { item ->
-                DaySelectionRow(
-                    platformKey = item.platform,
-                    title = item.title?.takeIf { it.isNotBlank() } ?: item.fileName ?: "—",
-                ) {
-                    Icon(Icons.Filled.CheckCircle, contentDescription = "Publicado", tint = Color(0xFF22C55E), modifier = Modifier.size(16.dp))
+            Column {
+                publishedItems.forEach { item ->
+                    DaySelectionRow(
+                        platformKey = item.platform,
+                        title = item.title?.takeIf { it.isNotBlank() } ?: item.fileName ?: "—",
+                    ) {
+                                }
                 }
-            }
-            scheduledSlots.forEach { slot ->
-                DaySelectionRow(
-                    platformKey = slot.platform,
-                    title = slot.nextVideo?.title ?: "—",
-                ) {
-                    val duration = slot.nextVideo?.duration
-                    if (!duration.isNullOrBlank()) {
-                        Text(duration, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                scheduledSlots.forEach { slot ->
+                    DaySelectionRow(
+                        platformKey = slot.platform,
+                        title = slot.nextVideo?.title ?: "—",
+                    ) {
+                        val duration = slot.nextVideo?.duration
+                        if (!duration.isNullOrBlank()) {
+                            Text(duration, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             }
@@ -540,140 +527,121 @@ private fun DaySelectionRow(platformKey: String, title: String, trailing: @Compo
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(horizontal = 10.dp, vertical = 9.dp),
+            .padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val platform = Platform.fromApiValue(platformKey)
         if (platform != null) {
-            Icon(platformIcon(platform), contentDescription = null, tint = platformColor(platform), modifier = Modifier.size(16.dp))
+            Icon(platformIcon(platform), contentDescription = null, tint = platformColor(platform), modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(12.dp))
         }
         Text(
             title,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
             maxLines = 1,
-            modifier = Modifier.padding(start = 10.dp).weight(1f),
+            modifier = Modifier.weight(1f),
         )
         trailing()
     }
 }
 
-// ── Tarjeta por plataforma (dentro de Hoy/Mañana) ───────────────────────────
+// ── Slot por plataforma ───────────────────────────────────────────────────
 
-// Mismo lenguaje visual que ya usan los badges circulares de Biblioteca/
-// Estadísticas -- iniciales de color sobre fondo al 15% de alpha. Colapsado
-// por default el "último publicado" -- el Hoy/Mañana ya lo dice el header de
-// afuera (CalendarSectionHeader), acá adentro no hace falta repetir fecha,
-// la tarjeta es sobre QUÉ se publica, no CUÁNDO.
+// Tarjeta por plataforma: cadencia como encabezado, siguiente video con
+// miniatura, descarte como acción de texto en rojo, último publicado
+// expandible.
 @Composable
-private fun CalendarSlotCard(slot: CalendarSlot, onDiscardNext: () -> Unit) {
+private fun CalendarSlotRow(slot: CalendarSlot, onDiscardNext: () -> Unit) {
     var showingLastPublished by remember(slot.platform) { mutableStateOf(false) }
     val platform = Platform.fromApiValue(slot.platform)
     val color = platform?.let(::platformColor) ?: MaterialTheme.colorScheme.primary
+    val scheme = MaterialTheme.colorScheme
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Row {
-            Box(
-                modifier = Modifier
-                    .width(3.dp)
-                    .fillMaxHeight()
-                    .padding(vertical = 14.dp)
-                    .background(color, RoundedCornerShape(2.dp)),
-            )
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "Cada ${slot.intervalDays} días",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (platform != null) {
-                        Icon(platformIcon(platform), contentDescription = platformShortLabel(platform), tint = color, modifier = Modifier.size(20.dp))
-                    }
-                }
+    SwissCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (platform != null) {
+                Icon(platformIcon(platform), contentDescription = platformShortLabel(platform), tint = color, modifier = Modifier.size(24.dp))
+                Spacer(Modifier.width(12.dp))
+                Spacer(modifier = Modifier.weight(1f))
+            } else {
+                Text(
+                    platformFullLabel(slot.platform),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            SwissLabel("Cada ${slot.intervalDays} días")
+        }
 
-                slot.nextVideo?.let { next ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        NextVideoThumbnail(slot)
-                        Column(modifier = Modifier.padding(start = 10.dp).weight(1f)) {
+        slot.nextVideo?.let { next ->
+            SwissLabel("Siguiente video", color = color)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                NextVideoThumbnail(slot)
+                Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
+                    Text(next.title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), maxLines = 2)
+                    if (next.duration.isNotBlank()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Outlined.PlayCircleOutline,
+                                contentDescription = null,
+                                tint = scheme.onSurfaceVariant,
+                                modifier = Modifier.size(12.dp),
+                            )
                             Text(
-                                "SIGUIENTE VIDEO",
+                                next.duration,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = color,
-                                fontWeight = FontWeight.Bold,
+                                color = scheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 4.dp),
                             )
-                            Text(next.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 2)
-                            if (next.duration.isNotBlank()) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        Icons.Outlined.PlayCircleOutline,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(12.dp),
-                                    )
-                                    Text(
-                                        next.duration,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(start = 4.dp),
-                                    )
-                                }
-                            }
                         }
-                        // Al lado del video que afecta, no como botón aparte al
-                        // final de la tarjeta -- ahí quedaba sin relación visual.
-                        Icon(
-                            Icons.Outlined.Cancel,
-                            contentDescription = "Descartar este próximo video",
-                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
-                            modifier = Modifier
-                                .size(22.dp)
-                                .clickable(onClick = onDiscardNext),
-                        )
                     }
                 }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showingLastPublished = !showingLastPublished },
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Outlined.History, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
-                    Icon(
-                        if (showingLastPublished) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                        contentDescription = if (showingLastPublished) "Ocultar último publicado" else "Mostrar último publicado",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(14.dp),
-                    )
+                TextButton(onClick = onDiscardNext) {
+                    Text("Descartar", color = scheme.error, style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold))
                 }
+            }
+        }
 
-                AnimatedVisibility(
-                    visible = showingLastPublished,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically(),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        LastPublishedThumbnail(slot)
-                        Column(modifier = Modifier.padding(start = 10.dp).weight(1f)) {
-                            Text(
-                                slot.lastPublishedTitle.ifBlank { "—" },
-                                style = MaterialTheme.typography.labelMedium,
-                                maxLines = 2,
-                            )
-                            publishedLabel(slot.lastPublishedDate)?.let {
-                                Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { showingLastPublished = !showingLastPublished }
+                .background(scheme.surfaceVariant.copy(alpha = 0.5f))
+                .padding(vertical = 12.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Outlined.History, contentDescription = null, tint = scheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+            Text(
+                if (showingLastPublished) "Ocultar último publicado" else "Ver último publicado",
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                color = scheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+            Icon(
+                if (showingLastPublished) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                contentDescription = null,
+                tint = scheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+
+        AnimatedVisibility(
+            visible = showingLastPublished,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                LastPublishedThumbnail(slot)
+                Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
+                    Text(
+                        slot.lastPublishedTitle.ifBlank { "—" },
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                        maxLines = 2,
+                    )
+                    publishedLabel(slot.lastPublishedDate)?.let {
+                        Text(it, style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
                     }
                 }
             }
@@ -687,8 +655,8 @@ private fun CalendarSlotCard(slot: CalendarSlot, onDiscardNext: () -> Unit) {
 private fun NextVideoThumbnail(slot: CalendarSlot) {
     Box(
         modifier = Modifier
-            .size(width = 44.dp, height = 56.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .size(width = 52.dp, height = 64.dp)
+            .clip(RoundedCornerShape(Swiss.cardSmall))
             .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
@@ -696,7 +664,7 @@ private fun NextVideoThumbnail(slot: CalendarSlot) {
         if (model != null) {
             AsyncImage(model = model, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         } else {
-            Icon(Icons.Outlined.VideoLibrary, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+            Icon(Icons.Outlined.VideoLibrary, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
         }
     }
 }
@@ -708,8 +676,8 @@ private fun NextVideoThumbnail(slot: CalendarSlot) {
 private fun LastPublishedThumbnail(slot: CalendarSlot) {
     Box(
         modifier = Modifier
-            .size(width = 40.dp, height = 52.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .size(width = 48.dp, height = 60.dp)
+            .clip(RoundedCornerShape(Swiss.cardSmall))
             .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
@@ -717,7 +685,7 @@ private fun LastPublishedThumbnail(slot: CalendarSlot) {
         if (path != null) {
             AsyncImage(model = File(path), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         } else {
-            Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
+            Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
         }
     }
 }

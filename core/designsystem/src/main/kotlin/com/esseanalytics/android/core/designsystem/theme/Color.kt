@@ -30,36 +30,36 @@ val UrgencySoon = Color(0xFFD97706)
 
 // Tema "rojo" (default) — theme.css:185-206
 val PrimaryRojo = Color(0xFFE63946)
-val BackgroundRojo = Color(0xFF0D0D0F)
-val SurfaceRojo = Color(0xFF141417) // --card
+val BackgroundRojo = Color(0xFF17171A)
+val SurfaceRojo = Color(0xFF1E1E22) // --card
 val OnSurfaceRojo = Color(0xFFF0F0F2) // --foreground / --card-foreground
-val SurfaceVariantRojo = Color(0xFF1A1A20) // --muted
-val OnSurfaceVariantRojo = Color(0xFF6B6B7A) // --muted-foreground
+val SurfaceVariantRojo = Color(0xFF23232C) // --muted
+val OnSurfaceVariantRojo = Color(0xFF8F8F91) // --muted-foreground (5.15:1 sobre surface, WCAG AA)
 val OutlineRojo = Color(0x14FFFFFF) // --border: rgba(255,255,255,0.08)
-val PopoverRojo = Color(0xFF1A1A1F) // --popover
-val InputBackgroundRojo = Color(0xFF1E1E24) // --input-background
+val PopoverRojo = Color(0xFF24242A) // --popover
+val InputBackgroundRojo = Color(0xFF28282F) // --input-background
 val DestructiveRojo = Color(0xFFE63946) // --destructive
 
 // Tema "ámbar" (alterno) — theme.css:208-229
 val PrimaryAmbar = Color(0xFFF59E0B)
-val BackgroundAmbar = Color(0xFF0A0A0A)
-val SurfaceAmbar = Color(0xFF111111)
+val BackgroundAmbar = Color(0xFF191919)
+val SurfaceAmbar = Color(0xFF202020)
 val OnSurfaceAmbar = Color(0xFFF5F0E8)
-val SurfaceVariantAmbar = Color(0xFF161616)
-val OnSurfaceVariantAmbar = Color(0xFF6B6355)
+val SurfaceVariantAmbar = Color(0xFF242424)
+val OnSurfaceVariantAmbar = Color(0xFF8F8D8A) // --muted-foreground (4.92:1 sobre surface, WCAG AA)
 val OutlineAmbar = Color(0x1FF59E0B) // --border: rgba(245,158,11,0.12)
-val PopoverAmbar = Color(0xFF181818) // --popover
-val InputBackgroundAmbar = Color(0xFF1C1C1C) // --input-background
+val PopoverAmbar = Color(0xFF272727) // --popover
+val InputBackgroundAmbar = Color(0xFF2B2B2B) // --input-background
 val DestructiveAmbar = Color(0xFFEF4444) // --destructive
 
 // Tema "morado" — theme.css: .theme-morado
 val PrimaryMorado = Color(0xFFA855F7)
-val BackgroundMorado = Color(0xFF0E0B14)
-val SurfaceMorado = Color(0xFF161020) // --card
+val BackgroundMorado = Color(0xFF161120)
+val SurfaceMorado = Color(0xFF1E162C) // --card
 val OnSurfaceMorado = Color(0xFFF2EEF9) // --foreground / --card-foreground
-val SurfaceVariantMorado = Color(0xFF1A1327) // --muted
-val OnSurfaceVariantMorado = Color(0xFF7D7398) // --muted-foreground
+val SurfaceVariantMorado = Color(0xFF221933) // --muted
+val OnSurfaceVariantMorado = Color(0xFF8C8A92) // --muted-foreground (5.11:1 sobre surface, WCAG AA)
 val OutlineMorado = Color(0x24A855F7) // --border: rgba(168,85,247,0.14)
-val PopoverMorado = Color(0xFF1D1529) // --popover
-val InputBackgroundMorado = Color(0xFF231A35) // --input-background
+val PopoverMorado = Color(0xFF251B35) // --popover
+val InputBackgroundMorado = Color(0xFF2B2041) // --input-background
 val DestructiveMorado = Color(0xFFEF4444) // --destructive

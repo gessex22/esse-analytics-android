@@ -23,25 +23,21 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Computer
+import androidx.compose.material.icons.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -69,12 +65,19 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.work.Data
 import androidx.work.WorkInfo
 import coil.compose.AsyncImage
+import com.esseanalytics.android.core.designsystem.component.SwissAccentCard
+import com.esseanalytics.android.core.designsystem.component.SwissButton
+import com.esseanalytics.android.core.designsystem.component.SwissCard
+import com.esseanalytics.android.core.designsystem.component.SwissLabel
+import com.esseanalytics.android.core.designsystem.component.SwissScreenHeader
+import com.esseanalytics.android.core.designsystem.component.SwissSectionTitle
 import com.esseanalytics.android.core.designsystem.component.PlaceholderScreen
 import com.esseanalytics.android.core.designsystem.icon.FacebookLogo
 import com.esseanalytics.android.core.designsystem.icon.InstagramLogo
 import com.esseanalytics.android.core.designsystem.icon.PlatformIcons
 import com.esseanalytics.android.core.designsystem.icon.TiktokLogo
 import com.esseanalytics.android.core.designsystem.icon.YoutubeLogo
+import com.esseanalytics.android.core.designsystem.theme.Swiss
 import com.esseanalytics.android.core.designsystem.theme.FacebookBlue
 import com.esseanalytics.android.core.designsystem.theme.InstagramPurple
 import com.esseanalytics.android.core.designsystem.theme.TiktokPink
@@ -85,10 +88,13 @@ import com.esseanalytics.android.core.network.dto.LocalPcVideoDto
 import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
 import java.io.File
 
-// Elegir un video ya importado, tildar a qué plataformas publicarlo,
-// completar título/descripción/portada, y encolar un UploadWorker por
-// plataforma. initialFileId llega desde Biblioteca (ver EsseAnalyticsNavHost)
-// cuando se toca un video ahí en vez de entrar por la pestaña "Subir".
+// REDISEÑO BENTO: Subir como retícula de tarjetas en dos pasos — PASO 1
+// "elegí el video" con cada fuente en tarjetas, PASO 2 el formulario como
+// tarjetas: detalles, portada, plataformas y el botón publicar expresivo.
+// Toda la funcionalidad intacta: auto-selección del pendiente, lote activo
+// con progreso y cancelación, reintento de fallidas, confirmación humana de
+// blocked, crosspost a Facebook, picker de portada, diálogos de éxito y de
+// salida.
 @Composable
 fun UploadScreen(
     modifier: Modifier = Modifier,
@@ -206,99 +212,116 @@ fun UploadScreen(
                 browsingList = true
             }
         } else if (current == null) {
-            // Encabezado propio para este paso -- sin esto, esta lista es
-            // visualmente indistinguible de Biblioteca (misma tarjeta:
-            // miniatura + título + subtítulo), y quedaba ambiguo si estabas
-            // en Videos o en el primer paso del formulario de Subir.
-            Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
-                Text("Subir", style = MaterialTheme.typography.titleLarge)
-                Text(
-                    "Elegí qué video querés publicar.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
-            // Antes un video de Nube sin bytes (storage dinámico ya los
-            // liberó) fallaba en silencio -- el spinner se apagaba y no
-            // pasaba nada visible. Ahora se muestra el motivo real.
-            remoteImportError?.let { message ->
-                Text(
-                    message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier
-                        .padding(horizontal = 24.dp, vertical = 8.dp)
-                        .clickable { viewModel.clearRemoteImportError() },
-                )
-            }
-            // Además de lo local, deja elegir un video de Nube como fuente --
-            // se baja y de ahí en más se publica igual que cualquier archivo
-            // local (mismo criterio que VideoPickerView en iOS). Antes esta
-            // pantalla solo consultaba el catálogo local, la cola remota no
-            // aparecía acá aunque sí existiera en la pestaña Nube.
-            if (canUseCloudStorage) {
-                when {
-                    remoteVideosLoading -> SourceStatusRow("Nube", "Cargando videos…", loading = true)
-                    remoteVideosError != null -> SourceStatusRow(
-                        title = "Nube",
-                        message = remoteVideosError ?: "No se pudo cargar la nube.",
-                        onRetry = viewModel::refreshRemoteVideos,
+            // PASO 1 -- elegir el video. Cada fuente (Nube, PC local,
+            // archivos del teléfono) es una sección de tarjetas.
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = Swiss.contentHorizontal,
+                    top = 24.dp,
+                    end = Swiss.contentHorizontal,
+                    bottom = 16.dp + 80.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(Swiss.sectionSpacing),
+            ) {
+                item(key = "pickerHeader") {
+                    SwissScreenHeader(
+                        title = "Subir",
+                        subtitle = "Paso 1 — Elegí qué video querés publicar.",
                     )
-                    remoteVideos.isEmpty() -> SourceStatusRow("Nube", "No hay videos pendientes en la nube.")
-                    else -> RemoteVideoStrip(
-                        videos = remoteVideos,
-                        importingId = importingRemoteId,
-                        nextUploads = nextUploads,
-                        thumbnailUrl = viewModel::thumbnailUrl,
-                        onSelect = { video ->
-                            viewModel.importFromRemote(video) { file ->
-                                if (file != null) {
-                                    selectedFile = file
-                                    browsingList = false
-                                }
+                }
+                // Antes un video de Nube sin bytes (storage dinámico ya los
+                // liberó) fallaba en silencio -- el spinner se apagaba y no
+                // pasaba nada visible. Ahora se muestra el motivo real.
+                remoteImportError?.let { message ->
+                    item(key = "remoteImportError") {
+                        SwissCard {
+                            Text(
+                                message,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.clickable { viewModel.clearRemoteImportError() },
+                            )
+                        }
+                    }
+                }
+                // Además de lo local, deja elegir un video de Nube como fuente --
+                // se baja y de ahí en más se publica igual que cualquier archivo
+                // local (mismo criterio que VideoPickerView en iOS). Antes esta
+                // pantalla solo consultaba el catálogo local, la cola remota no
+                // aparecía acá aunque sí existiera en la pestaña Nube.
+                if (canUseCloudStorage) {
+                    item(key = "remotePanel") {
+                        SourceSection(title = "Nube") {
+                            when {
+                                remoteVideosLoading -> SourceStatusRow("Cargando videos…", loading = true)
+                                remoteVideosError != null -> SourceStatusRow(
+                                    message = remoteVideosError ?: "No se pudo cargar la nube.",
+                                    onRetry = viewModel::refreshRemoteVideos,
+                                )
+                                remoteVideos.isEmpty() -> SourceStatusRow("No hay videos pendientes en la nube.")
+                                else -> RemoteVideoStrip(
+                                    videos = remoteVideos,
+                                    importingId = importingRemoteId,
+                                    nextUploads = nextUploads,
+                                    thumbnailUrl = viewModel::thumbnailUrl,
+                                    onSelect = { video ->
+                                        viewModel.importFromRemote(video) { file ->
+                                            if (file != null) {
+                                                selectedFile = file
+                                                browsingList = false
+                                            }
+                                        }
+                                    },
+                                )
                             }
-                        },
-                    )
+                        }
+                    }
+                }
+                // FIX 2026-08-18: mismo gap que BUG-2026-08-16-03 (ver
+                // docs/bug-reports.md en content-automation-dashboard) -- antes
+                // este picker no tenía forma de cambiar a un video de la PC en
+                // Biblioteca LAN. Solo aparece con PC autorizada ahora mismo
+                // (canSeeLanLibrary), sin fallback a ningún mirror.
+                if (canSeeLanLibrary) {
+                    item(key = "lanPanel") {
+                        val currentLanBaseUrl = lanBaseUrl
+                        SourceSection(title = "PC local") {
+                            when {
+                                lanLoadError != null -> SourceStatusRow(
+                                    message = lanLoadError ?: "No se pudo cargar la biblioteca de la PC.",
+                                    onRetry = viewModel::refreshLanLibrary,
+                                )
+                                currentLanBaseUrl == null -> SourceStatusRow("Conectando con la PC…", loading = true)
+                                lanVideos.isEmpty() -> SourceStatusRow("No hay videos pendientes en la PC.")
+                                else -> LanVideoStrip(
+                                    videos = lanVideos,
+                                    nextUploads = nextUploads,
+                                    thumbnailUrl = { video -> viewModel.lanThumbnailUrl(video, currentLanBaseUrl) },
+                                    onSelect = { video ->
+                                        selectedFile = null
+                                        selectedLan = video to currentLanBaseUrl
+                                        browsingList = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+                item(key = "localPanel") {
+                    SourceSection(title = "En este teléfono") {
+                        FileList(
+                            files = files,
+                            nextUploads = nextUploads,
+                            onSelect = {
+                                selectedFile = it
+                                selectedLan = null
+                                browsingList = false
+                            },
+                        )
+                    }
                 }
             }
-            // FIX 2026-08-18: mismo gap que BUG-2026-08-16-03 (ver
-            // docs/bug-reports.md en content-automation-dashboard) -- antes
-            // este picker no tenía forma de cambiar a un video de la PC en
-            // Biblioteca LAN. Solo aparece con PC autorizada ahora mismo
-            // (canSeeLanLibrary), sin fallback a ningún mirror.
-            if (canSeeLanLibrary) {
-                val currentLanBaseUrl = lanBaseUrl
-                when {
-                    lanLoadError != null -> SourceStatusRow(
-                        title = "PC local",
-                        message = lanLoadError ?: "No se pudo cargar la biblioteca de la PC.",
-                        onRetry = viewModel::refreshLanLibrary,
-                    )
-                    currentLanBaseUrl == null -> SourceStatusRow("PC local", "Conectando con la PC…", loading = true)
-                    lanVideos.isEmpty() -> SourceStatusRow("PC local", "No hay videos pendientes en la PC.")
-                    else -> LanVideoStrip(
-                        videos = lanVideos,
-                        nextUploads = nextUploads,
-                        thumbnailUrl = { video -> viewModel.lanThumbnailUrl(video, currentLanBaseUrl) },
-                        onSelect = { video ->
-                            selectedFile = null
-                            selectedLan = video to currentLanBaseUrl
-                            browsingList = false
-                        },
-                    )
-                }
-            }
-            FileList(
-                files = files,
-                nextUploads = nextUploads,
-                onSelect = {
-                    selectedFile = it
-                    selectedLan = null
-                    browsingList = false
-                },
-                modifier = Modifier.weight(1f),
-            )
         } else {
             // El lote activo solo aplica a ESTE archivo -- si el usuario
             // volvió a la lista y eligió otro mientras algo publicaba en
@@ -324,66 +347,56 @@ fun UploadScreen(
 // reales de cada plataforma.
 @Composable
 private fun PublishSuccessDialog(batch: PublishBatchState?, onDismiss: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
     AlertDialog(
         onDismissRequest = onDismiss,
-        icon = { Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-        title = { Text("¡Publicado!") },
+        icon = { Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = scheme.primary, modifier = Modifier.size(40.dp)) },
+        title = { Text("¡Publicado!", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)) },
         text = {
             Column {
                 batch?.platforms.orEmpty().forEach { state ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 4.dp),
+                            .padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(state.platform.displayName, modifier = Modifier.weight(1f))
-                        Text(
-                            "Publicado",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
+                        Text(state.platform.displayName, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                        SwissLabel("Publicado", color = scheme.primary)
                     }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Listo") }
+            SwissButton(text = "Listo", onClick = onDismiss)
         },
     )
 }
 
+// Sección de fuente del PASO 1 — título expresivo + contenido en tarjetas.
+@Composable
+private fun SourceSection(title: String, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(Swiss.gap)) {
+        SwissSectionTitle(index = "01", title = title)
+        content()
+    }
+}
+
 @Composable
 private fun SourceStatusRow(
-    title: String,
     message: String,
     loading: Boolean = false,
     onRetry: (() -> Unit)? = null,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-    ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(top = 6.dp),
-        ) {
+    SwissCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             if (loading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                )
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                 Spacer(Modifier.width(8.dp))
             }
             Text(
                 message,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
@@ -394,7 +407,7 @@ private fun SourceStatusRow(
     }
 }
 
-// Tira horizontal aparte (no mezclada en el LazyColumn de locales) -- son
+// Tira horizontal aparte (no mezclada en la lista de locales) -- son
 // fuentes distintas (uno ya está en el teléfono, el otro hay que bajarlo
 // primero), mezclarlas en una sola lista larga sería confuso sobre cuál
 // acción va a disparar tocar la tarjeta.
@@ -406,61 +419,45 @@ private fun RemoteVideoStrip(
     thumbnailUrl: (RemoteLibraryVideoDto) -> String?,
     onSelect: (RemoteLibraryVideoDto) -> Unit,
 ) {
-    Column(modifier = Modifier.padding(bottom = 8.dp)) {
-        Text(
-            "Nube",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 4.dp),
-        )
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(videos, key = { it._id }) { video ->
-                val isImporting = importingId == video._id
-                Card(
-                    modifier = Modifier.width(140.dp),
-                    onClick = { if (importingId == null) onSelect(video) },
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(Swiss.gap)) {
+        items(videos, key = { it._id }) { video ->
+            val isImporting = importingId == video._id
+            SwissCard(
+                modifier = Modifier.width(150.dp),
+                onClick = { if (importingId == null) onSelect(video) },
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(84.dp)
+                        .clip(RoundedCornerShape(Swiss.cardSmall))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Column(modifier = Modifier.padding(8.dp)) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(80.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            val url = thumbnailUrl(video)
-                            when {
-                                isImporting -> CircularProgressIndicator(modifier = Modifier.size(20.dp))
-                                url != null -> AsyncImage(
-                                    model = url,
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                                else -> Icon(
-                                    Icons.Outlined.CloudUpload,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                        Text(
-                            video.fileName,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 6.dp),
+                    val url = thumbnailUrl(video)
+                    when {
+                        isImporting -> CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                        url != null -> AsyncImage(
+                            model = url,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
                         )
-                        val nextFor = Platform.publishable.filter { nextUploads[it] == video.fileName }
-                        if (nextFor.isNotEmpty()) NextUploadBadgeRow(nextFor)
+                        else -> Icon(
+                            Icons.Outlined.CloudUpload,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
+                Text(
+                    video.fileName,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val nextFor = Platform.publishable.filter { nextUploads[it] == video.fileName }
+                if (nextFor.isNotEmpty()) NextUploadBadgeRow(nextFor)
             }
         }
     }
@@ -477,104 +474,88 @@ private fun LanVideoStrip(
     thumbnailUrl: (LocalPcVideoDto) -> String?,
     onSelect: (LocalPcVideoDto) -> Unit,
 ) {
-    Column(modifier = Modifier.padding(bottom = 8.dp)) {
-        Text(
-            "PC local",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 4.dp),
-        )
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(videos, key = { it._id }) { video ->
-                Card(
-                    modifier = Modifier.width(140.dp),
-                    onClick = { onSelect(video) },
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(Swiss.gap)) {
+        items(videos, key = { it._id }) { video ->
+            SwissCard(
+                modifier = Modifier.width(150.dp),
+                onClick = { onSelect(video) },
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(84.dp)
+                        .clip(RoundedCornerShape(Swiss.cardSmall))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Column(modifier = Modifier.padding(8.dp)) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(80.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            val url = thumbnailUrl(video)
-                            if (url != null) {
-                                AsyncImage(
-                                    model = url,
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            } else {
-                                Icon(
-                                    Icons.Outlined.Computer,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                        Text(
-                            video.fileName,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 6.dp),
+                    val url = thumbnailUrl(video)
+                    if (url != null) {
+                        AsyncImage(
+                            model = url,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
                         )
-                        val nextFor = Platform.publishable.filter { nextUploads[it] == video.fileName }
-                        if (nextFor.isNotEmpty()) NextUploadBadgeRow(nextFor)
+                    } else {
+                        Icon(
+                            Icons.Outlined.Computer,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
+                Text(
+                    video.fileName,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val nextFor = Platform.publishable.filter { nextUploads[it] == video.fileName }
+                if (nextFor.isNotEmpty()) NextUploadBadgeRow(nextFor)
             }
         }
     }
 }
 
+// Tarjetas del PASO 1: miniatura, nombre, sello de qué plataformas faltan
+// y flecha de affordance.
 @Composable
 private fun FileList(
     files: List<VideoFile>,
     nextUploads: Map<Platform, String>,
     onSelect: (VideoFile) -> Unit,
-    modifier: Modifier = Modifier,
 ) {
-    LazyColumn(
-        modifier = modifier,
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        items(files, key = { it.id }) { file ->
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                onClick = { onSelect(file) },
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            ) {
+    Column(verticalArrangement = Arrangement.spacedBy(Swiss.gap)) {
+        files.forEach { file ->
+            SwissCard(onClick = { onSelect(file) }) {
                 Row(
-                    modifier = Modifier.padding(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     UploadThumbnail(file.thumbnailPath)
-                    Column(modifier = Modifier.padding(start = 12.dp)) {
+                    Column(modifier = Modifier.padding(start = 16.dp).weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
                             file.fileName,
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
                             "Faltan: ${pendingPlatformsLabel(file)}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                         val nextFor = Platform.publishable.filter { nextUploads[it] == file.fileName }
                         if (nextFor.isNotEmpty()) NextUploadBadgeRow(nextFor)
                     }
+                    Icon(
+                        Icons.Outlined.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(24.dp),
+                    )
                 }
             }
         }
@@ -587,25 +568,13 @@ private fun FileList(
 // cruzada solo para esto.
 @Composable
 private fun NextUploadBadgeRow(platforms: List<Platform>) {
-    Row(
-        modifier = Modifier.padding(top = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         platforms.forEach { platform ->
-            val color = platformColor(platform)
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(color.copy(alpha = 0.15f))
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
-            ) {
-                Text(
-                    "Próximo ${platformShortLabel(platform)}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = color,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
+            Text(
+                "Próximo · ${platformShortLabel(platform)}",
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = platformColor(platform),
+            )
         }
     }
 }
@@ -621,8 +590,8 @@ private fun platformShortLabel(platform: Platform): String = when (platform) {
 private fun UploadThumbnail(thumbnailPath: String?) {
     Box(
         modifier = Modifier
-            .size(width = 64.dp, height = 40.dp)
-            .clip(RoundedCornerShape(6.dp))
+            .size(width = 72.dp, height = 48.dp)
+            .clip(RoundedCornerShape(Swiss.cardSmall))
             .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
@@ -638,7 +607,7 @@ private fun UploadThumbnail(thumbnailPath: String?) {
                 Icons.Outlined.VideoLibrary,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(20.dp),
             )
         }
     }
@@ -648,6 +617,8 @@ private fun pendingPlatformsLabel(file: VideoFile): String =
     Platform.publishable
         .filter { it !in file.platforms && it !in file.platformsDiscarded }
         .joinToString(", ") { it.apiValue }
+
+// ── PASO 2: formulario de publicación ─────────────────────────────────────
 
 @Composable
 private fun PublishForm(
@@ -672,7 +643,7 @@ private fun PublishForm(
 
     // Mismo criterio que iOS (interactiveDismissDisabled + confirmationDialog):
     // salir mientras hay un lote en curso pide confirmación, tanto por el
-    // botón "← Elegir otro video" (más abajo) como por el back del sistema.
+    // botón "Elegir otro video" (más abajo) como por el back del sistema.
     BackHandler(enabled = isPublishing) { showExitConfirmation = true }
 
     if (showExitConfirmation) {
@@ -701,62 +672,79 @@ private fun PublishForm(
             // espacio propio, así que sin este margen extra el botón
             // "Publicar" (última fila) queda scrolleable hasta quedar tapado
             // detrás de la cápsula flotante.
-            .padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = 24.dp + 80.dp),
+            .padding(
+                start = Swiss.contentHorizontal,
+                top = 24.dp,
+                end = Swiss.contentHorizontal,
+                bottom = 16.dp + 80.dp,
+            ),
+        verticalArrangement = Arrangement.spacedBy(Swiss.sectionSpacing),
     ) {
-        Text(file.fileName, style = MaterialTheme.typography.titleLarge)
-        Text(
-            "← Elegir otro video",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier
-                .padding(top = 4.dp, bottom = 16.dp)
-                .clickable { if (isPublishing) showExitConfirmation = true else onBackToList() },
-        )
+        // Cabecera del PASO 2: el archivo como titular en tarjeta de acento.
+        SwissAccentCard {
+            SwissLabel("Paso 2 — Publicar", color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
+            Text(
+                file.fileName,
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            SwissButton(
+                text = "Elegir otro video",
+                onClick = { if (isPublishing) showExitConfirmation = true else onBackToList() },
+                primary = false,
+            )
+        }
 
         AnimatedVisibility(visible = isPublishing) {
-            PublishingBatchCard(
+            PublishingBatchBlock(
                 batch = activeBatch,
                 onCancel = viewModel::cancelBatch,
             )
         }
 
         if (activeBatch != null && !activeBatch.isActive && activeBatch.stage != BatchStage.COMPLETED) {
-            BatchResultSummary(
-                batch = activeBatch,
-                blockedPlatforms = blockedPlatforms,
-                confirmationError = blockedConfirmationError,
-                onRetryFailed = {
-                    viewModel.retryFailedInBatch(
-                        file,
-                        title,
-                        description,
-                        thumbnailOffsetMs = (thumbnailOffsetSec * 1000).toLong(),
-                        crossPostFacebook = crossPostFacebook && Platform.INSTAGRAM in selectedPlatforms,
-                    )
-                },
-                onConfirmNotPublished = viewModel::confirmNotPublished,
-                onDismiss = viewModel::dismissBatch,
-            )
+            SwissCard {
+                BatchResultSummary(
+                    batch = activeBatch,
+                    blockedPlatforms = blockedPlatforms,
+                    confirmationError = blockedConfirmationError,
+                    onRetryFailed = {
+                        viewModel.retryFailedInBatch(
+                            file,
+                            title,
+                            description,
+                            thumbnailOffsetMs = (thumbnailOffsetSec * 1000).toLong(),
+                            crossPostFacebook = crossPostFacebook && Platform.INSTAGRAM in selectedPlatforms,
+                        )
+                    },
+                    onConfirmNotPublished = viewModel::confirmNotPublished,
+                    onDismiss = viewModel::dismissBatch,
+                )
+            }
         }
 
-        OutlinedTextField(
-            value = title,
-            onValueChange = { title = it },
-            label = { Text("Título") },
-            singleLine = true,
-            enabled = !isPublishing,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = description,
-            onValueChange = { description = it },
-            label = { Text("Descripción") },
-            minLines = 2,
-            enabled = !isPublishing,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp),
-        )
+        // Bloque DETALLES.
+        Column(verticalArrangement = Arrangement.spacedBy(Swiss.gap)) {
+            SwissSectionTitle(index = "02", title = "Detalles")
+            SwissCard {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Título") },
+                    singleLine = true,
+                    enabled = !isPublishing,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Descripción") },
+                    minLines = 2,
+                    enabled = !isPublishing,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
 
         val durationSec = file.duracionSegundos
         if (durationSec != null && durationSec > 0) {
@@ -770,39 +758,39 @@ private fun PublishForm(
             )
         }
 
-        Text(
-            "Plataformas",
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(top = 20.dp, bottom = 4.dp),
-        )
-        Platform.publishable.forEach { platform ->
-            val alreadyDone = platform in file.platforms
-            PlatformRow(
-                platform = platform,
-                fileId = file.id,
-                checked = platform in selectedPlatforms,
-                enabled = !alreadyDone && !isPublishing,
-                alreadyDone = alreadyDone,
-                onCheckedChange = { checked ->
-                    selectedPlatforms = if (checked) selectedPlatforms + platform else selectedPlatforms - platform
-                },
-                viewModel = viewModel,
-            )
-            // Facebook no es una plataforma publicable aparte (no está en
-            // Platform.publishable) -- es un crosspost del MISMO archivo que
-            // Instagram acepta, vía la Reels Publishing API de la Página
-            // vinculada (ver InstagramUploader.publishReelToFacebookPage).
-            // Solo tiene sentido si Instagram va a subirse en esta tanda.
-            if (platform == Platform.INSTAGRAM) {
-                FacebookCrossPostRow(
-                    checked = crossPostFacebook,
-                    enabled = Platform.INSTAGRAM in selectedPlatforms && !isPublishing,
-                    onCheckedChange = { crossPostFacebook = it },
+        // Bloque PLATAFORMAS.
+        Column(verticalArrangement = Arrangement.spacedBy(Swiss.gap)) {
+            SwissSectionTitle(index = "03", title = "Plataformas", subtitle = "Tildá dónde se publica este video.")
+            Platform.publishable.forEach { platform ->
+                val alreadyDone = platform in file.platforms
+                PlatformCard(
+                    platform = platform,
+                    fileId = file.id,
+                    checked = platform in selectedPlatforms,
+                    enabled = !alreadyDone && !isPublishing,
+                    alreadyDone = alreadyDone,
+                    onCheckedChange = { checked ->
+                        selectedPlatforms = if (checked) selectedPlatforms + platform else selectedPlatforms - platform
+                    },
+                    viewModel = viewModel,
                 )
+                // Facebook no es una plataforma publicable aparte (no está en
+                // Platform.publishable) -- es un crosspost del MISMO archivo que
+                // Instagram acepta, vía la Reels Publishing API de la Página
+                // vinculada (ver InstagramUploader.publishReelToFacebookPage).
+                // Solo tiene sentido si Instagram va a subirse en esta tanda.
+                if (platform == Platform.INSTAGRAM) {
+                    FacebookCrossPostRow(
+                        checked = crossPostFacebook,
+                        enabled = Platform.INSTAGRAM in selectedPlatforms && !isPublishing,
+                        onCheckedChange = { crossPostFacebook = it },
+                    )
+                }
             }
         }
 
-        Button(
+        SwissButton(
+            text = if (isPublishing) "Publicando…" else "Publicar",
             onClick = {
                 viewModel.publish(
                     file,
@@ -814,37 +802,32 @@ private fun PublishForm(
                 )
             },
             enabled = !isPublishing && selectedPlatforms.isNotEmpty() && title.isNotBlank(),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 24.dp),
-        ) { Text(if (isPublishing) "Publicando…" else "Publicar") }
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
-// Tarjeta persistente y visible durante toda la publicación -- reemplaza el
+// Bloque de estado persistente durante toda la publicación -- reemplaza el
 // feedback chico anterior (un "Subido ✓"/progreso por fila nada más). Mismo
 // vocabulario que iOS: plataforma activa, progreso, aviso de "no cierres la
 // app", botón para cancelar lo que todavía no arrancó.
 @Composable
-private fun PublishingBatchCard(batch: PublishBatchState?, onCancel: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Publicando…", style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.height(8.dp))
-            batch?.platforms.orEmpty().forEach { state ->
+private fun PublishingBatchBlock(batch: PublishBatchState?, onCancel: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    SwissAccentCard {
+        SwissLabel("Publicando", color = scheme.onPrimaryContainer.copy(alpha = 0.8f))
+        batch?.platforms.orEmpty().forEach { state ->
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 3.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(state.platform.displayName, modifier = Modifier.weight(1f))
+                    Text(
+                        state.platform.displayName,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = scheme.onPrimaryContainer,
+                        modifier = Modifier.weight(1f),
+                    )
                     PlatformBatchStatusLabel(state)
                 }
                 val progress = state.progress
@@ -854,58 +837,64 @@ private fun PublishingBatchCard(batch: PublishBatchState?, onCancel: () -> Unit)
                     // LinearProgressIndicator (evaluado después, no smart-cast).
                     LinearProgressIndicator(
                         progress = { progress },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        trackColor = scheme.onPrimaryContainer.copy(alpha = 0.25f),
+                        color = scheme.primary,
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Outlined.Warning,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.tertiary,
-                    modifier = Modifier.size(16.dp),
-                )
-                Text(
-                    "Mantené la app abierta hasta que termine. Si salís o la cerrás, la subida puede interrumpirse.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.tertiary,
-                    modifier = Modifier.padding(start = 6.dp),
-                )
-            }
-            OutlinedButton(
-                onClick = onCancel,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-            ) { Text("Cancelar publicación") }
         }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Outlined.Warning,
+                contentDescription = null,
+                tint = scheme.onPrimaryContainer.copy(alpha = 0.9f),
+                modifier = Modifier.size(16.dp),
+            )
+            Text(
+                "Mantené la app abierta hasta que termine. Si salís o la cerrás, la subida puede interrumpirse.",
+                style = MaterialTheme.typography.labelSmall,
+                color = scheme.onPrimaryContainer.copy(alpha = 0.9f),
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+        SwissButton(
+            text = "Cancelar publicación",
+            onClick = onCancel,
+            primary = false,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
 @Composable
 private fun PlatformBatchStatusLabel(state: PlatformPublishState) {
+    val scheme = MaterialTheme.colorScheme
     when (state.stage) {
         PlatformPublishStage.PENDING -> Text(
             "En espera",
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = scheme.onSurfaceVariant,
         )
         PlatformPublishStage.UPLOADING -> Text(
             "${((state.progress ?: 0f) * 100).toInt()}%",
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+            color = scheme.primary,
         )
         PlatformPublishStage.SUCCESS -> Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 Icons.Filled.CheckCircle,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(14.dp),
+                tint = scheme.primary,
+                modifier = Modifier.size(16.dp),
             )
             Text(
                 "Publicado",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = scheme.primary,
                 modifier = Modifier.padding(start = 4.dp),
             )
         }
@@ -913,13 +902,13 @@ private fun PlatformBatchStatusLabel(state: PlatformPublishState) {
             Icon(
                 Icons.Filled.Error,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier.size(14.dp),
+                tint = scheme.error,
+                modifier = Modifier.size(16.dp),
             )
             Text(
                 state.error ?: "Error",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.error,
+                color = scheme.error,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(start = 4.dp),
@@ -928,7 +917,7 @@ private fun PlatformBatchStatusLabel(state: PlatformPublishState) {
         PlatformPublishStage.CANCELLED -> Text(
             "Cancelado",
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = scheme.onSurfaceVariant,
         )
     }
 }
@@ -954,7 +943,9 @@ private fun BatchResultSummary(
     onDismiss: () -> Unit,
 ) {
     // El retry normal cubre solo lo fallido/cancelado que NO está blocked --
-    // lo blocked queda exclusivamente para la confirmación humana.
+    // lo blocked queda exclusivamente para la confirmación humana. El gate
+    // del journal excluye de facto al flujo LAN (la PC publica y nunca
+    // escribe publish_operations).
     val hasRetriable = batch.platforms.any {
         (it.stage == PlatformPublishStage.FAILED || it.stage == PlatformPublishStage.CANCELLED) &&
             it.platform !in blockedPlatforms
@@ -964,57 +955,50 @@ private fun BatchResultSummary(
     // como estaba).
     var confirmTarget by remember { mutableStateOf<Platform?>(null) }
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                if (batch.stage == BatchStage.PARTIAL_FAILURE) "Publicación parcial" else "No se pudo publicar",
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            batch.platforms.forEach { state ->
-                Column(modifier = Modifier.padding(vertical = 3.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(state.platform.displayName, modifier = Modifier.weight(1f))
-                        PlatformBatchStatusLabel(state)
-                    }
-                    // Desenlace ambiguo respaldado por una fila `blocked` del
-                    // journal: la salida es la confirmación humana, no el
-                    // retry. El gate del journal excluye de facto al flujo
-                    // LAN (la PC publica y nunca escribe publish_operations).
-                    if (state.platform in blockedPlatforms) {
-                        TextButton(onClick = { confirmTarget = state.platform }) {
-                            Text("Revisé la plataforma y el video no se publicó")
-                        }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            if (batch.stage == BatchStage.PARTIAL_FAILURE) "Publicación parcial" else "No se pudo publicar",
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.error,
+        )
+        batch.platforms.forEach { state ->
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        state.platform.displayName,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                        modifier = Modifier.weight(1f),
+                    )
+                    PlatformBatchStatusLabel(state)
+                }
+                // Desenlace ambiguo respaldado por una fila `blocked` del
+                // journal: la salida es la confirmación humana, no el
+                // retry.
+                if (state.platform in blockedPlatforms) {
+                    TextButton(onClick = { confirmTarget = state.platform }) {
+                        Text("Revisé la plataforma y el video no se publicó")
                     }
                 }
             }
-            if (confirmationError != null) {
-                Text(
-                    confirmationError,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
-            }
-            if (hasRetriable) {
-                Button(
-                    onClick = onRetryFailed,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
-                ) { Text("Reintentar fallidas") }
-            } else {
-                TextButton(onClick = onDismiss, modifier = Modifier.padding(top = 4.dp)) { Text("Descartar") }
-            }
+        }
+        if (confirmationError != null) {
+            Text(
+                confirmationError,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        if (hasRetriable) {
+            SwissButton(
+                text = "Reintentar fallidas",
+                onClick = onRetryFailed,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        } else {
+            TextButton(onClick = onDismiss) { Text("Descartar") }
         }
     }
 
@@ -1050,25 +1034,26 @@ private fun BatchResultSummary(
 
 @Composable
 private fun FacebookCrossPostRow(checked: Boolean, enabled: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 46.dp, bottom = 4.dp),
-    ) {
-        Checkbox(checked = checked && enabled, enabled = enabled, onCheckedChange = onCheckedChange)
-        Column(modifier = Modifier.padding(top = 12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                // Mismo logo de marca que el toggle equivalente en el dashboard
-                // (YoutubeUploadView.tsx) y iOS (InstagramOptionsFields) -- antes
-                // este toggle no tenía ningún ícono.
-                Icon(PlatformIcons.FacebookLogo, contentDescription = null, tint = FacebookBlue, modifier = Modifier.size(16.dp))
-                Text("También publicar en Facebook", style = MaterialTheme.typography.bodyMedium)
+    SwissCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(checked = checked && enabled, enabled = enabled, onCheckedChange = onCheckedChange)
+            Column(modifier = Modifier.padding(start = 4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Mismo logo de marca que el toggle equivalente en el dashboard
+                    // (YoutubeUploadView.tsx) y iOS (InstagramOptionsFields) -- antes
+                    // este toggle no tenía ningún ícono.
+                    Icon(PlatformIcons.FacebookLogo, contentDescription = null, tint = FacebookBlue, modifier = Modifier.size(20.dp))
+                    Text("También publicar en Facebook", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                }
+                Text(
+                    "Mismo video, como Reel en la Página vinculada a tu cuenta de Instagram.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            Text(
-                "Mismo video, como Reel en la Página vinculada a tu cuenta de Instagram.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
@@ -1107,56 +1092,55 @@ private fun ThumbnailPicker(
         loading = false
     }
 
-    Column(modifier = Modifier.padding(top = 20.dp)) {
-        Text("Portada", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Elegí el frame que se va a usar de miniatura.",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 8.dp),
-        )
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(160.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center,
-        ) {
-            val currentPreview = preview
-            when {
-                currentPreview != null -> Image(
-                    bitmap = currentPreview.asImageBitmap(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                thumbnailPath != null -> AsyncImage(
-                    model = File(thumbnailPath),
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                else -> Unit
+    Column(verticalArrangement = Arrangement.spacedBy(Swiss.gap)) {
+        SwissSectionTitle(index = "04", title = "Portada", subtitle = "Elegí el frame que se va a usar de miniatura.")
+        SwissCard {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(170.dp)
+                    .clip(RoundedCornerShape(Swiss.cardSmall))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center,
+            ) {
+                val currentPreview = preview
+                when {
+                    currentPreview != null -> Image(
+                        bitmap = currentPreview.asImageBitmap(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    thumbnailPath != null -> AsyncImage(
+                        model = File(thumbnailPath),
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    else -> Unit
+                }
+                if (loading) {
+                    CircularProgressIndicator()
+                }
             }
-            if (loading) {
-                CircularProgressIndicator()
+
+            Slider(
+                value = offsetSec,
+                onValueChange = onOffsetChange,
+                onValueChangeFinished = { committedOffsetSec = offsetSec },
+                valueRange = 0f..durationSec.toFloat(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                Text(
+                    formatSecondsLabel(offsetSec),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                )
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                SwissLabel("Frame elegido")
             }
         }
-
-        Slider(
-            value = offsetSec,
-            onValueChange = onOffsetChange,
-            onValueChangeFinished = { committedOffsetSec = offsetSec },
-            valueRange = 0f..durationSec.toFloat(),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Text(
-            formatSecondsLabel(offsetSec),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
@@ -1165,13 +1149,10 @@ private fun formatSecondsLabel(seconds: Float): String {
     return "%d:%02d".format(totalSec / 60, totalSec % 60)
 }
 
-// Fila entera clickeable (no solo el Checkbox), con el logo real de la
-// plataforma en un badge circular que se ilumina con el color de marca al
-// elegirla -- mismo lenguaje visual que los badges de Biblioteca/
-// Estadísticas/Calendario, pero acá además es la forma de seleccionar qué
-// publicar, no solo un indicador de estado.
+// Tarjeta de plataforma: logo, nombre, estado y checkbox grande a la
+// derecha. Toda la tarjeta es clickeable (no solo el Checkbox).
 @Composable
-private fun PlatformRow(
+private fun PlatformCard(
     platform: Platform,
     fileId: Long,
     checked: Boolean,
@@ -1183,55 +1164,44 @@ private fun PlatformRow(
     val workInfoFlow = remember(fileId, platform) { viewModel.observeWork(fileId, platform) }
     val workInfo by workInfoFlow.collectAsState(initial = null)
     val color = platformColor(platform)
-    val selected = checked || alreadyDone
+    val scheme = MaterialTheme.colorScheme
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) color.copy(alpha = 0.1f) else Color.Transparent)
-            .clickable(enabled = enabled) { onCheckedChange(!checked) }
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(color.copy(alpha = if (selected) 0.18f else 0.08f)),
-            contentAlignment = Alignment.Center,
+    SwissCard(onClick = if (enabled) ({ onCheckedChange(!checked) }) else null) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             val icon = platformIcon(platform)
             if (icon != null) {
                 Icon(
                     icon,
                     contentDescription = platformFullLabel(platform),
-                    tint = if (selected) color else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(16.dp),
+                    tint = if (checked || alreadyDone) color else scheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp),
                 )
+                Spacer(Modifier.width(16.dp))
             }
-        }
-        Column(
-            modifier = Modifier
-                .padding(start = 12.dp)
-                .weight(1f),
-        ) {
-            Text(
-                platformFullLabel(platform),
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            )
-            PlatformStatusLabel(alreadyDone = alreadyDone, workInfo = workInfo)
-            // El crosspost a Facebook viaja en el MISMO WorkInfo que Instagram
-            // (ver UploadWorker) -- no es una plataforma con su propio job.
-            if (platform == Platform.INSTAGRAM) {
-                workInfo?.takeIf { it.state == WorkInfo.State.SUCCEEDED }?.let { info ->
-                    FacebookCrossPostStatus(info.outputData)
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    platformFullLabel(platform),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                )
+                PlatformStatusLabel(alreadyDone = alreadyDone, workInfo = workInfo)
+                // El crosspost a Facebook viaja en el MISMO WorkInfo que Instagram
+                // (ver UploadWorker) -- no es una plataforma con su propio job.
+                if (platform == Platform.INSTAGRAM) {
+                    workInfo?.takeIf { it.state == WorkInfo.State.SUCCEEDED }?.let { info ->
+                        FacebookCrossPostStatus(info.outputData)
+                    }
                 }
             }
+            Checkbox(
+                checked = checked || alreadyDone,
+                enabled = enabled,
+                onCheckedChange = onCheckedChange,
+                modifier = Modifier.size(Swiss.touchMin),
+            )
         }
-        Checkbox(checked = selected, enabled = enabled, onCheckedChange = onCheckedChange)
     }
 }
 
@@ -1261,14 +1231,14 @@ private fun PlatformStatusLabel(alreadyDone: Boolean, workInfo: WorkInfo?) {
     when {
         alreadyDone -> Text(
             "Ya publicado",
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
             color = MaterialTheme.colorScheme.primary,
         )
         workInfo?.state == WorkInfo.State.RUNNING -> {
             val progress = workInfo.progress.getFloat(UploadWorker.KEY_PROGRESS, 0f)
-            Row {
-                LinearProgressIndicator(progress = { progress }, modifier = Modifier.padding(top = 4.dp, end = 8.dp))
-                Text("${(progress * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                LinearProgressIndicator(progress = { progress }, modifier = Modifier.padding(end = 8.dp).height(4.dp).weight(1f))
+                Text("${(progress * 100).toInt()}%", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
             }
         }
         workInfo?.state == WorkInfo.State.ENQUEUED -> Text(
@@ -1278,7 +1248,7 @@ private fun PlatformStatusLabel(alreadyDone: Boolean, workInfo: WorkInfo?) {
         )
         workInfo?.state == WorkInfo.State.SUCCEEDED -> Text(
             "Subido ✓",
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
             color = MaterialTheme.colorScheme.primary,
         )
         workInfo?.state == WorkInfo.State.FAILED -> Text(
@@ -1301,7 +1271,7 @@ private fun FacebookCrossPostStatus(outputData: Data) {
     when {
         facebookUrl != null -> Text(
             "Facebook: publicado ✓",
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
             color = MaterialTheme.colorScheme.primary,
         )
         facebookError != null -> Text(

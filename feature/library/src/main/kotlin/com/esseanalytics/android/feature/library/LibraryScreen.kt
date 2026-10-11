@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,11 +16,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
@@ -32,14 +29,7 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -66,11 +56,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.esseanalytics.android.core.designsystem.component.SwissButton
+import com.esseanalytics.android.core.designsystem.component.SwissCard
+import com.esseanalytics.android.core.designsystem.component.SwissChip
+import com.esseanalytics.android.core.designsystem.component.SwissIconButton
+import com.esseanalytics.android.core.designsystem.component.SwissScreenHeader
 import com.esseanalytics.android.core.designsystem.component.PlaceholderScreen
 import com.esseanalytics.android.core.designsystem.icon.InstagramLogo
 import com.esseanalytics.android.core.designsystem.icon.PlatformIcons
 import com.esseanalytics.android.core.designsystem.icon.TiktokLogo
 import com.esseanalytics.android.core.designsystem.icon.YoutubeLogo
+import com.esseanalytics.android.core.designsystem.theme.Swiss
 import com.esseanalytics.android.core.designsystem.theme.InstagramPurple
 import com.esseanalytics.android.core.designsystem.theme.TiktokPink
 import com.esseanalytics.android.core.designsystem.theme.YoutubeRed
@@ -81,17 +77,11 @@ import java.io.File
 
 private val FloatingNavClearance = 80.dp
 
-// Historial de todo lo importado -- no solo una lista, cada tarjeta muestra
-// el estado real por plataforma (publicado/descartado/pendiente, ver
-// VideoFile.platforms/platformsDiscarded). Tocarla decide adónde ir según
-// ese estado (ver EsseAnalyticsNavHost): sin nada publicado todavía, a Subir
-// con ese archivo ya elegido; con algo ya publicado, a Estadísticas.
-// Miniatura real (AndroidFrameThumbnailGenerator, ver core:media).
-//
-// Fusión local+remoto (Parte D del plan): si el usuario tiene
-// canUseCloudStorage, esta lista TAMBIÉN trae la cola remota (central) y
-// muestra chips de filtro arriba -- sin el entitlement, se ve exactamente
-// igual que antes (cero chips, solo locales).
+// REDISEÑO BENTO: Biblioteca como retícula de tarjetas — cada video en su
+// propia tarjeta con miniatura, título, badges de plataforma y acciones.
+// Toda la funcionalidad intacta: filtros Todos/Local/Cola remota/Biblioteca
+// LAN (animados), play, editar plataformas, borrar (con su diálogo según
+// origen), sheets de detalle y reproductores.
 @Composable
 fun LibraryScreen(
     onImportClick: () -> Unit = {},
@@ -141,28 +131,28 @@ fun LibraryScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
-            // Arriba del contenido y antes de los filtros, como el botón
-            // superior de iOS: un FAB abajo quedaba apretado contra la barra
-            // flotante global y la navegación del sistema.
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
-                horizontalArrangement = Arrangement.End,
+                    .padding(start = Swiss.contentHorizontal, end = Swiss.contentHorizontal, top = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Button(onClick = onImportClick) {
-                    Icon(
-                        Icons.Outlined.Add,
-                        contentDescription = null,
-                        modifier = Modifier.size(ButtonDefaults.IconSize),
-                    )
-                    Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-                    Text("Importar video")
-                }
+                SwissScreenHeader(
+                    title = "Videos",
+                    subtitle = if (items.isEmpty()) "Tu biblioteca" else "${items.size} en la biblioteca",
+                )
+                SwissButton(
+                    text = "Importar video",
+                    onClick = onImportClick,
+                    modifier = Modifier.fillMaxWidth(),
+                    leadingIcon = {
+                        Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(20.dp))
+                    },
+                )
             }
 
             if (canUseCloudStorage || canSeeLanLibrary) {
-                LibraryFilterChips(
+                LibraryFilterRow(
                     filter = filter,
                     onFilterChange = viewModel::setFilter,
                     canUseCloudStorage = canUseCloudStorage,
@@ -187,12 +177,12 @@ fun LibraryScreen(
                     // última tarjeta. Cápsula (62dp) + su margen inferior (2dp) +
                     // 16dp de aire, más el inset real de la navegación del sistema.
                     contentPadding = PaddingValues(
-                        start = 16.dp,
-                        end = 16.dp,
-                        top = 16.dp,
+                        start = Swiss.contentHorizontal,
+                        end = Swiss.contentHorizontal,
+                        top = 8.dp,
                         bottom = FloatingNavClearance + systemNavigationBarInset,
                     ),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(Swiss.gap),
                 ) {
                     items(
                         items,
@@ -320,19 +310,17 @@ fun LibraryScreen(
 // aparece (antes quedaba siempre visible para cualquier premium vía el
 // mirror de metadata, sin bytes -- se veía como filas negras sin conexión).
 @Composable
-private fun LibraryFilterChips(
+private fun LibraryFilterRow(
     filter: LibraryFilter,
     onFilterChange: (LibraryFilter) -> Unit,
     canUseCloudStorage: Boolean,
     canSeeLanLibrary: Boolean,
 ) {
-    // horizontalScroll, NO fillMaxWidth -- con los 4 chips (owner) el ancho no
-    // entra en pantallas angostas; sin scroll, Row comprime el último chip
-    // hasta que su texto envuelve letra por letra en una columna pegada al borde.
     Row(
         modifier = Modifier
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(top = 16.dp)
+            .padding(horizontal = Swiss.contentHorizontal)
+            .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         LibraryFilterChip(LibraryFilter.ALL, filter, onFilterChange)
@@ -355,11 +343,10 @@ private fun LibraryFilterChips(
 
 @Composable
 private fun LibraryFilterChip(entry: LibraryFilter, filter: LibraryFilter, onFilterChange: (LibraryFilter) -> Unit) {
-    FilterChip(
+    SwissChip(
         selected = filter == entry,
         onClick = { onFilterChange(entry) },
-        label = { Text(libraryFilterLabel(entry)) },
-        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.surfaceVariant),
+        label = libraryFilterLabel(entry),
     )
 }
 
@@ -370,6 +357,9 @@ private fun libraryFilterLabel(filter: LibraryFilter): String = when (filter) {
     LibraryFilter.LAN -> "Biblioteca LAN"
 }
 
+// Tarjeta bento por video: miniatura, título, duración y estado por
+// plataforma, acciones como botones de icono en tarjeta. El tap abre el
+// detalle; play, editar y borrar mantienen su acción.
 @Composable
 private fun LibraryItemCard(
     item: LibraryListItem,
@@ -381,18 +371,9 @@ private fun LibraryItemCard(
     onDeleteClick: () -> Unit,
     onEditPlatformsClick: (() -> Unit)? = null,
 ) {
-    // elevation = 0.dp: la elevación por defecto de Card mezcla el color
-    // primario sobre la superficie -- se ve como una tarjeta más clara/tibia
-    // de lo que pide el tema (--card plano en theme.css). Mismo fix en todas
-    // las Card() de la app.
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = onClick,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
+    SwissCard(onClick = onClick) {
         Row(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box {
@@ -400,14 +381,11 @@ private fun LibraryItemCard(
                     is LibraryListItem.Local -> LocalThumbnail(item.file.thumbnailPath)
                     // El JWT viaja como ?token= en la URL (ver remoteLibraryThumbnailUrl),
                     // no como header -- por eso no hace falta un ImageLoader de Coil
-                    // custom, AsyncImage normal alcanza. Mismo Box con fondo que
-                    // OriginThumbnail SIEMPRE (antes el branch de AsyncImage no lo
-                    // tenía -- un fallo de carga dejaba la fila completamente en
-                    // blanco, sin caja ni ícono, en vez de degradar al ícono de nube).
+                    // custom, AsyncImage normal alcanza.
                     is LibraryListItem.Remote -> Box(
                         modifier = Modifier
-                            .size(width = 64.dp, height = 40.dp)
-                            .clip(RoundedCornerShape(6.dp))
+                            .size(width = 76.dp, height = 52.dp)
+                            .clip(RoundedCornerShape(Swiss.cardSmall))
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -424,19 +402,14 @@ private fun LibraryItemCard(
                                 Icons.Outlined.CloudQueue,
                                 contentDescription = "Video en la cola remota",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp),
+                                modifier = Modifier.size(20.dp),
                             )
                         }
                     }
-                    // Mismo patrón que Remote -- acá SÍ hay bytes reales
-                    // (viene de una PC autorizada en la LAN ahora mismo), a
-                    // diferencia del viejo BackupCatalog que nunca tenía
-                    // miniatura y siempre caía al ícono. Mismo fallback si
-                    // la carga falla (PC recién apagada a mitad de scroll).
                     is LibraryListItem.LanVideo -> Box(
                         modifier = Modifier
-                            .size(width = 64.dp, height = 40.dp)
-                            .clip(RoundedCornerShape(6.dp))
+                            .size(width = 76.dp, height = 52.dp)
+                            .clip(RoundedCornerShape(Swiss.cardSmall))
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -453,94 +426,69 @@ private fun LibraryItemCard(
                                 Icons.Outlined.Computer,
                                 contentDescription = "Video en tu PC (LAN)",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp),
+                                modifier = Modifier.size(20.dp),
                             )
                         }
                     }
                 }
-
-                // LanVideo sí tiene bytes reproducibles -- a diferencia del
-                // viejo BackupCatalog, acá el play sí funciona.
                 PlayBadge(onClick = onPlayClick, modifier = Modifier.align(Alignment.BottomEnd))
             }
 
             Column(
                 modifier = Modifier
-                    .padding(start = 12.dp)
+                    .padding(start = 16.dp)
                     .weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
                     item.displayName,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
+                val (durationLabel, resolution) = when (item) {
+                    is LibraryListItem.Local -> (item.file.duracionSegundos?.let { "${it}s" } ?: "—") to item.file.resolucion
+                    is LibraryListItem.Remote -> (item.video.durationSeconds?.let { "${it.toInt()}s" } ?: "—") to item.video.resolution
+                    is LibraryListItem.LanVideo -> (item.video.duracion_segundos?.let { "${it.toInt()}s" } ?: "—") to item.video.resolucion
+                }
+                Text(
+                    "$durationLabel · ${resolution ?: "—"}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                val (published, discarded) = when (item) {
+                    is LibraryListItem.Local -> item.file.platforms to item.file.platformsDiscarded.map { it.apiValue }
+                    is LibraryListItem.Remote -> item.video.platforms.mapNotNull { Platform.fromApiValue(it) } to item.video.platformsDiscarded
+                    is LibraryListItem.LanVideo -> item.video.platforms.mapNotNull { Platform.fromApiValue(it) } to item.video.platforms_discarded
+                }
+                PlatformBadgeRow(published = published, discarded = discarded)
                 val nextFor = Platform.publishable.filter { nextUploads[it] == item.displayName }
                 if (nextFor.isNotEmpty()) NextUploadBadgeRow(nextFor)
-                when (item) {
-                    is LibraryListItem.Local -> {
-                        val durationLabel = item.file.duracionSegundos?.let { "${it}s" } ?: "—"
-                        Text(
-                            "$durationLabel · ${item.file.resolucion ?: "—"}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        PlatformBadgeRow(published = item.file.platforms, discarded = item.file.platformsDiscarded.map { it.apiValue })
-                    }
-                    is LibraryListItem.Remote -> {
-                        val durationLabel = item.video.durationSeconds?.let { "${it.toInt()}s" } ?: "—"
-                        Text(
-                            "$durationLabel · ${item.video.resolution ?: "—"}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        PlatformBadgeRow(
-                            published = item.video.platforms.mapNotNull { Platform.fromApiValue(it) },
-                            discarded = item.video.platformsDiscarded,
-                        )
-                    }
-                    is LibraryListItem.LanVideo -> {
-                        val durationLabel = item.video.duracion_segundos?.let { "${it.toInt()}s" } ?: "—"
-                        Text(
-                            "$durationLabel · ${item.video.resolucion ?: "—"}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        PlatformBadgeRow(
-                            published = item.video.platforms.mapNotNull { Platform.fromApiValue(it) },
-                            discarded = item.video.platforms_discarded,
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (onEditPlatformsClick != null) {
+                    SwissIconButton(onClick = onEditPlatformsClick) {
+                        Icon(
+                            Icons.Outlined.Edit,
+                            contentDescription = "Editar plataformas",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
                         )
                     }
                 }
-            }
-
-            // Marcar publicado a mano + cargar el link real -- solo tiene
-            // sentido en local (ver onEditPlatformsClick en LibraryScreen).
-            // size(36.dp) en vez del default de IconButton (48dp): con los 2
-            // botones a full size no quedaba ancho para el título -- se
-            // truncaba mucho antes de lo necesario en pantallas angostas.
-            if (onEditPlatformsClick != null) {
-                IconButton(onClick = onEditPlatformsClick, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        Icons.Outlined.Edit,
-                        contentDescription = "Editar plataformas",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
-
-            // Sin botón de borrar para LanVideo -- el archivo vive en la PC,
-            // no hay nada que la app pueda eliminar desde acá (ver
-            // LibraryViewModel.delete()).
-            if (item !is LibraryListItem.LanVideo) {
-                IconButton(onClick = onDeleteClick, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        Icons.Outlined.Delete,
-                        contentDescription = "Eliminar video",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
-                    )
+                // Sin botón de borrar para LanVideo -- el archivo vive en la PC,
+                // no hay nada que la app pueda eliminar desde acá (ver
+                // LibraryViewModel.delete()).
+                if (item !is LibraryListItem.LanVideo) {
+                    SwissIconButton(onClick = onDeleteClick) {
+                        Icon(
+                            Icons.Outlined.Delete,
+                            contentDescription = "Eliminar video",
+                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
             }
         }
@@ -576,17 +524,10 @@ private fun DeleteItemDialog(item: LibraryListItem, onConfirm: () -> Unit, onDis
 // Regla simple: color de marca SOLO si está publicado, gris en cualquier
 // otro caso (pendiente o descartado) -- antes pendiente quedaba con el
 // círculo vacío/transparente y descartado con un gris apenas distinto, una
-// distinción demasiado sutil para leerse de un vistazo. Ahora los dos son
-// el mismo círculo gris relleno; descartado se ve un poco más apagado
-// (alpha más bajo) que pendiente, pero ninguno de los dos se confunde con
-// publicado. published/discarded llegan como listas ya normalizadas (Platform
-// para local, String->Platform para remoto) para no duplicar esta función.
+// distinción demasiado sutil para leerse de un vistazo.
 @Composable
 private fun PlatformBadgeRow(published: List<Platform>, discarded: List<String>) {
-    Row(
-        modifier = Modifier.padding(top = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Platform.publishable.forEach { platform ->
             val state = when {
                 platform in published -> PlatformBadgeState.PUBLISHED
@@ -601,29 +542,17 @@ private fun PlatformBadgeRow(published: List<Platform>, discarded: List<String>)
 // "Próximo" a publicar en cada plataforma según el calendario (central) --
 // distinto de PlatformBadgeRow (que muestra el estado publicado/descartado/
 // pendiente): esto avisa CUÁL de los pendientes es el que el calendario
-// espera que salga a continuación, algo que antes no se veía en ningún
-// lado de la lista (ni acá ni en el picker de Subir).
+// espera que salga a continuación.
 @Composable
 private fun NextUploadBadgeRow(platforms: List<Platform>) {
-    Row(
-        modifier = Modifier.padding(top = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         platforms.forEach { platform ->
             val color = platformColor(platform)
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(color.copy(alpha = 0.15f))
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
-            ) {
-                Text(
-                    "Próximo ${platformShortLabel(platform)}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = color,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
+            Text(
+                "Próximo · ${platformShortLabel(platform)}",
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = color,
+            )
         }
     }
 }
@@ -662,58 +591,55 @@ internal fun platformIcon(platform: Platform): ImageVector? = when (platform) {
 @Composable
 private fun PlatformBadge(platform: Platform, state: PlatformBadgeState) {
     val color = platformColor(platform)
-    val (background, content) = when (state) {
-        PlatformBadgeState.PUBLISHED -> color.copy(alpha = 0.15f) to color
-        PlatformBadgeState.DISCARDED -> MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-        PlatformBadgeState.PENDING -> MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
+    val dotColor = when (state) {
+        PlatformBadgeState.PUBLISHED -> color
+        PlatformBadgeState.DISCARDED -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+        PlatformBadgeState.PENDING -> MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
     }
-
-    Box(
-        modifier = Modifier
-            .size(20.dp)
-            .clip(CircleShape)
-            .background(background),
-        contentAlignment = Alignment.Center,
-    ) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .background(dotColor, shape = androidx.compose.foundation.shape.CircleShape),
+        )
         val icon = platformIcon(platform)
         if (icon != null) {
             Icon(
                 icon,
                 contentDescription = platformShortLabel(platform),
-                tint = content,
-                modifier = Modifier.size(11.dp),
+                tint = if (state == PlatformBadgeState.PUBLISHED) color else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.size(16.dp),
             )
         } else {
             Text(
-                platformShortLabel(platform).take(1),
-                style = MaterialTheme.typography.labelSmall,
-                color = content,
-                fontWeight = FontWeight.Bold,
+                platformShortLabel(platform),
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
             )
         }
     }
 }
 
-// Badge chico en la esquina de la miniatura en vez de cubrirla entera -- así
-// el resto del thumbnail sigue mandando el tap al onClick de la Card (que va
-// a Estadísticas/Subir/publish-form, ver LibraryScreen), solo este círculo
-// dispara el reproductor.
+// Badge sobrio en la esquina de la miniatura -- así el resto del thumbnail
+// sigue mandando el tap al onClick de la tarjeta (que abre el detalle), solo
+// este bloque dispara el reproductor.
 @Composable
 private fun PlayBadge(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val scheme = MaterialTheme.colorScheme
     Box(
         modifier = modifier
-            .padding(3.dp)
-            .size(18.dp)
-            .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.55f))
+            .padding(4.dp)
+            .size(24.dp)
+            .clip(androidx.compose.foundation.shape.CircleShape)
+            .background(scheme.primary)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             Icons.Outlined.PlayArrow,
             contentDescription = "Reproducir",
-            tint = Color.White,
-            modifier = Modifier.size(12.dp),
+            tint = scheme.onPrimary,
+            modifier = Modifier.size(16.dp),
         )
     }
 }
@@ -722,8 +648,9 @@ private fun PlayBadge(onClick: () -> Unit, modifier: Modifier = Modifier) {
 private fun LocalThumbnail(thumbnailPath: String?) {
     Box(
         modifier = Modifier
-            .size(width = 64.dp, height = 40.dp)
-            .clip(RoundedCornerShape(6.dp)),
+            .size(width = 76.dp, height = 52.dp)
+            .clip(RoundedCornerShape(Swiss.cardSmall))
+            .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
         if (thumbnailPath != null) {
@@ -731,24 +658,15 @@ private fun LocalThumbnail(thumbnailPath: String?) {
                 model = File(thumbnailPath),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                modifier = Modifier.fillMaxSize(),
             )
         } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Outlined.VideoLibrary,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
+            Icon(
+                Icons.Outlined.VideoLibrary,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 }
