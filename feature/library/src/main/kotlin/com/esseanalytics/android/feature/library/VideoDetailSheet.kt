@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -29,7 +30,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -41,12 +41,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.media3.common.MediaItem
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
+import com.esseanalytics.android.core.designsystem.theme.CreatorHomeTheme
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
 import kotlinx.coroutines.CancellationException
@@ -82,15 +82,6 @@ fun VideoDetailSheet(
     var linkEditorPlatform by remember { mutableStateOf<Platform?>(null) }
     var linkEditorText by remember { mutableStateOf("") }
 
-    val player = remember(shownFile.filePath) {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(Uri.parse(shownFile.filePath)))
-            playWhenReady = true
-            prepare()
-        }
-    }
-    DisposableEffect(player) { onDispose { player.release() } }
-
     VideoDetailDialog(
         title = shownFile.fileName,
         metadata = listOfNotNull(
@@ -98,6 +89,8 @@ fun VideoDetailSheet(
             shownFile.duracionSegundos?.let { "Duración: ${it}s" },
             shownFile.formato?.let { "Formato: $it" },
         ).joinToString(" · "),
+        playbackUri = shownFile.filePath.takeIf(String::isNotBlank)?.let(Uri::parse),
+        playbackErrorText = "No hay una ruta de reproducción disponible para este video.",
         onDismiss = onDismiss,
         stateFor = { platform ->
             when {
@@ -115,12 +108,6 @@ fun VideoDetailSheet(
             }
         },
         errorMessage = errorMessage ?: galleryError,
-        player = {
-            AndroidView(
-                factory = { PlayerView(context).apply { this.player = player } },
-                modifier = Modifier.fillMaxWidth().height(280.dp),
-            )
-        },
         actions = {
             val galleryRunning = galleryStatus is VideoSaveStatus.Running
             DetailPrimaryAction(
@@ -153,17 +140,19 @@ fun VideoDetailSheet(
     )
 
     linkEditorPlatform?.let { platform ->
-        LinkEditorDialog(
-            platform = platform,
-            text = linkEditorText,
-            onTextChange = { linkEditorText = it },
-            isSaving = isSaving,
-            onDismiss = { linkEditorPlatform = null },
-            onSave = {
-                viewModel.saveLink(platform, linkEditorText)
-                linkEditorPlatform = null
-            },
-        )
+        CreatorHomeTheme {
+            LinkEditorDialog(
+                platform = platform,
+                text = linkEditorText,
+                onTextChange = { linkEditorText = it },
+                isSaving = isSaving,
+                onDismiss = { linkEditorPlatform = null },
+                onSave = {
+                    viewModel.saveLink(platform, linkEditorText)
+                    linkEditorPlatform = null
+                },
+            )
+        }
     }
 }
 
@@ -210,50 +199,34 @@ internal fun VideoDetailPlatformRow(
     onEditLink: () -> Unit,
 ) {
     val color = platformColor(platform)
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        platformIcon(platform)?.let {
-            Icon(it, contentDescription = platformShortLabel(platform), tint = color, modifier = Modifier.size(20.dp))
-        }
-        Text(
-            platformShortLabel(platform),
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.weight(1f).padding(start = 10.dp),
-        )
-        if (status == PlatformBadgeState.PUBLISHED) {
-            IconButton(onClick = onEditLink) {
-                Icon(
-                    if (hasLink) Icons.Outlined.Link else Icons.Outlined.LinkOff,
-                    contentDescription = "Editar link",
-                    tint = MaterialTheme.colorScheme.primary,
-                )
+    val label = when (status) {
+        PlatformBadgeState.PUBLISHED -> if (hasLink) "Publicado" else "Publicado · Sin enlace"
+        PlatformBadgeState.DISCARDED -> "Descartado"
+        PlatformBadgeState.PENDING -> "Pendiente"
+    }
+    val stateColor = if (status == PlatformBadgeState.PUBLISHED) color else MaterialTheme.colorScheme.onSurfaceVariant
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(vertical = 1.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.weight(1f)
+                .clip(RoundedCornerShape(12.dp))
+                .clickable(onClick = onToggleStatus, role = Role.Button)
+                .semantics(mergeDescendants = true) { contentDescription = "${platformShortLabel(platform)}: $label" }
+                .heightIn(min = 48.dp)
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            LibraryStudioPlatformBadge(platform, status)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(platformShortLabel(platform), style = MaterialTheme.typography.bodyMedium)
+                Text(label, style = MaterialTheme.typography.labelMedium, color = stateColor)
             }
         }
-        val (background, content, label) = when (status) {
-            PlatformBadgeState.PUBLISHED -> Triple(
-                color.copy(alpha = 0.15f), color,
-                if (hasLink) "Publicado" else "Publicado · Sin enlace",
-            )
-            PlatformBadgeState.DISCARDED -> Triple(
-                MaterialTheme.colorScheme.surfaceVariant,
-                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                "Descartado",
-            )
-            PlatformBadgeState.PENDING -> Triple(
-                MaterialTheme.colorScheme.surfaceVariant,
-                MaterialTheme.colorScheme.onSurfaceVariant,
-                "Pendiente",
-            )
+        if (status == PlatformBadgeState.PUBLISHED) {
+            IconButton(onClick = onEditLink, modifier = Modifier.size(48.dp)) {
+                Icon(if (hasLink) Icons.Outlined.Link else Icons.Outlined.LinkOff, contentDescription = "Editar enlace de ${platformShortLabel(platform)}", tint = MaterialTheme.colorScheme.primary)
+            }
         }
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
-            color = content,
-            modifier = Modifier.clip(RoundedCornerShape(50)).background(background)
-                .clickable(onClick = onToggleStatus).padding(horizontal = 12.dp, vertical = 6.dp),
-        )
     }
 }
 

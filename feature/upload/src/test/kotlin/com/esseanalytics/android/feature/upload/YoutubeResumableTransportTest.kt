@@ -37,6 +37,9 @@ class YoutubeResumableTransportTest {
         description = "una descripcion",
         tags = listOf("tag1", "tag2"),
         privacyStatus = "unlisted",
+        categoryId = "27",
+        madeForKids = true,
+        containsSyntheticMedia = true,
     )
 
     @Test
@@ -59,6 +62,9 @@ class YoutubeResumableTransportTest {
         assertTrue(body.contains("Mi video de prueba"))
         assertTrue(body.contains("\"privacyStatus\":\"unlisted\""))
         assertTrue(body.contains("tag1"))
+        assertTrue(body.contains("\"categoryId\":\"27\""))
+        assertTrue(body.contains("\"selfDeclaredMadeForKids\":true"))
+        assertTrue(body.contains("\"containsSyntheticMedia\":true"))
     }
 
     @Test
@@ -106,7 +112,7 @@ class YoutubeResumableTransportTest {
         assertEquals("PUT", request.method)
         assertEquals(VALID_SESSION_URL, request.url)
         assertEquals("bytes */200", request.headers["Content-Range"])
-        assertEquals(0L, request.body?.size ?: 0L)
+        assertEquals(0L, request.body?.size?.toLong() ?: 0L)
     }
 
     @Test

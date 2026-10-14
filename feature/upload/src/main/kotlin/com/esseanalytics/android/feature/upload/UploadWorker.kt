@@ -111,6 +111,18 @@ class UploadWorker @AssistedInject constructor(
             title = title,
             description = inputData.getString(KEY_DESCRIPTION) ?: "",
             privacyStatus = inputData.getString(KEY_PRIVACY) ?: "public",
+            tags = inputData.getStringArray(KEY_TAGS)?.toList().orEmpty(),
+            categoryId = inputData.getString(KEY_CATEGORY) ?: "22",
+            madeForKids = inputData.getBoolean(KEY_MADE_FOR_KIDS, false),
+            containsSyntheticMedia = inputData.getBoolean(KEY_SYNTHETIC_MEDIA, false),
+            shareToFeed = inputData.getBoolean(KEY_SHARE_TO_FEED, true),
+            tiktokPrivacyLevel = inputData.getString(KEY_TIKTOK_PRIVACY),
+            disableComment = inputData.getBoolean(KEY_DISABLE_COMMENT, false),
+            disableDuet = inputData.getBoolean(KEY_DISABLE_DUET, false),
+            disableStitch = inputData.getBoolean(KEY_DISABLE_STITCH, false),
+            brandOrganic = inputData.getBoolean(KEY_BRAND_ORGANIC, false),
+            brandedContent = inputData.getBoolean(KEY_BRANDED_CONTENT, false),
+            tiktokAiGenerated = inputData.getBoolean(KEY_TIKTOK_AI, false),
             thumbnailOffsetMs = inputData.getLong(KEY_THUMBNAIL_OFFSET_MS, -1L).takeIf { it >= 0 },
             crossPostFacebook = inputData.getBoolean(KEY_CROSS_POST_FACEBOOK, false),
         )
@@ -292,6 +304,18 @@ class UploadWorker @AssistedInject constructor(
         const val KEY_FILE_NAME = "fileName"
         const val KEY_DESCRIPTION = "description"
         const val KEY_PRIVACY = "privacy"
+        const val KEY_TAGS = "tags"
+        const val KEY_CATEGORY = "categoryId"
+        const val KEY_MADE_FOR_KIDS = "madeForKids"
+        const val KEY_SYNTHETIC_MEDIA = "syntheticMedia"
+        const val KEY_SHARE_TO_FEED = "shareToFeed"
+        const val KEY_TIKTOK_PRIVACY = "tiktokPrivacy"
+        const val KEY_DISABLE_COMMENT = "disableComment"
+        const val KEY_DISABLE_DUET = "disableDuet"
+        const val KEY_DISABLE_STITCH = "disableStitch"
+        const val KEY_BRAND_ORGANIC = "brandOrganic"
+        const val KEY_BRANDED_CONTENT = "brandedContent"
+        const val KEY_TIKTOK_AI = "tiktokAiGenerated"
         const val KEY_THUMBNAIL_OFFSET_MS = "thumbnailOffsetMs"
         const val KEY_CROSS_POST_FACEBOOK = "crossPostFacebook"
         // Común a todos los workers de un mismo lote (ver UploadViewModel.publish) --
@@ -313,6 +337,18 @@ class UploadWorker @AssistedInject constructor(
             KEY_FILE_NAME to fileName,
             KEY_DESCRIPTION to metadata.description,
             KEY_PRIVACY to metadata.privacyStatus,
+            KEY_TAGS to metadata.tags.toTypedArray(),
+            KEY_CATEGORY to metadata.categoryId,
+            KEY_MADE_FOR_KIDS to metadata.madeForKids,
+            KEY_SYNTHETIC_MEDIA to metadata.containsSyntheticMedia,
+            KEY_SHARE_TO_FEED to metadata.shareToFeed,
+            KEY_TIKTOK_PRIVACY to metadata.tiktokPrivacyLevel,
+            KEY_DISABLE_COMMENT to metadata.disableComment,
+            KEY_DISABLE_DUET to metadata.disableDuet,
+            KEY_DISABLE_STITCH to metadata.disableStitch,
+            KEY_BRAND_ORGANIC to metadata.brandOrganic,
+            KEY_BRANDED_CONTENT to metadata.brandedContent,
+            KEY_TIKTOK_AI to metadata.tiktokAiGenerated,
             // -1 = sin elegir (ver doWork, .takeIf { it >= 0 }) -- workDataOf
             // no acepta Long? nullable directo.
             KEY_THUMBNAIL_OFFSET_MS to (metadata.thumbnailOffsetMs ?: -1L),

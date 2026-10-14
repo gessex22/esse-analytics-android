@@ -17,6 +17,17 @@ data class UploadMetadata(
     // archivo que Instagram ya aceptó, igual que desktop (instagram-upload
     // .controller.ts, checkbox "También publicar en Facebook").
     val crossPostFacebook: Boolean = false,
+    val categoryId: String = "22",
+    val madeForKids: Boolean = false,
+    val containsSyntheticMedia: Boolean = false,
+    val shareToFeed: Boolean = true,
+    val tiktokPrivacyLevel: String? = null,
+    val disableComment: Boolean = false,
+    val disableDuet: Boolean = false,
+    val disableStitch: Boolean = false,
+    val brandOrganic: Boolean = false,
+    val brandedContent: Boolean = false,
+    val tiktokAiGenerated: Boolean = false,
 )
 
 sealed interface UploadResult {

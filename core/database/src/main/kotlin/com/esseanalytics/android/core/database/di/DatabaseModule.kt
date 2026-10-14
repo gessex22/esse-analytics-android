@@ -8,6 +8,7 @@ import com.esseanalytics.android.core.database.MIGRATION_3_4
 import com.esseanalytics.android.core.database.MIGRATION_4_5
 import com.esseanalytics.android.core.database.MIGRATION_5_6
 import com.esseanalytics.android.core.database.MIGRATION_6_7
+import com.esseanalytics.android.core.database.MIGRATION_7_8
 import com.esseanalytics.android.core.database.dao.CausalPlatformDao
 import com.esseanalytics.android.core.database.dao.FileDao
 import com.esseanalytics.android.core.database.dao.PendingHistoryEventDao
@@ -28,13 +29,13 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): EsseAnalyticsDatabase =
         Room.databaseBuilder(context, EsseAnalyticsDatabase::class.java, "essenalytics.db")
-            .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+            .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
             // Red de contención acotada a la ÚNICA versión sin Migration
             // escrita (la v1 del scaffold inicial). Antes era
             // fallbackToDestructiveMigration() a secas, que habilitaba borrar
             // la base en cualquier salto futuro al que le faltara la Migration
             // -- con datos reales en el teléfono eso es pérdida silenciosa. De
-            // v2 en adelante hay cadena completa (2->3->4->5->6->7) y si algún
+            // v2 en adelante hay cadena completa (2->3->4->5->6->7->8) y si algún
             // día falta un eslabón, la app tiene que fallar ruidosamente en vez
             // de vaciar la biblioteca del usuario.
             .fallbackToDestructiveMigrationFrom(1)

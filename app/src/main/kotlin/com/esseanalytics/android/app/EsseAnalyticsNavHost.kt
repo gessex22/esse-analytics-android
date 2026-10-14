@@ -316,11 +316,14 @@ private fun MainAppScaffold(
     // qué tab está parado el usuario cuando suelta el gesto.
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
-    // Inicio y Datos tienen modo claro propio; los iconos del sistema deben seguir
+    // Inicio, Agenda y Datos tienen modo claro propio; los iconos del sistema deben seguir
     // ese fondo. Al salir se restaura la apariencia del resto de la app.
     val homeUsesLightColors = (
         currentDestination?.route.matchesDestination(Routes.DASHBOARD) == true ||
-            currentDestination?.route.matchesDestination(Routes.STATS) == true
+            currentDestination?.route.matchesDestination(Routes.STATS) == true ||
+            currentDestination?.route.matchesDestination(Routes.CALENDAR) == true ||
+            currentDestination?.route.matchesDestination(Routes.LIBRARY) == true ||
+            currentDestination?.route.matchesDestination(Routes.UPLOAD) == true
         ) && !isSystemInDarkTheme()
     val hostActivity = LocalContext.current.hostActivity()
     val view = LocalView.current
@@ -349,15 +352,18 @@ private fun MainAppScaffold(
         .firstOrNull { dest ->
             currentDestination?.hierarchy?.any { it.route.matchesDestination(dest.route) } == true
         }
-        ?.takeIf { it.route != Routes.DASHBOARD && it.route != Routes.STATS }
+        ?.takeIf { it.route != Routes.DASHBOARD && it.route != Routes.STATS && it.route != Routes.CALENDAR }
         ?.label
 
     Scaffold(
         modifier = Modifier.nestedScroll(topBarScrollBehavior.nestedScrollConnection),
         topBar = {
-            // Inicio y Datos dibujan sus controles flotantes dentro de su contenido.
+            // Inicio, Agenda y Datos dibujan sus controles flotantes dentro de su contenido.
             val hideTopBar = currentDestination?.route.matchesDestination(Routes.DASHBOARD) == true ||
-                currentDestination?.route.matchesDestination(Routes.STATS) == true
+                currentDestination?.route.matchesDestination(Routes.STATS) == true ||
+                currentDestination?.route.matchesDestination(Routes.CALENDAR) == true ||
+                currentDestination?.route.matchesDestination(Routes.LIBRARY) == true ||
+                currentDestination?.route.matchesDestination(Routes.UPLOAD) == true
             if (!hideTopBar && (currentDestination == null || isMainTabRoute(currentDestination.route))) {
                 AppTopBar(
                     username = username,
@@ -451,15 +457,26 @@ private fun MainAppScaffold(
                         LibraryScreen(
                             onImportClick = { navController.navigate(Routes.INGEST) },
                             onOpenUpload = { fileId -> navController.navigate("${Routes.UPLOAD}?fileId=$fileId") },
+                            username = username,
+                            onProfileClick = { navController.navigate(Routes.SETTINGS) },
+                            isRefreshing = isAnyRefreshing,
                         )
                     }
-                    composable(Routes.CALENDAR) { CalendarScreen() }
+                    composable(Routes.CALENDAR) {
+                        CalendarScreen(
+                            username = username,
+                            onProfileClick = { navController.navigate(Routes.SETTINGS) },
+                        )
+                    }
                     composable(
                         route = "${Routes.UPLOAD}?fileId={fileId}",
                         arguments = listOf(navArgument("fileId") { type = NavType.LongType; defaultValue = -1L }),
                     ) { uploadEntry ->
                         val fileId = uploadEntry.arguments?.getLong("fileId")?.takeIf { it >= 0 }
                         UploadScreen(
+                            username = username,
+                            onProfileClick = { navController.navigate(Routes.SETTINGS) },
+                            isRefreshing = isAnyRefreshing,
                             initialFileId = fileId,
                             canUseCloudStorage = canUseCloudStorage,
                             onPublishedAllSuccess = {
@@ -473,6 +490,9 @@ private fun MainAppScaffold(
                                     item = LibraryListItem.LanVideo(video, baseUrl),
                                     viewModel = uploadLanViewModel,
                                     onChooseAnother = onChooseAnother,
+                                    username = username,
+                                    onProfileClick = { navController.navigate(Routes.SETTINGS) },
+                                    floatingNavOverlay = true,
                                 )
                             },
                         )

@@ -47,6 +47,8 @@ data class UploadHistoryItemDto(
     // Solo presente si el evento vino de un lote de Fase 2 (PublishBatchState)
     // -- eventos viejos/de otros callers lo traen null.
     val operationId: String? = null,
+    // Identidad canónica de contenido devuelta por la Central; eventos antiguos y Lab pueden omitirla.
+    val contentId: String? = null,
 )
 
 @Serializable

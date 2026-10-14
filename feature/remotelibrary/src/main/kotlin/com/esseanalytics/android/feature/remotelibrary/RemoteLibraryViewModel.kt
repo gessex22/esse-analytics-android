@@ -25,6 +25,7 @@ import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
 import com.esseanalytics.android.core.network.tus.TUSUploadClient
 import com.esseanalytics.android.core.network.util.remoteLibraryStreamUrl
 import com.esseanalytics.android.core.network.util.remoteLibraryThumbnailUrl
+import com.esseanalytics.android.feature.ingest.ImportVideoNameAllocator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -66,6 +67,7 @@ class RemoteLibraryViewModel @Inject constructor(
     private val json: Json,
     private val tokenStore: TokenStore,
     private val platformIdentityStore: PlatformIdentityStore,
+    private val nameAllocator: ImportVideoNameAllocator,
 ) : ViewModel() {
 
     private val workManager = WorkManager.getInstance(context)
@@ -142,8 +144,8 @@ class RemoteLibraryViewModel @Inject constructor(
     // subir a Nube estaba roto). La miniatura sigue siendo multipart simple,
     // DESPUÉS de crear el video (mismo orden que iOS).
     private suspend fun doUpload(uri: Uri) {
-        val displayName = queryDisplayName(uri) ?: "video_${System.currentTimeMillis()}.mp4"
-        val extension = displayName.substringAfterLast('.', "mp4")
+        val sourceName = queryDisplayName(uri)?.trim()?.takeIf { it.isNotEmpty() }
+        val extension = sourceName?.substringAfterLast('.', "mp4")?.takeIf { it.isNotBlank() } ?: "mp4"
         val tempDir = File(context.cacheDir, "remote-library-uploads").apply { mkdirs() }
         val tempFile = File(tempDir, "${UUID.randomUUID()}.$extension")
 
@@ -159,6 +161,10 @@ class RemoteLibraryViewModel @Inject constructor(
 
             val thumbnailFile = File(tempDir, "${UUID.randomUUID()}.jpg")
             val hasThumbnail = thumbnailGenerator.generate(mediaSource, thumbnailFile)
+
+            val displayName = nameAllocator.reserve(
+                sourceName, extension, (_uiState.value as? RemoteLibraryUiState.Loaded)?.videos?.map { it.fileName }.orEmpty(),
+            )
 
             val metadata = buildMap {
                 put("filename", tempFile.name)

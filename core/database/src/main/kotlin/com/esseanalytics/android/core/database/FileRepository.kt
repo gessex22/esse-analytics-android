@@ -31,6 +31,11 @@ class FileRepository @Inject constructor(
 
     suspend fun findByName(name: String): VideoFile? = fileDao.findByName(name)?.toDomain()
 
+    suspend fun findImportCandidates(name: String): List<VideoFile> =
+        fileDao.findImportCandidates(name).map { it.toDomain() }
+
+    suspend fun getImportNames(): List<String> = fileDao.getImportNames()
+
     suspend fun findByRemoteLibraryVideoId(remoteId: String): VideoFile? =
         fileDao.findByRemoteLibraryVideoId(remoteId)?.toDomain()
 

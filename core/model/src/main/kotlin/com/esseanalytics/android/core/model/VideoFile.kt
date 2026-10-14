@@ -40,6 +40,8 @@ data class VideoFile(
     val createdAt: Instant = Instant.now(),
     val updatedAt: Instant = Instant.now(),
     val remoteLibraryVideoId: String? = null,
+    // Retains import deduplication when an opaque source name gets a readable label.
+    val importSourceName: String? = null,
 ) {
     val isFullyResolved: Boolean
         get() = Platform.publishable.all { it in platforms || it in platformsDiscarded }

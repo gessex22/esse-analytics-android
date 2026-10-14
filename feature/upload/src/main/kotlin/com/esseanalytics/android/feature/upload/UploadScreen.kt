@@ -1,6 +1,9 @@
 package com.esseanalytics.android.feature.upload
 
 import android.graphics.Bitmap
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
@@ -8,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -15,10 +19,18 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -27,19 +39,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material.icons.outlined.Warning
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -50,9 +61,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -60,24 +73,24 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.work.Data
 import androidx.work.WorkInfo
 import coil.compose.AsyncImage
-import com.esseanalytics.android.core.designsystem.component.SwissAccentCard
-import com.esseanalytics.android.core.designsystem.component.SwissButton
-import com.esseanalytics.android.core.designsystem.component.SwissCard
 import com.esseanalytics.android.core.designsystem.component.SwissLabel
-import com.esseanalytics.android.core.designsystem.component.SwissScreenHeader
-import com.esseanalytics.android.core.designsystem.component.SwissSectionTitle
-import com.esseanalytics.android.core.designsystem.component.PlaceholderScreen
+import com.esseanalytics.android.core.designsystem.component.CreatorLoadingBar
+import com.esseanalytics.android.core.designsystem.component.CreatorStudioBackdrop
 import com.esseanalytics.android.core.designsystem.icon.FacebookLogo
 import com.esseanalytics.android.core.designsystem.icon.InstagramLogo
 import com.esseanalytics.android.core.designsystem.icon.PlatformIcons
 import com.esseanalytics.android.core.designsystem.icon.TiktokLogo
 import com.esseanalytics.android.core.designsystem.icon.YoutubeLogo
-import com.esseanalytics.android.core.designsystem.theme.Swiss
+import com.esseanalytics.android.core.designsystem.theme.CreatorHomeTheme
 import com.esseanalytics.android.core.designsystem.theme.FacebookBlue
 import com.esseanalytics.android.core.designsystem.theme.InstagramPurple
 import com.esseanalytics.android.core.designsystem.theme.TiktokPink
@@ -85,7 +98,6 @@ import com.esseanalytics.android.core.designsystem.theme.YoutubeRed
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
 import com.esseanalytics.android.core.network.dto.LocalPcVideoDto
-import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
 import java.io.File
 
 // REDISEÑO BENTO: Subir como retícula de tarjetas en dos pasos — PASO 1
@@ -98,6 +110,9 @@ import java.io.File
 @Composable
 fun UploadScreen(
     modifier: Modifier = Modifier,
+    username: String = "",
+    onProfileClick: () -> Unit = {},
+    isRefreshing: Boolean = false,
     initialFileId: Long? = null,
     canUseCloudStorage: Boolean = false,
     // Se llama tras un éxito TOTAL (todas las plataformas elegidas
@@ -112,12 +127,47 @@ fun UploadScreen(
     lanPublishContent: @Composable (LocalPcVideoDto, String, () -> Unit) -> Unit = { _, _, _ -> },
     viewModel: UploadViewModel = hiltViewModel(),
 ) {
+    CreatorHomeTheme {
+        Box(modifier.fillMaxSize()) {
+            CreatorStudioBackdrop()
+            UploadScreenContent(
+                modifier = Modifier.fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .imePadding(),
+                username = username,
+                onProfileClick = onProfileClick,
+                initialFileId = initialFileId,
+                canUseCloudStorage = canUseCloudStorage,
+                onPublishedAllSuccess = onPublishedAllSuccess,
+                lanPublishContent = lanPublishContent,
+                viewModel = viewModel,
+            )
+            CreatorLoadingBar(isRefreshing, Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding())
+        }
+    }
+}
+
+@Composable
+private fun UploadScreenContent(
+    modifier: Modifier,
+    username: String,
+    onProfileClick: () -> Unit,
+    initialFileId: Long?,
+    canUseCloudStorage: Boolean,
+    onPublishedAllSuccess: () -> Unit,
+    lanPublishContent: @Composable (LocalPcVideoDto, String, () -> Unit) -> Unit,
+    viewModel: UploadViewModel,
+) {
     val files by viewModel.files.collectAsState()
     val remoteVideos by viewModel.remoteVideos.collectAsState()
     val remoteVideosLoading by viewModel.remoteVideosLoading.collectAsState()
     val remoteVideosError by viewModel.remoteVideosError.collectAsState()
     val importingRemoteId by viewModel.importingRemoteId.collectAsState()
     val remoteImportError by viewModel.remoteImportError.collectAsState()
+    val isGalleryImporting by viewModel.isGalleryImporting.collectAsState()
+    val isVideoImporting by viewModel.isVideoImporting.collectAsState()
+    val galleryImportError by viewModel.galleryImportError.collectAsState()
+    val galleryImportSelection by viewModel.galleryImportSelection.collectAsState()
     val nextUploads by viewModel.nextUploads.collectAsState()
     val activeBatch by viewModel.activeBatch.collectAsState()
     val pendingBatchFileId by viewModel.pendingBatchFileId.collectAsState()
@@ -145,7 +195,29 @@ fun UploadScreen(
     // importa/publica/borra algo mientras el usuario está mirando la lista a
     // mano) dispara el LaunchedEffect de abajo de nuevo y lo saca de la
     // lista empujándolo de vuelta al formulario sin que él lo pidiera.
-    var browsingList by remember { mutableStateOf(false) }
+    var browsingList by rememberSaveable { mutableStateOf(false) }
+    var galleryPickerOpen by rememberSaveable { mutableStateOf(false) }
+    var sourceRequestId by rememberSaveable { mutableStateOf(0L) }
+    val isVideoImportInProgress = isVideoImporting || isGalleryImporting || importingRemoteId != null || galleryImportSelection != null
+    val galleryPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        galleryPickerOpen = false
+        if (uri != null) {
+            viewModel.importFromGallery(uri)
+        }
+    }
+    val openGallery = {
+        if (!galleryPickerOpen && !isVideoImportInProgress) {
+            browsingList = true
+            sourceRequestId += 1L
+            galleryPickerOpen = true
+            viewModel.clearGalleryImportError()
+            galleryPicker.launch(
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly),
+            )
+        }
+    }
 
     // Entrar a Subir abre el formulario DE UNA, no una lista para elegir
     // primero: con fileId puntual (viene de Biblioteca) usa ese archivo: si
@@ -156,14 +228,22 @@ fun UploadScreen(
     // resolver de una corrida anterior (proceso muerto a mitad de publicar,
     // ver PendingBatchStore), mostrar ESE archivo es más útil que el
     // pendiente más nuevo cualquiera.
-    LaunchedEffect(initialFileId, pendingBatchFileId, files) {
-        if (selectedFile == null && selectedLan == null && !browsingList) {
+    LaunchedEffect(initialFileId, pendingBatchFileId, files, isVideoImportInProgress, galleryImportSelection, galleryImportError) {
+        if (selectedFile == null && selectedLan == null && !browsingList && !isVideoImportInProgress && galleryImportSelection == null && galleryImportError == null) {
             selectedFile = when {
                 pendingBatchFileId != null -> files.find { it.id == pendingBatchFileId }
                 initialFileId != null -> files.find { it.id == initialFileId }
                 else -> files.firstOrNull()
             }
         }
+    }
+
+    LaunchedEffect(galleryImportSelection) {
+        val selection = galleryImportSelection ?: return@LaunchedEffect
+        selectedFile = selection.file
+        selectedLan = null
+        browsingList = false
+        viewModel.acknowledgeGalleryImport(selection.requestId)
     }
 
     // Éxito total -- se muestra el modal, y al cerrarlo se limpia todo
@@ -193,16 +273,6 @@ fun UploadScreen(
     // criterio que showsChips en LibraryView.swift (iOS): el chip/sección
     // existe apenas hay una PC autorizada, sin esperar a que termine de
     // traer su lista.
-    if (files.isEmpty() && !canUseCloudStorage && !canSeeLanLibrary) {
-        PlaceholderScreen(
-            title = "Nada para subir todavía",
-            note = "Importá un video primero desde la pestaña Videos.",
-            icon = Icons.Outlined.CloudUpload,
-            modifier = modifier,
-        )
-        return
-    }
-
     Column(modifier = modifier.fillMaxSize()) {
         val currentLan = selectedLan
         val current = selectedFile
@@ -214,28 +284,50 @@ fun UploadScreen(
         } else if (current == null) {
             // PASO 1 -- elegir el video. Cada fuente (Nube, PC local,
             // archivos del teléfono) es una sección de tarjetas.
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    start = Swiss.contentHorizontal,
-                    top = 24.dp,
-                    end = Swiss.contentHorizontal,
-                    bottom = 16.dp + 80.dp,
-                ),
-                verticalArrangement = Arrangement.spacedBy(Swiss.sectionSpacing),
-            ) {
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val cloudColumns = when {
+                    maxWidth >= 640.dp -> 4
+                    maxWidth >= 480.dp -> 3
+                    else -> 2
+                }
+                val remoteRows = remoteVideos.chunked(cloudColumns)
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        top = 24.dp,
+                        end = 16.dp,
+                        bottom = 124.dp,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
                 item(key = "pickerHeader") {
-                    SwissScreenHeader(
-                        title = "Subir",
-                        subtitle = "Paso 1 — Elegí qué video querés publicar.",
-                    )
+                    UploadStudioHeader(username, onProfileClick, subtitle = "Elegí qué video querés publicar.")
+                }
+                item(key = "localPanel") {
+                    UploadStudioSection("En este teléfono", "Elegí un video de la galería del dispositivo.") {
+                        UploadGalleryAction(
+                            isLoading = isGalleryImporting,
+                            error = galleryImportError,
+                            enabled = !isVideoImportInProgress && !galleryPickerOpen,
+                            onClick = openGallery,
+                        )
+                        if (files.isEmpty()) {
+                            Text(
+                                "Todavía no hay videos importados. También podés elegir uno desde la galería.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 8.dp),
+                            )
+                        }
+                    }
                 }
                 // Antes un video de Nube sin bytes (storage dinámico ya los
                 // liberó) fallaba en silencio -- el spinner se apagaba y no
                 // pasaba nada visible. Ahora se muestra el motivo real.
                 remoteImportError?.let { message ->
                     item(key = "remoteImportError") {
-                        SwissCard {
+                        UploadStudioCard {
                             Text(
                                 message,
                                 style = MaterialTheme.typography.bodyMedium,
@@ -260,21 +352,41 @@ fun UploadScreen(
                                     onRetry = viewModel::refreshRemoteVideos,
                                 )
                                 remoteVideos.isEmpty() -> SourceStatusRow("No hay videos pendientes en la nube.")
-                                else -> RemoteVideoStrip(
-                                    videos = remoteVideos,
-                                    importingId = importingRemoteId,
-                                    nextUploads = nextUploads,
-                                    thumbnailUrl = viewModel::thumbnailUrl,
-                                    onSelect = { video ->
+                                else -> Text(
+                                    "Videos de la nube listos para elegir.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                    if (canUseCloudStorage && remoteVideos.isNotEmpty() && !remoteVideosLoading && remoteVideosError == null) {
+                        items(
+                            items = remoteRows,
+                            key = { row -> "remote-row-${row.first()._id}-${row.last()._id}" },
+                        ) { row ->
+                            UploadCloudVideoGridRow(
+                                videos = row,
+                                columns = cloudColumns,
+                                importingId = importingRemoteId,
+                                importInProgress = isVideoImportInProgress || galleryPickerOpen,
+                                nextUploads = nextUploads,
+                                thumbnailUrl = viewModel::thumbnailUrl,
+                                onSelect = { video ->
+                                    if (!isVideoImportInProgress && !galleryPickerOpen) {
+                                        sourceRequestId += 1L
+                                        val requestId = sourceRequestId
+                                        browsingList = true
                                         viewModel.importFromRemote(video) { file ->
-                                            if (file != null) {
+                                            if (requestId == sourceRequestId && file != null) {
                                                 selectedFile = file
+                                                selectedLan = null
                                                 browsingList = false
                                             }
                                         }
-                                    },
-                                )
-                            }
+                                    }
+                                },
+                            )
                         }
                     }
                 }
@@ -299,27 +411,36 @@ fun UploadScreen(
                                     nextUploads = nextUploads,
                                     thumbnailUrl = { video -> viewModel.lanThumbnailUrl(video, currentLanBaseUrl) },
                                     onSelect = { video ->
-                                        selectedFile = null
-                                        selectedLan = video to currentLanBaseUrl
-                                        browsingList = false
+                                        if (!isVideoImportInProgress && !galleryPickerOpen) {
+                                            sourceRequestId += 1L
+                                            selectedFile = null
+                                            selectedLan = video to currentLanBaseUrl
+                                            browsingList = false
+                                        }
                                     },
                                 )
                             }
                         }
                     }
                 }
-                item(key = "localPanel") {
-                    SourceSection(title = "En este teléfono") {
-                        FileList(
-                            files = files,
-                            nextUploads = nextUploads,
-                            onSelect = {
-                                selectedFile = it
-                                selectedLan = null
-                                browsingList = false
-                            },
-                        )
+                if (files.isNotEmpty()) {
+                    item(key = "alreadyImported") {
+                        SourceSection(title = "Ya importados") {
+                            FileList(
+                                files = files,
+                                nextUploads = nextUploads,
+                                onSelect = {
+                                    if (!isVideoImportInProgress && !galleryPickerOpen) {
+                                        sourceRequestId += 1L
+                                        selectedFile = it
+                                        selectedLan = null
+                                        browsingList = false
+                                    }
+                                },
+                            )
+                        }
                     }
+                }
                 }
             }
         } else {
@@ -332,6 +453,8 @@ fun UploadScreen(
                 file = current,
                 viewModel = viewModel,
                 activeBatch = batchForCurrent,
+                username = username,
+                onProfileClick = onProfileClick,
                 onBackToList = {
                     selectedFile = null
                     browsingList = true
@@ -368,27 +491,24 @@ private fun PublishSuccessDialog(batch: PublishBatchState?, onDismiss: () -> Uni
             }
         },
         confirmButton = {
-            SwissButton(text = "Listo", onClick = onDismiss)
+            UploadStudioButton(text = "Listo", onClick = onDismiss)
         },
     )
 }
 
 // Sección de fuente del PASO 1 — título expresivo + contenido en tarjetas.
 @Composable
-private fun SourceSection(title: String, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(Swiss.gap)) {
-        SwissSectionTitle(index = "01", title = title)
-        content()
-    }
+internal fun SourceSection(title: String, content: @Composable () -> Unit) {
+    UploadStudioSection(title = title, content = content)
 }
 
 @Composable
-private fun SourceStatusRow(
+internal fun SourceStatusRow(
     message: String,
     loading: Boolean = false,
     onRetry: (() -> Unit)? = null,
 ) {
-    SwissCard {
+    UploadStudioCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (loading) {
                 CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
@@ -407,62 +527,6 @@ private fun SourceStatusRow(
     }
 }
 
-// Tira horizontal aparte (no mezclada en la lista de locales) -- son
-// fuentes distintas (uno ya está en el teléfono, el otro hay que bajarlo
-// primero), mezclarlas en una sola lista larga sería confuso sobre cuál
-// acción va a disparar tocar la tarjeta.
-@Composable
-private fun RemoteVideoStrip(
-    videos: List<RemoteLibraryVideoDto>,
-    importingId: String?,
-    nextUploads: Map<Platform, String>,
-    thumbnailUrl: (RemoteLibraryVideoDto) -> String?,
-    onSelect: (RemoteLibraryVideoDto) -> Unit,
-) {
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(Swiss.gap)) {
-        items(videos, key = { it._id }) { video ->
-            val isImporting = importingId == video._id
-            SwissCard(
-                modifier = Modifier.width(150.dp),
-                onClick = { if (importingId == null) onSelect(video) },
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(84.dp)
-                        .clip(RoundedCornerShape(Swiss.cardSmall))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    val url = thumbnailUrl(video)
-                    when {
-                        isImporting -> CircularProgressIndicator(modifier = Modifier.size(20.dp))
-                        url != null -> AsyncImage(
-                            model = url,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        else -> Icon(
-                            Icons.Outlined.CloudUpload,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                Text(
-                    video.fileName,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                val nextFor = Platform.publishable.filter { nextUploads[it] == video.fileName }
-                if (nextFor.isNotEmpty()) NextUploadBadgeRow(nextFor)
-            }
-        }
-    }
-}
-
 // Tira horizontal para Biblioteca LAN, mismo patrón visual que RemoteVideoStrip
 // -- fuente distinta (server-side, sin bytes que bajar al teléfono), por eso
 // onSelect acá NO dispara ningún import: solo avisa al caller (ver
@@ -474,9 +538,9 @@ private fun LanVideoStrip(
     thumbnailUrl: (LocalPcVideoDto) -> String?,
     onSelect: (LocalPcVideoDto) -> Unit,
 ) {
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(Swiss.gap)) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         items(videos, key = { it._id }) { video ->
-            SwissCard(
+            UploadStudioCard(
                 modifier = Modifier.width(150.dp),
                 onClick = { onSelect(video) },
             ) {
@@ -484,7 +548,7 @@ private fun LanVideoStrip(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(84.dp)
-                        .clip(RoundedCornerShape(Swiss.cardSmall))
+                        .clip(RoundedCornerShape(12.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -520,14 +584,14 @@ private fun LanVideoStrip(
 // Tarjetas del PASO 1: miniatura, nombre, sello de qué plataformas faltan
 // y flecha de affordance.
 @Composable
-private fun FileList(
+internal fun FileList(
     files: List<VideoFile>,
     nextUploads: Map<Platform, String>,
     onSelect: (VideoFile) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(Swiss.gap)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         files.forEach { file ->
-            SwissCard(onClick = { onSelect(file) }) {
+            UploadStudioCard(onClick = { onSelect(file) }) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -540,13 +604,25 @@ private fun FileList(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        Text(
-                            "Faltan: ${pendingPlatformsLabel(file)}",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
-                            color = MaterialTheme.colorScheme.primary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        val pending = pendingPlatforms(file)
+                        if (pending.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier.semantics {
+                                    contentDescription = "Pendientes: ${pending.joinToString { platformFullLabel(it) }}"
+                                },
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                pending.forEach { platform ->
+                                    Icon(
+                                        platformIcon(platform)!!,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                            }
+                        }
                         val nextFor = Platform.publishable.filter { nextUploads[it] == file.fileName }
                         if (nextFor.isNotEmpty()) NextUploadBadgeRow(nextFor)
                     }
@@ -591,7 +667,7 @@ private fun UploadThumbnail(thumbnailPath: String?) {
     Box(
         modifier = Modifier
             .size(width = 72.dp, height = 48.dp)
-            .clip(RoundedCornerShape(Swiss.cardSmall))
+            .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
@@ -613,10 +689,9 @@ private fun UploadThumbnail(thumbnailPath: String?) {
     }
 }
 
-private fun pendingPlatformsLabel(file: VideoFile): String =
+private fun pendingPlatforms(file: VideoFile): List<Platform> =
     Platform.publishable
         .filter { it !in file.platforms && it !in file.platformsDiscarded }
-        .joinToString(", ") { it.apiValue }
 
 // ── PASO 2: formulario de publicación ─────────────────────────────────────
 
@@ -625,6 +700,8 @@ private fun PublishForm(
     file: VideoFile,
     viewModel: UploadViewModel,
     activeBatch: PublishBatchState?,
+    username: String,
+    onProfileClick: () -> Unit,
     onBackToList: () -> Unit,
 ) {
     var title by remember(file.id) { mutableStateOf(file.fileName.substringBeforeLast('.')) }
@@ -636,6 +713,15 @@ private fun PublishForm(
     }
     var thumbnailOffsetSec by remember(file.id) { mutableFloatStateOf(0f) }
     var crossPostFacebook by remember(file.id) { mutableStateOf(false) }
+    var publicationOptions by remember(file.id) { mutableStateOf(PlatformPublicationOptions()) }
+    val tiktokCreator by viewModel.tiktokCreator.collectAsState()
+    val tiktokCreatorLoading by viewModel.tiktokCreatorLoading.collectAsState()
+    val tiktokCreatorError by viewModel.tiktokCreatorError.collectAsState()
+    LaunchedEffect(file.id, Platform.TIKTOK in selectedPlatforms) {
+        if (Platform.TIKTOK in selectedPlatforms) viewModel.loadTiktokCreator()
+    }
+    val optionsError = publicationOptions.validationError(selectedPlatforms, tiktokCreator, file.duracionSegundos)
+    val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     var showExitConfirmation by remember { mutableStateOf(false) }
     val blockedPlatforms by viewModel.blockedPlatformsForActiveFile.collectAsState()
     val blockedConfirmationError by viewModel.blockedConfirmationError.collectAsState()
@@ -663,135 +749,115 @@ private fun PublishForm(
         )
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            // bottom extra: FloatingBottomNavigation (EsseAnalyticsNavHost) es
-            // un overlay real, no un bottomBar de Scaffold -- no reserva
-            // espacio propio, así que sin este margen extra el botón
-            // "Publicar" (última fila) queda scrolleable hasta quedar tapado
-            // detrás de la cápsula flotante.
-            .padding(
-                start = Swiss.contentHorizontal,
-                top = 24.dp,
-                end = Swiss.contentHorizontal,
-                bottom = 16.dp + 80.dp,
-            ),
-        verticalArrangement = Arrangement.spacedBy(Swiss.sectionSpacing),
-    ) {
-        // Cabecera del PASO 2: el archivo como titular en tarjeta de acento.
-        SwissAccentCard {
-            SwissLabel("Paso 2 — Publicar", color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
-            Text(
-                file.fileName,
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-            SwissButton(
-                text = "Elegir otro video",
-                onClick = { if (isPublishing) showExitConfirmation = true else onBackToList() },
-                primary = false,
-            )
-        }
+    Column(Modifier.fillMaxSize().imePadding()) {
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = if (keyboardVisible) 104.dp else 20.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            UploadStudioHeader(username, onProfileClick, subtitle = "Prepara tu contenido y elige dónde publicarlo.")
+            UploadStudioSelectedVideo(
+                file.fileName, file.duracionSegundos,
+                onChangeVideo = { if (isPublishing) showExitConfirmation = true else onBackToList() },
+            ) { UploadThumbnail(file.thumbnailPath) }
 
-        AnimatedVisibility(visible = isPublishing) {
-            PublishingBatchBlock(
-                batch = activeBatch,
-                onCancel = viewModel::cancelBatch,
-            )
-        }
-
-        if (activeBatch != null && !activeBatch.isActive && activeBatch.stage != BatchStage.COMPLETED) {
-            SwissCard {
-                BatchResultSummary(
+            AnimatedVisibility(visible = isPublishing) {
+                PublishingBatchBlock(
                     batch = activeBatch,
-                    blockedPlatforms = blockedPlatforms,
-                    confirmationError = blockedConfirmationError,
-                    onRetryFailed = {
-                        viewModel.retryFailedInBatch(
-                            file,
-                            title,
-                            description,
-                            thumbnailOffsetMs = (thumbnailOffsetSec * 1000).toLong(),
-                            crossPostFacebook = crossPostFacebook && Platform.INSTAGRAM in selectedPlatforms,
-                        )
-                    },
-                    onConfirmNotPublished = viewModel::confirmNotPublished,
-                    onDismiss = viewModel::dismissBatch,
+                    onCancel = viewModel::cancelBatch,
                 )
             }
-        }
 
-        // Bloque DETALLES.
-        Column(verticalArrangement = Arrangement.spacedBy(Swiss.gap)) {
-            SwissSectionTitle(index = "02", title = "Detalles")
-            SwissCard {
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("Título") },
-                    singleLine = true,
-                    enabled = !isPublishing,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    label = { Text("Descripción") },
-                    minLines = 2,
-                    enabled = !isPublishing,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-
-        val durationSec = file.duracionSegundos
-        if (durationSec != null && durationSec > 0) {
-            ThumbnailPicker(
-                filePath = file.filePath,
-                thumbnailPath = file.thumbnailPath,
-                durationSec = durationSec,
-                offsetSec = thumbnailOffsetSec,
-                onOffsetChange = { thumbnailOffsetSec = it },
-                viewModel = viewModel,
-            )
-        }
-
-        // Bloque PLATAFORMAS.
-        Column(verticalArrangement = Arrangement.spacedBy(Swiss.gap)) {
-            SwissSectionTitle(index = "03", title = "Plataformas", subtitle = "Tildá dónde se publica este video.")
-            Platform.publishable.forEach { platform ->
-                val alreadyDone = platform in file.platforms
-                PlatformCard(
-                    platform = platform,
-                    fileId = file.id,
-                    checked = platform in selectedPlatforms,
-                    enabled = !alreadyDone && !isPublishing,
-                    alreadyDone = alreadyDone,
-                    onCheckedChange = { checked ->
-                        selectedPlatforms = if (checked) selectedPlatforms + platform else selectedPlatforms - platform
-                    },
-                    viewModel = viewModel,
-                )
-                // Facebook no es una plataforma publicable aparte (no está en
-                // Platform.publishable) -- es un crosspost del MISMO archivo que
-                // Instagram acepta, vía la Reels Publishing API de la Página
-                // vinculada (ver InstagramUploader.publishReelToFacebookPage).
-                // Solo tiene sentido si Instagram va a subirse en esta tanda.
-                if (platform == Platform.INSTAGRAM) {
-                    FacebookCrossPostRow(
-                        checked = crossPostFacebook,
-                        enabled = Platform.INSTAGRAM in selectedPlatforms && !isPublishing,
-                        onCheckedChange = { crossPostFacebook = it },
+            if (activeBatch != null && !activeBatch.isActive && activeBatch.stage != BatchStage.COMPLETED) {
+                UploadStudioCard {
+                    BatchResultSummary(
+                        batch = activeBatch,
+                        blockedPlatforms = blockedPlatforms,
+                        confirmationError = blockedConfirmationError,
+                        onRetryFailed = {
+                            viewModel.retryFailedInBatch(
+                                file,
+                                title,
+                                description,
+                                thumbnailOffsetMs = (thumbnailOffsetSec * 1000).toLong(),
+                                crossPostFacebook = crossPostFacebook && Platform.INSTAGRAM in selectedPlatforms,
+                                options = publicationOptions,
+                            )
+                        },
+                        onConfirmNotPublished = viewModel::confirmNotPublished,
+                        onDismiss = viewModel::dismissBatch,
                     )
                 }
             }
-        }
 
-        SwissButton(
-            text = if (isPublishing) "Publicando…" else "Publicar",
-            onClick = {
+            // Bloque DETALLES.
+            UploadStudioSection(title = "Contenido") {
+                UploadStudioDetailsFields(
+                    title = title,
+                    onTitleChange = { title = it },
+                    description = description,
+                    onDescriptionChange = { description = it },
+                    enabled = !isPublishing,
+                )
+            }
+
+            val durationSec = file.duracionSegundos
+            if (durationSec != null && durationSec > 0) {
+                ThumbnailPicker(
+                    filePath = file.filePath,
+                    thumbnailPath = file.thumbnailPath,
+                    durationSec = durationSec,
+                    offsetSec = thumbnailOffsetSec,
+                    onOffsetChange = { thumbnailOffsetSec = it },
+                    viewModel = viewModel,
+                    enabled = !isPublishing,
+                )
+            }
+
+            // Bloque PLATAFORMAS.
+            UploadStudioSection(title = "Publicar en", subtitle = "Elige tus plataformas y revisa sus ajustes.") {
+                Platform.publishable.forEach { platform ->
+                    val alreadyDone = platform in file.platforms
+                    val selected = platform in selectedPlatforms
+                    UploadStudioCard(
+                        contentPadding = 12.dp,
+                        contentSpacing = 8.dp,
+                        borderColor = if (selected && !alreadyDone) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                        } else MaterialTheme.colorScheme.outlineVariant,
+                    ) {
+                        PlatformCard(
+                            platform = platform,
+                            fileId = file.id,
+                            checked = selected,
+                            enabled = !alreadyDone && !isPublishing,
+                            alreadyDone = alreadyDone,
+                            discarded = platform in file.platformsDiscarded,
+                            crossPostFacebook = crossPostFacebook,
+                            crossPostFacebookEnabled = Platform.INSTAGRAM in selectedPlatforms && !isPublishing,
+                            facebookAlreadyPublished = Platform.FACEBOOK in file.platforms,
+                            onCrossPostFacebookChange = { crossPostFacebook = it },
+                            onCheckedChange = { checked ->
+                                selectedPlatforms = if (checked) selectedPlatforms + platform else selectedPlatforms - platform
+                            },
+                            viewModel = viewModel,
+                            configuration = {
+                                if (!alreadyDone && selected) {
+                                    PlatformPublicationConfiguration(
+                                        platform, publicationOptions, { publicationOptions = it }, !isPublishing,
+                                        tiktokCreator, tiktokCreatorLoading, tiktokCreatorError, viewModel::loadTiktokCreator,
+                                    )
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+        }
+        // This footer reserves space above the floating navigation capsule.
+        if (!keyboardVisible) UploadStudioPublishFooter(
+            selectedPlatforms = if (crossPostFacebook && Platform.INSTAGRAM in selectedPlatforms) selectedPlatforms + Platform.FACEBOOK else selectedPlatforms,
+            isPublishing = isPublishing,
+            onPublish = {
                 viewModel.publish(
                     file,
                     selectedPlatforms,
@@ -799,10 +865,13 @@ private fun PublishForm(
                     description,
                     thumbnailOffsetMs = (thumbnailOffsetSec * 1000).toLong(),
                     crossPostFacebook = crossPostFacebook && Platform.INSTAGRAM in selectedPlatforms,
+                    options = publicationOptions,
                 )
             },
-            enabled = !isPublishing && selectedPlatforms.isNotEmpty() && title.isNotBlank(),
-            modifier = Modifier.fillMaxWidth(),
+            enabled = !isPublishing && selectedPlatforms.isNotEmpty() && title.isNotBlank() && optionsError == null,
+            message = optionsError,
+            confirmationKey = file.id,
+            completedAttemptKey = activeBatch?.takeUnless { it.isActive }?.operationId,
         )
     }
 }
@@ -812,22 +881,23 @@ private fun PublishForm(
 // vocabulario que iOS: plataforma activa, progreso, aviso de "no cierres la
 // app", botón para cancelar lo que todavía no arrancó.
 @Composable
-private fun PublishingBatchBlock(batch: PublishBatchState?, onCancel: () -> Unit) {
+internal fun PublishingBatchBlock(batch: PublishBatchState?, onCancel: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
-    SwissAccentCard {
+    UploadStudioCard(containerColor = scheme.primaryContainer) {
         SwissLabel("Publicando", color = scheme.onPrimaryContainer.copy(alpha = 0.8f))
         batch?.platforms.orEmpty().forEach { state ->
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(
+                if (state.stage == PlatformPublishStage.FAILED) {
+                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        PlatformBatchIdentity(state)
+                        PlatformBatchStatusLabel(state)
+                    }
+                } else Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        state.platform.displayName,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = scheme.onPrimaryContainer,
-                        modifier = Modifier.weight(1f),
-                    )
+                    PlatformBatchIdentity(state)
+                    Spacer(Modifier.weight(1f))
                     PlatformBatchStatusLabel(state)
                 }
                 val progress = state.progress
@@ -861,12 +931,26 @@ private fun PublishingBatchBlock(batch: PublishBatchState?, onCancel: () -> Unit
                 modifier = Modifier.padding(start = 8.dp),
             )
         }
-        SwissButton(
+        UploadStudioButton(
             text = "Cancelar publicación",
             onClick = onCancel,
             primary = false,
             modifier = Modifier.fillMaxWidth(),
         )
+    }
+}
+
+@Composable
+private fun PlatformBatchIdentity(state: PlatformPublishState) {
+    val published = state.stage == PlatformPublishStage.SUCCESS
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Icon(
+            imageVector = platformIcon(state.platform) ?: PlatformIcons.YoutubeLogo,
+            contentDescription = null,
+            tint = if (published) platformColor(state.platform) else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
+        Text(state.platform.displayName, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -909,9 +993,7 @@ private fun PlatformBatchStatusLabel(state: PlatformPublishState) {
                 state.error ?: "Error",
                 style = MaterialTheme.typography.labelSmall,
                 color = scheme.error,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 4.dp),
+                modifier = Modifier.padding(start = 4.dp).weight(1f),
             )
         }
         PlatformPublishStage.CANCELLED -> Text(
@@ -934,7 +1016,7 @@ private fun PlatformBatchStatusLabel(state: PlatformPublishState) {
 // plataforma y el video no se publicó» (doble confirmación Material), que
 // registra la evidencia y habilita UN intento nuevo limpio vía publish().
 @Composable
-private fun BatchResultSummary(
+internal fun BatchResultSummary(
     batch: PublishBatchState,
     blockedPlatforms: Set<Platform>,
     confirmationError: String?,
@@ -954,24 +1036,37 @@ private fun BatchResultSummary(
     // cancelar el diálogo la vuelve a null y NO toca Room (la fila queda
     // como estaba).
     var confirmTarget by remember { mutableStateOf<Platform?>(null) }
+    val allCancelled = batch.platforms.isNotEmpty() && batch.platforms.all { it.stage == PlatformPublishStage.CANCELLED }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(
-            if (batch.stage == BatchStage.PARTIAL_FAILURE) "Publicación parcial" else "No se pudo publicar",
-            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.error,
-        )
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                when {
+                    batch.stage == BatchStage.PARTIAL_FAILURE -> "Publicación parcial"
+                    allCancelled -> "Publicación cancelada"
+                    else -> "No se pudo publicar"
+                },
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = if (allCancelled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = onDismiss, enabled = !batch.isActive) {
+                Icon(Icons.Outlined.Close, contentDescription = "Cerrar aviso de publicación")
+            }
+        }
         batch.platforms.forEach { state ->
             Column {
-                Row(
+                if (state.stage == PlatformPublishStage.FAILED) {
+                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        PlatformBatchIdentity(state)
+                        PlatformBatchStatusLabel(state)
+                    }
+                } else Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        state.platform.displayName,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                        modifier = Modifier.weight(1f),
-                    )
+                    PlatformBatchIdentity(state)
+                    Spacer(Modifier.weight(1f))
                     PlatformBatchStatusLabel(state)
                 }
                 // Desenlace ambiguo respaldado por una fila `blocked` del
@@ -992,13 +1087,12 @@ private fun BatchResultSummary(
             )
         }
         if (hasRetriable) {
-            SwissButton(
-                text = "Reintentar fallidas",
+            UploadStudioButton(
+                text = if (allCancelled) "Reintentar publicación" else "Reintentar pendientes",
                 onClick = onRetryFailed,
+                primary = false,
                 modifier = Modifier.fillMaxWidth(),
             )
-        } else {
-            TextButton(onClick = onDismiss) { Text("Descartar") }
         }
     }
 
@@ -1033,28 +1127,58 @@ private fun BatchResultSummary(
 }
 
 @Composable
-private fun FacebookCrossPostRow(checked: Boolean, enabled: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    SwissCard {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Checkbox(checked = checked && enabled, enabled = enabled, onCheckedChange = onCheckedChange)
-            Column(modifier = Modifier.padding(start = 4.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Mismo logo de marca que el toggle equivalente en el dashboard
-                    // (YoutubeUploadView.tsx) y iOS (InstagramOptionsFields) -- antes
-                    // este toggle no tenía ningún ícono.
-                    Icon(PlatformIcons.FacebookLogo, contentDescription = null, tint = FacebookBlue, modifier = Modifier.size(20.dp))
-                    Text("También publicar en Facebook", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
-                }
-                Text(
-                    "Mismo video, como Reel en la Página vinculada a tu cuenta de Instagram.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+internal fun FacebookCrossPostRow(
+    checked: Boolean,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    alreadyPublished: Boolean = false,
+    presentation: FacebookCrossPostPresentation? = null,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(
+            value = checked && enabled,
+            enabled = enabled,
+            role = Role.Checkbox,
+            onValueChange = onCheckedChange,
+        ).semantics {
+            contentDescription = buildString {
+                append("Facebook, ")
+                append(if (checked && enabled) "seleccionado" else "no seleccionado")
+                if (alreadyPublished || presentation?.published == true) append(", publicado")
+                presentation?.takeUnless { it.published }?.let { append(", error: ${it.message}") }
+                if (!enabled) append(", deshabilitado")
             }
+        },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+            Icon(
+                PlatformIcons.FacebookLogo,
+                contentDescription = null,
+                tint = if (alreadyPublished || presentation?.published == true) FacebookBlue else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
         }
+        val visibleStatus = when {
+            presentation?.published == true -> "Publicado ✓"
+            presentation != null -> presentation.message
+            alreadyPublished -> "Ya publicado"
+            else -> null
+        }
+        if (visibleStatus != null) {
+            Text(
+                visibleStatus,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.labelSmall,
+                color = if (presentation?.error == true) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else Spacer(Modifier.weight(1f))
+        Checkbox(
+            checked = checked && enabled,
+            enabled = enabled,
+            onCheckedChange = null,
+            modifier = Modifier.size(48.dp).clearAndSetSemantics {},
+        )
     }
 }
 
@@ -1071,6 +1195,7 @@ private fun ThumbnailPicker(
     offsetSec: Float,
     onOffsetChange: (Float) -> Unit,
     viewModel: UploadViewModel,
+    enabled: Boolean = true,
 ) {
     var preview by remember(filePath) { mutableStateOf<Bitmap?>(null) }
     var loading by remember(filePath) { mutableStateOf(false) }
@@ -1092,14 +1217,18 @@ private fun ThumbnailPicker(
         loading = false
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(Swiss.gap)) {
-        SwissSectionTitle(index = "04", title = "Portada", subtitle = "Elegí el frame que se va a usar de miniatura.")
-        SwissCard {
+    UploadStudioCoverPicker(
+        offsetSec = offsetSec,
+        durationSec = durationSec,
+        onOffsetChange = onOffsetChange,
+        onOffsetChangeFinished = { committedOffsetSec = offsetSec },
+        enabled = enabled,
+    ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(170.dp)
-                    .clip(RoundedCornerShape(Swiss.cardSmall))
+                    .height(140.dp)
+                    .clip(RoundedCornerShape(12.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
             ) {
@@ -1123,30 +1252,7 @@ private fun ThumbnailPicker(
                     CircularProgressIndicator()
                 }
             }
-
-            Slider(
-                value = offsetSec,
-                onValueChange = onOffsetChange,
-                onValueChangeFinished = { committedOffsetSec = offsetSec },
-                valueRange = 0f..durationSec.toFloat(),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Text(
-                    formatSecondsLabel(offsetSec),
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                )
-            }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                SwissLabel("Frame elegido")
-            }
-        }
     }
-}
-
-private fun formatSecondsLabel(seconds: Float): String {
-    val totalSec = seconds.toInt()
-    return "%d:%02d".format(totalSec / 60, totalSec % 60)
 }
 
 // Tarjeta de plataforma: logo, nombre, estado y checkbox grande a la
@@ -1158,127 +1264,95 @@ private fun PlatformCard(
     checked: Boolean,
     enabled: Boolean,
     alreadyDone: Boolean,
+    discarded: Boolean,
+    crossPostFacebook: Boolean,
+    crossPostFacebookEnabled: Boolean,
+    facebookAlreadyPublished: Boolean,
+    onCrossPostFacebookChange: (Boolean) -> Unit,
     onCheckedChange: (Boolean) -> Unit,
     viewModel: UploadViewModel,
+    configuration: @Composable () -> Unit,
 ) {
     val workInfoFlow = remember(fileId, platform) { viewModel.observeWork(fileId, platform) }
     val workInfo by workInfoFlow.collectAsState(initial = null)
+    val observedWorkInfo = workInfo
     val color = platformColor(platform)
-    val scheme = MaterialTheme.colorScheme
-
-    SwissCard(onClick = if (enabled) ({ onCheckedChange(!checked) }) else null) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            val icon = platformIcon(platform)
-            if (icon != null) {
-                Icon(
-                    icon,
-                    contentDescription = platformFullLabel(platform),
-                    tint = if (checked || alreadyDone) color else scheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp),
+    val runningProgress = if (observedWorkInfo?.state == WorkInfo.State.RUNNING) {
+        observedWorkInfo.progress.getFloat(UploadWorker.KEY_PROGRESS, 0f)
+    } else null
+    val presentation = uploadStudioPlatformPresentation(
+        alreadyDone = alreadyDone,
+        queued = observedWorkInfo?.state == WorkInfo.State.ENQUEUED,
+        runningProgress = runningProgress,
+        succeeded = observedWorkInfo?.state == WorkInfo.State.SUCCEEDED,
+        failureMessage = if (observedWorkInfo?.state == WorkInfo.State.FAILED) {
+            observedWorkInfo.outputData.getString(UploadWorker.KEY_ERROR) ?: "Falló la subida"
+        } else null,
+    )
+    UploadStudioPlatformRow(
+        label = platformFullLabel(platform),
+        icon = platformIcon(platform),
+        brandColor = color,
+        checked = checked,
+        enabled = enabled,
+        alreadyDone = alreadyDone,
+        presentation = presentation,
+        discarded = discarded,
+        onCheckedChange = onCheckedChange,
+        extraContent = {
+            configuration()
+            // El crosspost a Facebook viaja en el MISMO WorkInfo que Instagram.
+            if (platform == Platform.INSTAGRAM) {
+                val facebookPresentation = observedWorkInfo
+                    ?.takeIf { it.state == WorkInfo.State.SUCCEEDED }
+                    ?.let { facebookCrossPostPresentation(it.outputData) }
+                FacebookCrossPostRow(
+                    checked = crossPostFacebook,
+                    enabled = crossPostFacebookEnabled,
+                    onCheckedChange = onCrossPostFacebookChange,
+                    alreadyPublished = facebookAlreadyPublished,
+                    presentation = facebookPresentation,
                 )
-                Spacer(Modifier.width(16.dp))
             }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    platformFullLabel(platform),
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                )
-                PlatformStatusLabel(alreadyDone = alreadyDone, workInfo = workInfo)
-                // El crosspost a Facebook viaja en el MISMO WorkInfo que Instagram
-                // (ver UploadWorker) -- no es una plataforma con su propio job.
-                if (platform == Platform.INSTAGRAM) {
-                    workInfo?.takeIf { it.state == WorkInfo.State.SUCCEEDED }?.let { info ->
-                        FacebookCrossPostStatus(info.outputData)
-                    }
-                }
-            }
-            Checkbox(
-                checked = checked || alreadyDone,
-                enabled = enabled,
-                onCheckedChange = onCheckedChange,
-                modifier = Modifier.size(Swiss.touchMin),
-            )
-        }
-    }
+        },
+    )
 }
 
-private fun platformColor(platform: Platform): Color = when (platform) {
+internal fun platformColor(platform: Platform): Color = when (platform) {
     Platform.YOUTUBE -> YoutubeRed
     Platform.INSTAGRAM -> InstagramPurple
     Platform.TIKTOK -> TiktokPink
     Platform.FACEBOOK -> FacebookBlue
 }
 
-private fun platformFullLabel(platform: Platform): String = when (platform) {
+internal fun platformFullLabel(platform: Platform): String = when (platform) {
     Platform.YOUTUBE -> "YouTube"
     Platform.INSTAGRAM -> "Instagram"
     Platform.TIKTOK -> "TikTok"
     Platform.FACEBOOK -> "Facebook"
 }
 
-private fun platformIcon(platform: Platform): ImageVector? = when (platform) {
+internal fun platformIcon(platform: Platform): ImageVector? = when (platform) {
     Platform.YOUTUBE -> PlatformIcons.YoutubeLogo
     Platform.INSTAGRAM -> PlatformIcons.InstagramLogo
     Platform.TIKTOK -> PlatformIcons.TiktokLogo
     Platform.FACEBOOK -> PlatformIcons.FacebookLogo
 }
 
-@Composable
-private fun PlatformStatusLabel(alreadyDone: Boolean, workInfo: WorkInfo?) {
-    when {
-        alreadyDone -> Text(
-            "Ya publicado",
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.primary,
-        )
-        workInfo?.state == WorkInfo.State.RUNNING -> {
-            val progress = workInfo.progress.getFloat(UploadWorker.KEY_PROGRESS, 0f)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                LinearProgressIndicator(progress = { progress }, modifier = Modifier.padding(end = 8.dp).height(4.dp).weight(1f))
-                Text("${(progress * 100).toInt()}%", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
-            }
-        }
-        workInfo?.state == WorkInfo.State.ENQUEUED -> Text(
-            "En cola…",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        workInfo?.state == WorkInfo.State.SUCCEEDED -> Text(
-            "Subido ✓",
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.primary,
-        )
-        workInfo?.state == WorkInfo.State.FAILED -> Text(
-            workInfo.outputData.getString(UploadWorker.KEY_ERROR) ?: "Falló la subida",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.error,
-        )
-        else -> Unit
-    }
-}
+internal data class FacebookCrossPostPresentation(
+    val published: Boolean,
+    val message: String,
+    val error: Boolean = false,
+)
 
-// No-fatal: si no se pidió crosspost, ninguna de las 2 claves está en el
-// output y no se muestra nada acá -- si se pidió y falló, Instagram arriba
-// igual dice "Subido ✓" (es verdad, se publicó bien) y esto muestra el error
-// real en vez de fingir que Facebook también salió.
-@Composable
-private fun FacebookCrossPostStatus(outputData: Data) {
+// No se infiere el resultado de Facebook desde el éxito de Instagram; solo se
+// devuelve feedback cuando WorkManager trae una URL o un error de Facebook.
+internal fun facebookCrossPostPresentation(outputData: Data): FacebookCrossPostPresentation? {
     val facebookUrl = outputData.getString(UploadWorker.KEY_FACEBOOK_URL)
     val facebookError = outputData.getString(UploadWorker.KEY_FACEBOOK_ERROR)
-    when {
-        facebookUrl != null -> Text(
-            "Facebook: publicado ✓",
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.primary,
-        )
-        facebookError != null -> Text(
-            "Facebook: $facebookError",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.error,
-        )
-        else -> Unit
+    return when {
+        facebookUrl != null -> FacebookCrossPostPresentation(published = true, message = "Publicado ✓")
+        facebookError != null -> FacebookCrossPostPresentation(published = false, message = facebookError, error = true)
+        else -> null
     }
 }

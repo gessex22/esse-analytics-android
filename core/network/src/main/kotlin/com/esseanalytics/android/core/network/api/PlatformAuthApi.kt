@@ -5,6 +5,7 @@ import com.esseanalytics.android.core.network.dto.ConnectionStatusDto
 import com.esseanalytics.android.core.network.dto.InstagramTokenResponse
 import com.esseanalytics.android.core.network.dto.SetYoutubeThumbnailRequest
 import com.esseanalytics.android.core.network.dto.TiktokTokenResponse
+import com.esseanalytics.android.core.network.dto.TiktokCreatorInfoDto
 import com.esseanalytics.android.core.network.dto.YoutubeTokenResponse
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -47,6 +48,9 @@ interface PlatformAuthApi {
 
     @GET("api/tiktok/token")
     suspend fun tiktokToken(): TiktokTokenResponse
+
+    @GET("api/tiktok/creator-info")
+    suspend fun tiktokCreatorInfo(): TiktokCreatorInfoDto
 
     @GET("api/tiktok/auth/url")
     suspend fun tiktokAuthUrl(

@@ -5,6 +5,8 @@ import com.esseanalytics.android.core.database.dao.PublishOperationDao
 import com.esseanalytics.android.core.database.entity.PublishOperationEntity
 import java.io.File
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -38,6 +40,10 @@ class DurableYoutubeUploadCoordinatorTest {
         // PublishOperationStoreException del dominio.
         var crashOnFind: Exception? = null
         var crashOnUpdate: Exception? = null
+
+        override fun observeBlocked(userKey: String): Flow<List<PublishOperationEntity>> = flow {
+            emit(rows.filter { it.userKey == userKey && it.phase == PublishOperationEntity.PHASE_BLOCKED })
+        }
 
         override suspend fun find(userKey: String, sourceId: String, platform: String): PublishOperationEntity? {
             crashOnFind?.let { throw it }

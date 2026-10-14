@@ -21,6 +21,12 @@ interface FileDao {
     @Query("SELECT * FROM files WHERE fileName = :name LIMIT 1")
     suspend fun findByName(name: String): FileEntity?
 
+    @Query("SELECT * FROM files WHERE fileName = :name OR importSourceName = :name")
+    suspend fun findImportCandidates(name: String): List<FileEntity>
+
+    @Query("SELECT fileName FROM files")
+    suspend fun getImportNames(): List<String>
+
     // Link explícito primero (ver ImportUseCase.importFromRemoteLibrary) --
     // más confiable que fileName, que se puede repetir o venir con doble
     // extensión.

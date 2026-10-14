@@ -2,6 +2,7 @@ package com.esseanalytics.android.feature.upload
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.BackoffPolicy
@@ -25,6 +26,8 @@ import com.esseanalytics.android.core.model.VideoFile
 import com.esseanalytics.android.core.model.WorkflowMode
 import com.esseanalytics.android.core.network.LanLibraryRepository
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
+import com.esseanalytics.android.core.network.api.PlatformAuthApi
+import com.esseanalytics.android.core.network.dto.TiktokCreatorInfoDto
 import com.esseanalytics.android.core.network.SyncRepository
 import com.esseanalytics.android.core.network.di.CentralRetrofit
 import com.esseanalytics.android.core.network.dto.LocalPcVideoDto
@@ -36,6 +39,7 @@ import com.esseanalytics.android.feature.ingest.ImportUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -75,7 +79,30 @@ class UploadViewModel @Inject constructor(
     // confirmación humana de una publicación ambigua (fila `blocked`) pasa
     // por este store — nunca se toca el DAO del journal desde acá.
     private val publishOperationStore: PublishOperationStore,
+    private val platformAuthApi: PlatformAuthApi,
 ) : ViewModel() {
+
+    private val _tiktokCreator = MutableStateFlow<TiktokCreatorInfoDto?>(null)
+    val tiktokCreator = _tiktokCreator.asStateFlow()
+    private val _tiktokCreatorLoading = MutableStateFlow(false)
+    val tiktokCreatorLoading = _tiktokCreatorLoading.asStateFlow()
+    private val _tiktokCreatorError = MutableStateFlow<String?>(null)
+    val tiktokCreatorError = _tiktokCreatorError.asStateFlow()
+
+    fun loadTiktokCreator() {
+        if (_tiktokCreatorLoading.value) return
+        _tiktokCreatorLoading.value = true
+        _tiktokCreator.value = null
+        _tiktokCreatorError.value = null
+        viewModelScope.launch {
+            try { _tiktokCreator.value = platformAuthApi.tiktokCreatorInfo() }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { _tiktokCreatorError.value = "No se pudieron cargar las opciones de TikTok. Revisa la conexión de la cuenta y vuelve a intentar." }
+            finally { _tiktokCreatorLoading.value = false }
+        }
+    }
+
+    data class GalleryImportSelection(val requestId: Long, val file: VideoFile)
 
     private val workManager = WorkManager.getInstance(context)
 
@@ -122,6 +149,21 @@ class UploadViewModel @Inject constructor(
     private val _importingRemoteId = MutableStateFlow<String?>(null)
     val importingRemoteId: StateFlow<String?> = _importingRemoteId.asStateFlow()
 
+    private val _isGalleryImporting = MutableStateFlow(false)
+    val isGalleryImporting: StateFlow<Boolean> = _isGalleryImporting.asStateFlow()
+
+    private val _isVideoImporting = MutableStateFlow(false)
+    val isVideoImporting: StateFlow<Boolean> = _isVideoImporting.asStateFlow()
+
+    private val _galleryImportError = MutableStateFlow<String?>(null)
+    val galleryImportError: StateFlow<String?> = _galleryImportError.asStateFlow()
+
+    private val _galleryImportSelection = MutableStateFlow<GalleryImportSelection?>(null)
+    val galleryImportSelection: StateFlow<GalleryImportSelection?> = _galleryImportSelection.asStateFlow()
+    private var nextGalleryRequestId = 0L
+
+    private var videoImportInProgress = false
+
     // Antes un fallo acá (ej. video sin bytes porque el storage dinámico ya
     // los liberó, ver remote-library-retention.service.ts) volvía onResult(null)
     // sin ningún rastro visible -- el spinner se apagaba y listo, sin decirle
@@ -131,6 +173,10 @@ class UploadViewModel @Inject constructor(
 
     fun clearRemoteImportError() {
         _remoteImportError.value = null
+    }
+
+    fun clearGalleryImportError() {
+        _galleryImportError.value = null
     }
 
     // Título (file_name) del "próximo" video a publicar por plataforma según
@@ -241,13 +287,60 @@ class UploadViewModel @Inject constructor(
     // el caller lo usa exactamente igual que si viniera de `files` (mismo
     // publish() de acá abajo, sin código nuevo del lado de publicar).
     fun importFromRemote(video: RemoteLibraryVideoDto, onResult: (VideoFile?) -> Unit) {
+        if (videoImportInProgress || _galleryImportSelection.value != null) return
+        videoImportInProgress = true
+        _isVideoImporting.value = true
+        _remoteImportError.value = null
         viewModelScope.launch {
             _importingRemoteId.value = video._id
-            val result = importUseCase.importFromRemoteLibrary(video)
-            _importingRemoteId.value = null
-            if (result is ImportResult.Error) _remoteImportError.value = result.message
-            onResult((result as? ImportResult.Success)?.file)
+            try {
+                val result = try {
+                    importUseCase.importFromRemoteLibrary(video)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    _remoteImportError.value = error.message ?: "No se pudo bajar el video de la nube."
+                    null
+                }
+                if (result is ImportResult.Error) _remoteImportError.value = result.message
+                onResult((result as? ImportResult.Success)?.file)
+            } finally {
+                _importingRemoteId.value = null
+                videoImportInProgress = false
+                _isVideoImporting.value = false
+            }
         }
+    }
+
+    fun importFromGallery(uri: Uri) {
+        if (videoImportInProgress || _galleryImportSelection.value != null) return
+        videoImportInProgress = true
+        _isVideoImporting.value = true
+        _galleryImportError.value = null
+        _isGalleryImporting.value = true
+        val requestId = ++nextGalleryRequestId
+        _galleryImportSelection.value = null
+        viewModelScope.launch {
+            try {
+                when (val result = importUseCase.import(uri, canPersist = true, allowOriginalDeletion = false)) {
+                    is ImportResult.Success -> _galleryImportSelection.value = GalleryImportSelection(requestId, result.file)
+                    is ImportResult.Duplicate -> _galleryImportSelection.value = GalleryImportSelection(requestId, result.existing)
+                    is ImportResult.Error -> _galleryImportError.value = result.message
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _galleryImportError.value = error.message ?: "No se pudo importar el video seleccionado."
+            } finally {
+                _isGalleryImporting.value = false
+                videoImportInProgress = false
+                _isVideoImporting.value = false
+            }
+        }
+    }
+
+    fun acknowledgeGalleryImport(requestId: Long) {
+        if (_galleryImportSelection.value?.requestId == requestId) _galleryImportSelection.value = null
     }
 
     fun publish(
@@ -257,23 +350,23 @@ class UploadViewModel @Inject constructor(
         description: String,
         thumbnailOffsetMs: Long? = null,
         crossPostFacebook: Boolean = false,
-    ) {
-        if (platforms.isEmpty()) return
+        options: PlatformPublicationOptions = PlatformPublicationOptions(),
+    ): Boolean {
+        if (platforms.isEmpty() || _activeBatch.value?.isActive == true) return false
+        options.validationError(platforms, _tiktokCreator.value, file.duracionSegundos)?.let {
+            _blockedConfirmationError.value = it
+            return false
+        }
         viewModelScope.launch {
             if (settingsStore.workflowMode.first() == WorkflowMode.SIMPLE) {
                 fileRepository.resolvePublicationSelection(file.id, platforms)
             }
             val networkType = if (settingsStore.wifiOnlyUploads.first()) NetworkType.UNMETERED else NetworkType.CONNECTED
-            val metadata = UploadMetadata(
-                title = title,
-                description = description,
-                thumbnailOffsetMs = thumbnailOffsetMs,
-                crossPostFacebook = crossPostFacebook,
-            )
             val operationId = UUID.randomUUID().toString()
             val platformList = platforms.toList()
 
             platformList.forEach { platform ->
+                val metadata = options.metadataFor(platform, title, description, thumbnailOffsetMs, crossPostFacebook, _tiktokCreator.value)
                 val request = OneTimeWorkRequestBuilder<UploadWorker>()
                     .setInputData(UploadWorker.buildInputData(file.id, platform, metadata, operationId, file.fileName))
                     .setConstraints(Constraints.Builder().setRequiredNetworkType(networkType).build())
@@ -297,6 +390,7 @@ class UploadViewModel @Inject constructor(
             )
             startBatchObserver(operationId, file, platformList)
         }
+        return true
     }
 
     // No hay forma de abortar de verdad un upload ya en curso en WorkManager
@@ -367,6 +461,7 @@ class UploadViewModel @Inject constructor(
         description: String,
         thumbnailOffsetMs: Long? = null,
         crossPostFacebook: Boolean = false,
+        options: PlatformPublicationOptions = PlatformPublicationOptions(),
     ) {
         val batch = _activeBatch.value ?: return
         val blocked = blockedPlatformsForActiveFile.value
@@ -384,7 +479,7 @@ class UploadViewModel @Inject constructor(
             .map { it.platform }
             .toSet()
         if (retriable.isEmpty()) return
-        publish(file, retriable, title, description, thumbnailOffsetMs, crossPostFacebook)
+        publish(file, retriable, title, description, thumbnailOffsetMs, crossPostFacebook, options)
     }
 
     private fun startBatchObserver(operationId: String, file: VideoFile, platforms: List<Platform>) {

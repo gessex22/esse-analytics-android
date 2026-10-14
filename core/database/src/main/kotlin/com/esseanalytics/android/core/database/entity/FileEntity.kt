@@ -56,4 +56,5 @@ data class FileEntity(
     // esto, la dedup contra Nube en Videos → Todos solo podía comparar por
     // fileName, que se rompe fácil (nombres repetidos, doble extensión).
     val remoteLibraryVideoId: String? = null,
+    val importSourceName: String? = null,
 )

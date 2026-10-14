@@ -177,7 +177,7 @@ class InstagramUploader @Inject constructor(
             .add("media_type", "REELS")
             .add("upload_type", "resumable")
             .add("caption", buildCaption(metadata))
-            .add("share_to_feed", "true")
+            .add("share_to_feed", metadata.shareToFeed.toString())
             .add("access_token", token)
 
         // thumb_offset ya está en ms -- mismo campo que usa desktop

@@ -21,7 +21,7 @@ import com.esseanalytics.android.core.database.entity.PublishOperationEntity
 import java.util.UUID
 
 // La base arrancó en v1 con la app nueva (sin usuarios en producción) y desde
-// entonces cada versión tiene su Migration real (v2->...->v7, ver abajo y
+// entonces cada versión tiene su Migration real (v2->...->v8, ver abajo y
 // DatabaseModule) — a diferencia de un reinstall de escritorio, acá los
 // usuarios sí tienen datos locales entre actualizaciones de la app. El único
 // fallback destructivo permitido es el salto desde v1.
@@ -36,7 +36,7 @@ import java.util.UUID
         PlatformTransitionOutboxEntity::class,
         PublishOperationEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class EsseAnalyticsDatabase : RoomDatabase() {
@@ -46,6 +46,13 @@ abstract class EsseAnalyticsDatabase : RoomDatabase() {
     abstract fun pendingPlatformUpdateDao(): PendingPlatformUpdateDao
     abstract fun causalPlatformDao(): CausalPlatformDao
     abstract fun publishOperationDao(): PublishOperationDao
+}
+
+// Preserve the source name separately from the readable import label.
+val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE files ADD COLUMN importSourceName TEXT")
+    }
 }
 
 // v2 -> v3: agrega remoteLibraryVideoId (ver FileEntity, ImportUseCase.importFromRemoteLibrary).

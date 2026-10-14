@@ -101,7 +101,13 @@ class TiktokUploader @Inject constructor(
             TiktokInitRequest(
                 postInfo = TiktokInitRequest.PostInfo(
                     title = metadata.title,
-                    privacyLevel = mapPrivacyLevel(metadata.privacyStatus),
+                    privacyLevel = metadata.tiktokPrivacyLevel ?: mapPrivacyLevel(metadata.privacyStatus),
+                    disableComment = metadata.disableComment,
+                    disableDuet = metadata.disableDuet,
+                    disableStitch = metadata.disableStitch,
+                    brandOrganic = metadata.brandOrganic,
+                    brandedContent = metadata.brandedContent,
+                    aiGenerated = metadata.tiktokAiGenerated,
                     // Default 1000ms si no se eligió portada, igual que desktop
                     // (tiktok-upload.controller.ts).
                     videoCoverTimestampMs = metadata.thumbnailOffsetMs ?: 1000L,
@@ -197,6 +203,12 @@ private data class TiktokInitRequest(
     data class PostInfo(
         val title: String,
         @SerialName("privacy_level") val privacyLevel: String,
+        @SerialName("disable_comment") val disableComment: Boolean,
+        @SerialName("disable_duet") val disableDuet: Boolean,
+        @SerialName("disable_stitch") val disableStitch: Boolean,
+        @SerialName("brand_organic_toggle") val brandOrganic: Boolean,
+        @SerialName("brand_content_toggle") val brandedContent: Boolean,
+        @SerialName("is_aigc") val aiGenerated: Boolean,
         @SerialName("video_cover_timestamp_ms") val videoCoverTimestampMs: Long,
     )
 

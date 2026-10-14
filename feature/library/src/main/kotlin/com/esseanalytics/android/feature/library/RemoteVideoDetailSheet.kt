@@ -8,7 +8,6 @@ import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -16,13 +15,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.media3.common.MediaItem
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
+import android.net.Uri
+import com.esseanalytics.android.core.designsystem.theme.CreatorHomeTheme
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
 
@@ -31,7 +27,7 @@ fun RemoteVideoDetailSheet(
     video: RemoteLibraryVideoDto,
     onDismiss: () -> Unit,
     streamUrl: String? = null,
-    onPublish: () -> Unit = {},
+    onPublish: (() -> Unit)? = null,
     viewModel: RemoteVideoEditViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(video._id) {
@@ -47,23 +43,14 @@ fun RemoteVideoDetailSheet(
     val saveRunning = appSaveStatus is VideoSaveStatus.Running ||
         gallerySaveStatus is VideoSaveStatus.Running
     val shown = current ?: video
-    val context = LocalContext.current
-    val player = remember(streamUrl) {
-        streamUrl?.let {
-            ExoPlayer.Builder(context).build().apply {
-                setMediaItem(MediaItem.fromUri(it))
-                playWhenReady = true
-                prepare()
-            }
-        }
-    }
-    DisposableEffect(player) { onDispose { player?.release() } }
     var linkEditorPlatform by remember { mutableStateOf<Platform?>(null) }
     var linkEditorText by remember { mutableStateOf("") }
 
     VideoDetailDialog(
         title = shown.fileName,
         metadata = listOfNotNull(shown.resolution, shown.formato).joinToString(" · "),
+        playbackUri = streamUrl?.takeIf(String::isNotBlank)?.let(Uri::parse),
+        playbackErrorText = "No hay una dirección de reproducción disponible para este video.",
         onDismiss = onDismiss,
         stateFor = { platform ->
             when {
@@ -81,21 +68,17 @@ fun RemoteVideoDetailSheet(
             linkEditorPlatform = platform
         },
         errorMessage = errorMessage ?: saveErrorMessage,
-        player = {
-            AndroidView(
-                factory = { PlayerView(context).apply { this.player = player } },
-                modifier = Modifier.fillMaxWidth().height(280.dp),
-            )
-        },
         actions = {
-            DetailPrimaryAction(
-                text = "Publicar",
-                icon = Icons.Outlined.CloudUpload,
-                enabled = !saveRunning,
-                onClick = onPublish,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(10.dp))
+            onPublish?.let { publish ->
+                DetailPrimaryAction(
+                    text = "Publicar",
+                    icon = Icons.Outlined.CloudUpload,
+                    enabled = !saveRunning,
+                    onClick = publish,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+            }
             DetailSaveAction(
                 idleText = "Guardar en app",
                 subtitle = "Disponible sin conexión dentro de EsseAnalytics",
@@ -121,16 +104,18 @@ fun RemoteVideoDetailSheet(
     )
 
     linkEditorPlatform?.let { platform ->
-        LinkEditorDialog(
-            platform = platform,
-            text = linkEditorText,
-            onTextChange = { linkEditorText = it },
-            isSaving = isSaving,
-            onDismiss = { linkEditorPlatform = null },
-            onSave = {
-                viewModel.saveLink(platform, linkEditorText)
-                linkEditorPlatform = null
-            },
-        )
+        CreatorHomeTheme {
+            LinkEditorDialog(
+                platform = platform,
+                text = linkEditorText,
+                onTextChange = { linkEditorText = it },
+                isSaving = isSaving,
+                onDismiss = { linkEditorPlatform = null },
+                onSave = {
+                    viewModel.saveLink(platform, linkEditorText)
+                    linkEditorPlatform = null
+                },
+            )
+        }
     }
 }

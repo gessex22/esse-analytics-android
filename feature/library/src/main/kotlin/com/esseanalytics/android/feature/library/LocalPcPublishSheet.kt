@@ -9,11 +9,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -30,9 +34,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -44,10 +51,25 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.tooling.preview.Preview
 import coil.compose.AsyncImage
 import com.esseanalytics.android.core.model.Platform
+import com.esseanalytics.android.core.designsystem.component.CreatorStudioBackdrop
+import com.esseanalytics.android.core.designsystem.theme.CreatorHomeTheme
+import com.esseanalytics.android.core.designsystem.component.CreatorSerif
+import com.esseanalytics.android.core.designsystem.icon.FacebookLogo
+import com.esseanalytics.android.core.designsystem.icon.PlatformIcons
+import com.esseanalytics.android.core.designsystem.theme.FacebookBlue
 
 // Publicar desde una PC de la LAN es server-side y sin bytes -- la PC lee su
 // propio archivo del disco y lo sube ella misma (ver
@@ -66,25 +88,27 @@ fun LocalPcPublishSheet(
     viewModel: LibraryViewModel,
     onDismiss: () -> Unit,
 ) {
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = { Text("Publicar desde esta PC") },
-                    navigationIcon = {
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Cerrar")
-                        }
-                    },
+    CreatorHomeTheme {
+        Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = { Text("Publicar desde esta PC") },
+                        navigationIcon = {
+                            IconButton(onClick = onDismiss) {
+                                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Cerrar")
+                            }
+                        },
+                    )
+                },
+            ) { padding ->
+                LocalPcPublishContent(
+                    item = item,
+                    viewModel = viewModel,
+                    onChooseAnother = onDismiss,
+                    modifier = Modifier.padding(padding),
                 )
-            },
-        ) { padding ->
-            LocalPcPublishContent(
-                item = item,
-                viewModel = viewModel,
-                onChooseAnother = onDismiss,
-                modifier = Modifier.padding(padding),
-            )
+            }
         }
     }
 }
@@ -98,6 +122,35 @@ fun LocalPcPublishContent(
     viewModel: LibraryViewModel,
     onChooseAnother: () -> Unit,
     modifier: Modifier = Modifier,
+    username: String? = null,
+    onProfileClick: (() -> Unit)? = null,
+    floatingNavOverlay: Boolean = false,
+) {
+    CreatorHomeTheme {
+        Box(modifier.fillMaxSize()) {
+            CreatorStudioBackdrop()
+            LocalPcPublishContentBody(
+                item = item,
+                viewModel = viewModel,
+                onChooseAnother = onChooseAnother,
+                modifier = Modifier.fillMaxSize(),
+                username = username,
+                onProfileClick = onProfileClick,
+                floatingNavOverlay = floatingNavOverlay,
+            )
+        }
+    }
+}
+
+@Composable
+private fun LocalPcPublishContentBody(
+    item: LibraryListItem.LanVideo,
+    viewModel: LibraryViewModel,
+    onChooseAnother: () -> Unit,
+    modifier: Modifier,
+    username: String?,
+    onProfileClick: (() -> Unit)?,
+    floatingNavOverlay: Boolean,
 ) {
     val publishState by viewModel.lanPublishState.collectAsState()
     // Preselecciona lo que todavía no está publicado ni descartado en esa
@@ -144,19 +197,23 @@ fun LocalPcPublishContent(
             // cuando esta hoja se abre desde la tab "Subir" (puente del
             // NavHost) la cápsula flotante es un overlay, no reserva espacio,
             // y el botón "Publicar" quedaba tapable al final del scroll.
-            .padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = 24.dp + 80.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = if (floatingNavOverlay) 124.dp else 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-                Text(item.video.fileName, style = MaterialTheme.typography.titleLarge)
-                Text(
-                    "← Elegir otro video",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clickable {
+                if (username != null && onProfileClick != null) {
+                    LocalPcCreatorHeader(username, onProfileClick)
+                }
+                LocalPcStudioCard {
+                    Text(item.video.fileName, style = MaterialTheme.typography.titleLarge, fontFamily = CreatorSerif, fontWeight = FontWeight.Bold)
+                    OutlinedButton(
+                        onClick = {
                         viewModel.resetLanPublishState()
                         onChooseAnother()
-                    },
-                )
+                        },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        shape = RoundedCornerShape(16.dp),
+                    ) { Text("Elegir otro video") }
+                }
                 // FIX 2026-08-18: miniatura tocable con ícono play, antes de
                 // los campos del formulario (mismo lugar que PublishForm en
                 // feature:upload) -- ver showPlayer/RemoteVideoPlayerDialog
@@ -165,7 +222,7 @@ fun LocalPcPublishContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(180.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(18.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                         .clickable { showPlayer = true },
                     contentAlignment = Alignment.Center,
@@ -193,33 +250,23 @@ fun LocalPcPublishContent(
                     )
                 }
 
-                Text(
-                    "Esta PC sube el video ella misma -- el teléfono solo manda el pedido. No se puede pausar ni reanudar la subida desde acá.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("Título") },
-                    enabled = !isSubmitting,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    label = { Text("Descripción") },
-                    enabled = !isSubmitting,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text("Plataformas", style = MaterialTheme.typography.titleMedium)
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                LocalPcStudioCard {
+                    Text(
+                        "Esta PC sube el video ella misma -- el teléfono solo manda el pedido. No se puede pausar ni reanudar la subida desde acá.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    LocalPcStudioDetailsFields(title, { title = it }, description, { description = it }, !isSubmitting)
+                }
+                LocalPcStudioCard(contentPadding = 10.dp, contentSpacing = 4.dp) {
+                    Text("Plataformas", style = MaterialTheme.typography.titleMedium, fontFamily = CreatorSerif, fontWeight = FontWeight.Bold)
                     Platform.publishable.forEach { platform ->
                         LanPublishPlatformRow(
                             platform = platform,
                             selected = platform in selectedPlatforms,
                             result = publishState[platform],
+                            alreadyPublished = platform.apiValue in item.video.platforms,
+                            discarded = platform.apiValue in item.video.platforms_discarded,
                             enabled = !isSubmitting,
                             onToggle = { checked ->
                                 selectedPlatforms = if (checked) selectedPlatforms + platform else selectedPlatforms - platform
@@ -234,19 +281,18 @@ fun LocalPcPublishContent(
                                 checked = crossPostFacebook,
                                 enabled = Platform.INSTAGRAM in selectedPlatforms && !isSubmitting,
                                 onCheckedChange = { crossPostFacebook = it },
+                                alreadyPublished = Platform.FACEBOOK.apiValue in item.video.platforms,
                             )
                         }
                     }
                 }
                 if (Platform.TIKTOK in selectedPlatforms) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Switch(checked = tiktokPublic, onCheckedChange = { tiktokPublic = it }, enabled = !isSubmitting)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (tiktokPublic) "TikTok: público" else "TikTok: solo yo (privado)")
-                    }
+                    LocalPcTikTokAudienceRow(tiktokPublic, !isSubmitting) { tiktokPublic = it }
                 }
 
-                Button(
+                LocalPcPublishButton(
+                    isSubmitting = isSubmitting,
+                    enabled = selectedPlatforms.isNotEmpty(),
                     onClick = {
                         viewModel.publishLan(
                             item,
@@ -257,15 +303,7 @@ fun LocalPcPublishContent(
                             crossPostFacebook = crossPostFacebook && Platform.INSTAGRAM in selectedPlatforms,
                         )
                     },
-                    enabled = !isSubmitting && selectedPlatforms.isNotEmpty(),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    if (isSubmitting) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp))
-                    } else {
-                        Text("Publicar")
-                    }
-                }
+                )
     }
 }
 
@@ -274,21 +312,39 @@ fun LocalPcPublishContent(
 // arquitectura (ver comentario grande al inicio del archivo), así que queda
 // duplicado a propósito, con el mismo texto y layout.
 @Composable
-private fun LanFacebookCrossPostRow(checked: Boolean, enabled: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun LanFacebookCrossPostRow(
+    checked: Boolean,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    alreadyPublished: Boolean = false,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 32.dp, bottom = 4.dp),
+            .heightIn(min = 48.dp)
+            .toggleable(
+                value = checked && enabled,
+                enabled = enabled,
+                role = Role.Checkbox,
+                onValueChange = onCheckedChange,
+            )
+            .semantics {
+                contentDescription = "Facebook, ${if (checked && enabled) "seleccionado" else "no seleccionado"}${if (alreadyPublished) ", ya publicado" else ""}${if (enabled) "" else ", deshabilitado"}"
+            },
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Checkbox(checked = checked && enabled, enabled = enabled, onCheckedChange = onCheckedChange)
-        Column(modifier = Modifier.padding(top = 12.dp)) {
-            Text("También publicar en Facebook", style = MaterialTheme.typography.bodyMedium)
-            Text(
-                "Mismo video, como Reel en la Página vinculada a tu cuenta de Instagram.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+            Icon(
+                PlatformIcons.FacebookLogo,
+                contentDescription = null,
+                tint = if (alreadyPublished) FacebookBlue else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
             )
         }
+        if (alreadyPublished) {
+            Text("Ya publicado", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else Spacer(Modifier.weight(1f))
+        Checkbox(checked = checked && enabled, enabled = enabled, onCheckedChange = null, modifier = Modifier.size(48.dp).clearAndSetSemantics {})
     }
 }
 
@@ -297,28 +353,60 @@ private fun LanPublishPlatformRow(
     platform: Platform,
     selected: Boolean,
     result: LanPublishResult?,
+    alreadyPublished: Boolean,
+    discarded: Boolean,
     enabled: Boolean,
     onToggle: (Boolean) -> Unit,
 ) {
     Column {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Checkbox(checked = selected, onCheckedChange = onToggle, enabled = enabled)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(
+                value = selected,
+                enabled = enabled,
+                role = Role.Checkbox,
+                onValueChange = onToggle,
+            ).semantics {
+                contentDescription = buildString {
+                    append(platform.displayName)
+                    append(if (selected) ", seleccionado" else ", no seleccionado")
+                    when (result) {
+                        LanPublishResult.InProgress -> append(", publicando")
+                        LanPublishResult.Success -> append(", publicado")
+                        null -> if (alreadyPublished) append(", publicado")
+                        is LanPublishResult.Failure -> append(", error: ${result.message}")
+                    }
+                    if (discarded && !alreadyPublished && result !is LanPublishResult.Success) append(", descartado")
+                    if (!enabled) append(", deshabilitado")
+                }
+            },
+        ) {
+            Checkbox(checked = selected, onCheckedChange = null, enabled = enabled, modifier = Modifier.size(48.dp).clearAndSetSemantics {})
             val icon = platformIcon(platform)
             if (icon != null) {
-                Icon(icon, contentDescription = null, tint = platformColor(platform), modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(8.dp))
+                Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                    Icon(
+                        icon,
+                        contentDescription = null,
+                        tint = if (alreadyPublished || result is LanPublishResult.Success) platformColor(platform) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    if (discarded && !alreadyPublished && result !is LanPublishResult.Success) {
+                        Text("╱", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clearAndSetSemantics {})
+                    }
+                }
             }
-            Text(platform.displayName, modifier = Modifier.weight(1f))
+            Spacer(Modifier.weight(1f))
             when (result) {
                 is LanPublishResult.InProgress -> CircularProgressIndicator(modifier = Modifier.size(18.dp))
                 is LanPublishResult.Success -> Icon(
                     Icons.Outlined.Check,
-                    contentDescription = "Publicado",
+                    contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                 )
                 is LanPublishResult.Failure -> Icon(
                     Icons.Outlined.ErrorOutline,
-                    contentDescription = result.message,
+                    contentDescription = null,
                     tint = MaterialTheme.colorScheme.error,
                 )
                 null -> Unit
@@ -331,6 +419,133 @@ private fun LanPublishPlatformRow(
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(start = 40.dp),
             )
+        }
+    }
+}
+
+@Composable
+private fun LocalPcStudioCard(
+    contentPadding: androidx.compose.ui.unit.Dp = 14.dp,
+    contentSpacing: androidx.compose.ui.unit.Dp = 10.dp,
+    content: @Composable () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        tonalElevation = 0.dp,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(contentPadding),
+            verticalArrangement = Arrangement.spacedBy(contentSpacing),
+            content = { content() },
+        )
+    }
+}
+
+@Composable
+private fun LocalPcStudioDetailsFields(
+    title: String,
+    onTitleChange: (String) -> Unit,
+    description: String,
+    onDescriptionChange: (String) -> Unit,
+    enabled: Boolean,
+) {
+    OutlinedTextField(
+        value = title,
+        onValueChange = onTitleChange,
+        label = { Text("Título") },
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    OutlinedTextField(
+        value = description,
+        onValueChange = onDescriptionChange,
+        label = { Text("Descripción") },
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+@Composable
+private fun LocalPcTikTokAudienceRow(isPublic: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Switch(checked = isPublic, onCheckedChange = onChange, enabled = enabled)
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(if (isPublic) "TikTok: público" else "TikTok: solo yo (privado)")
+    }
+}
+
+@Composable
+private fun LocalPcPublishButton(isSubmitting: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        enabled = !isSubmitting && enabled,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        if (isSubmitting) CircularProgressIndicator(modifier = Modifier.size(18.dp)) else Text("Publicar")
+    }
+}
+
+@Composable
+private fun LocalPcCreatorHeader(username: String, onProfileClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text("Publicar desde la PC", Modifier.weight(1f), fontFamily = CreatorSerif, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        Surface(
+            modifier = Modifier.size(48.dp).clip(CircleShape).clickable(onClick = onProfileClick)
+                .semantics { contentDescription = "Abrir perfil de $username" },
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(username.trim().firstOrNull()?.uppercase() ?: "?", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Preview(name = "Publicar PC · claro", showBackground = true, widthDp = 360, heightDp = 800)
+@Composable
+private fun LocalPcPublishStudioLightPreview() = LocalPcPublishStudioPreview(dark = false)
+
+@Preview(name = "Publicar PC · oscuro", showBackground = true, widthDp = 360, heightDp = 800)
+@Composable
+private fun LocalPcPublishStudioDarkPreview() = LocalPcPublishStudioPreview(dark = true)
+
+@Composable
+private fun LocalPcPublishStudioPreview(dark: Boolean) {
+    CreatorHomeTheme(darkTheme = dark) {
+        Box {
+            CreatorStudioBackdrop()
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                LocalPcCreatorHeader("Luna", onProfileClick = {})
+                LocalPcStudioCard {
+                    Text("ensayo-general.mp4", fontFamily = CreatorSerif, style = MaterialTheme.typography.titleLarge)
+                    OutlinedButton(onClick = {}, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                        Text("Elegir otro video")
+                    }
+                }
+                LocalPcStudioCard {
+                    Text("Esta PC sube el video ella misma. El teléfono solo manda el pedido.", style = MaterialTheme.typography.bodySmall)
+                    LocalPcStudioDetailsFields("Resumen del evento", {}, "Descripción", {}, enabled = true)
+                }
+                LocalPcStudioCard(contentPadding = 10.dp, contentSpacing = 4.dp) {
+                    Text("Plataformas", fontFamily = CreatorSerif, style = MaterialTheme.typography.titleMedium)
+                    LanPublishPlatformRow(Platform.YOUTUBE, true, LanPublishResult.InProgress, false, false, false) {}
+                    LanPublishPlatformRow(Platform.INSTAGRAM, true, LanPublishResult.Success, false, false, false) {}
+                    LanFacebookCrossPostRow(checked = true, enabled = true, onCheckedChange = {})
+                    LanPublishPlatformRow(Platform.TIKTOK, true, LanPublishResult.Failure("No se pudo completar la publicación."), false, false, false) {}
+                    LocalPcTikTokAudienceRow(isPublic = false, enabled = true, onChange = {})
+                }
+                LocalPcPublishButton(isSubmitting = false, enabled = true, onClick = {})
+            }
         }
     }
 }

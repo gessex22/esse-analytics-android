@@ -149,8 +149,9 @@ class YoutubeUploader @Inject constructor(
                     title = metadata.title,
                     description = metadata.description,
                     tags = metadata.tags,
+                    categoryId = metadata.categoryId,
                 ),
-                status = YoutubeUploadRequest.Status(privacyStatus = metadata.privacyStatus),
+                status = YoutubeUploadRequest.Status(metadata.privacyStatus, metadata.madeForKids, metadata.containsSyntheticMedia),
             ),
         )
 
@@ -195,10 +196,10 @@ private data class YoutubeUploadRequest(
     val status: Status,
 ) {
     @Serializable
-    data class Snippet(val title: String, val description: String, val tags: List<String>)
+    data class Snippet(val title: String, val description: String, val tags: List<String>, val categoryId: String)
 
     @Serializable
-    data class Status(val privacyStatus: String)
+    data class Status(val privacyStatus: String, val selfDeclaredMadeForKids: Boolean, val containsSyntheticMedia: Boolean)
 }
 
 @Serializable

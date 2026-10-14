@@ -8,6 +8,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":feature:ingest"))
     implementation(project(":feature:library"))
     // Reusa YoutubeUploader/InstagramUploader/TiktokUploader tal cual (ver
     // Parte C.2 del plan) -- único feature:* que depende de otro feature:*,

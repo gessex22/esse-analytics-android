@@ -14,4 +14,5 @@ dependencies {
     // tratarlo como cualquier otro importado, mismo criterio que iOS).
     implementation(project(":core:network"))
     implementation(libs.okhttp.core)
+    testImplementation(libs.junit)
 }

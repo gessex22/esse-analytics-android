@@ -17,8 +17,12 @@ import com.esseanalytics.android.core.network.api.RemoteLibraryApi
 import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 import java.io.File
 import java.time.Instant
 import java.util.UUID
@@ -49,12 +53,18 @@ class ImportUseCase @Inject constructor(
     private val thumbnailGenerator: AndroidFrameThumbnailGenerator,
     private val settingsStore: SettingsStore,
     private val remoteLibraryApi: RemoteLibraryApi,
+    private val nameAllocator: ImportVideoNameAllocator,
 ) {
-    suspend fun import(uri: Uri, canPersist: Boolean = false): ImportResult = withContext(Dispatchers.IO) {
+    suspend fun import(
+        uri: Uri,
+        canPersist: Boolean = false,
+        allowOriginalDeletion: Boolean = true,
+    ): ImportResult = withContext(Dispatchers.IO) {
         var copiedFile: File? = null
+        var committed = false
         try {
-            val displayName = queryDisplayName(uri) ?: "video_${System.currentTimeMillis()}.mp4"
-            val extension = displayName.substringAfterLast('.', "mp4")
+            val sourceName = queryDisplayName(uri)?.trim()?.takeIf { it.isNotEmpty() }
+            val extension = sourceName?.substringAfterLast('.', "mp4")?.takeIf { it.isNotBlank() } ?: "mp4"
 
             val persisted = canPersist && tryPersistPermission(uri)
 
@@ -80,10 +90,14 @@ class ImportUseCase @Inject constructor(
             // Dedup por (fileName, duración, formato) de lo ya importado, NO
             // por el Uri de origen (no es estable entre selecciones) — ver el
             // plan, sección "Ingesta de videos".
-            val existing = fileRepository.findByName(displayName)
-            if (existing != null && existing.duracionSegundos == durationSeconds && existing.formato == extension) {
+            val existing = sourceName?.let { name ->
+                fileRepository.findImportCandidates(name).firstOrNull {
+                    it.duracionSegundos == durationSeconds && it.formato == extension
+                }
+            }
+            if (existing != null) {
                 copiedFile?.delete()
-                if (persisted) releasePersistedPermissionBestEffort(uri)
+                if (persisted && existing.filePath != uri.toString()) releasePersistedPermissionBestEffort(uri)
                 return@withContext ImportResult.Duplicate(existing)
             }
 
@@ -95,7 +109,7 @@ class ImportUseCase @Inject constructor(
             // genera con su default al construirse. De ahí en más se propaga
             // intacto -- insert, copy(id = ...), mappers y updates lo conservan.
             val videoFile = VideoFile(
-                fileName = displayName,
+                fileName = sourceName.orEmpty(),
                 filePath = filePathForStorage,
                 status = FileStatus.PENDIENTE,
                 contentStatus = ContentStatus.BORRADOR,
@@ -105,20 +119,32 @@ class ImportUseCase @Inject constructor(
                 thumbnailPath = if (hasThumbnail) thumbnailFile.absolutePath else null,
                 fechaCreacion = Instant.now(),
             )
-            val id = fileRepository.insert(videoFile)
+            coroutineContext.ensureActive()
+            val importedFile = withContext(NonCancellable) {
+                val fileName = nameAllocator.reserve(sourceName, extension)
+                val namedFile = videoFile.copy(
+                    fileName = fileName,
+                    importSourceName = sourceName.takeIf { fileName != sourceName },
+                )
+                val id = fileRepository.insert(namedFile).also { committed = true }
+                namedFile.copy(id = id)
+            }
 
             // Sin sentido si no se copió nada -- "eliminar original" borraría
             // la ÚNICA copia que existe (ver persisted arriba).
-            if (!persisted && settingsStore.deleteOriginalAfterImport.first()) {
+            if (allowOriginalDeletion && !persisted && settingsStore.deleteOriginalAfterImport.first()) {
                 deleteOriginalBestEffort(uri)
             }
 
-            ImportResult.Success(videoFile.copy(id = id))
+            ImportResult.Success(importedFile)
+        } catch (cancelled: CancellationException) {
+            if (!committed) copiedFile?.delete()
+            throw cancelled
         } catch (e: Exception) {
             // Boundary real: Uri externo (Share Sheet/SAF) puede fallar de
             // formas que no controlamos -- permiso revocado, archivo borrado
             // entre que se eligió y se leyó, IO error, etc.
-            copiedFile?.delete()
+            if (!committed) copiedFile?.delete()
             ImportResult.Error(e.message ?: "Error al importar el video.")
         }
     }
