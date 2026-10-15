@@ -181,7 +181,7 @@ class UploadWorker @AssistedInject constructor(
                     // null ahí, así que conservan exactamente el operationId del
                     // input. El crosspost de Facebook (rama de Instagram de abajo)
                     // sigue usando siempre el del input.
-                    reportPublish(platform, result.platformId, result.platformUrl, videoFile.fileName, title, videoFile.remoteLibraryVideoId, result.durableOperationId ?: operationId)
+                    reportPublish(platform, result.platformId, result.platformUrl, videoFile.fileName, title, videoFile.remoteLibraryVideoId, videoFile.clientFileId, result.durableOperationId ?: operationId)
                     report("succeeded", 100)
 
                     // Facebook NO pasa por onPlatformPublished (no está en
@@ -201,7 +201,7 @@ class UploadWorker @AssistedInject constructor(
                                 title = title,
                             )
                             fileRepository.addPlatform(fileId, Platform.FACEBOOK)
-                            reportPublish(Platform.FACEBOOK, fb.videoId, fb.url, videoFile.fileName, title, videoFile.remoteLibraryVideoId, operationId)
+                            reportPublish(Platform.FACEBOOK, fb.videoId, fb.url, videoFile.fileName, title, videoFile.remoteLibraryVideoId, videoFile.clientFileId, operationId)
                             workDataOf(KEY_FACEBOOK_URL to fb.url)
                         }
                         is FacebookCrossPostResult.Failed -> workDataOf(KEY_FACEBOOK_ERROR to fb.message)
@@ -241,9 +241,10 @@ class UploadWorker @AssistedInject constructor(
     // HistoryOutbox (hallazgo SYNC-02#4): si el envío falla, ya NO se pierde
     // en silencio -- queda encolado de forma durable (Room) para reintentar
     // más tarde (ver DashboardViewModel.refresh(), que vacía el outbox).
-    private suspend fun reportPublish(platform: Platform, platformId: String, platformUrl: String, fileName: String, title: String, remoteId: String?, operationId: String?) {
+    private suspend fun reportPublish(platform: Platform, platformId: String, platformUrl: String, fileName: String, title: String, remoteId: String?, clientFileId: String, operationId: String?) {
         historyOutbox.sendOrEnqueue(
             RecordPublishRequest(
+                clientFileId = clientFileId,
                 platform = platform.apiValue,
                 platformId = platformId,
                 platformUrl = platformUrl.ifBlank { null },

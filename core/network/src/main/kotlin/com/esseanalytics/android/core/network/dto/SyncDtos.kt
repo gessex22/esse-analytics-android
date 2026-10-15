@@ -17,7 +17,7 @@ data class GroupStatsSlotDto(
 data class GroupStatsItemDto(
     val fileId: String,
     val fileName: String,
-    val fecha_creacion: String,
+    val fecha_creacion: String? = null,
     val platforms: Map<String, GroupStatsSlotDto>,
     // Cuando hay match en Biblioteca remota (por fileName, resuelto server-side
     // -- ver getGroupStats en sync.controller.ts), permiten pedir la miniatura
@@ -192,6 +192,8 @@ data class ConfirmLinkRequest(val fileId: String)
 @Serializable
 data class RecordPublishRequest(
     val source: String = "android",
+    val contentId: String? = null,
+    val clientFileId: String? = null,
     val platform: String,
     val platformId: String,
     val platformUrl: String? = null,

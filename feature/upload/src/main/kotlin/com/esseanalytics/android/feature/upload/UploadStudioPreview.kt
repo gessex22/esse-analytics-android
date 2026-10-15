@@ -3,7 +3,6 @@ package com.esseanalytics.android.feature.upload
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,6 +15,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
@@ -223,32 +224,31 @@ private fun UploadStudioPublishFooterPreview() {
     }
 }
 
-@Preview(name = "Subir · fuentes disponibles", showBackground = true, widthDp = 360, heightDp = 760)
+@Preview(name = "Selector · importados", showBackground = true, widthDp = 360, heightDp = 760)
 @Composable
 private fun UploadStudioSourcesPreview() {
     CreatorHomeTheme {
         Box {
             CreatorStudioBackdrop()
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                UploadStudioHeader("Luna", onProfileClick = {})
-                SourceSection("Nube") { SourceStatusRow("Importando video…", loading = true) }
-                SourceSection("PC local") {
-                    SourceStatusRow("No se pudo cargar la biblioteca de la PC.", onRetry = {})
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                UploadStudioHeader("Luna", onProfileClick = {}, subtitle = "Elegí un video para continuar.")
+                Column(Modifier.padding(top = 12.dp, bottom = 16.dp)) {
+                    UploadGalleryAction(isLoading = false, error = null, enabled = true, onClick = {})
                 }
-                SourceSection("En este teléfono") {
-                    FileList(
-                        files = listOf(
-                            VideoFile(
-                                fileName = "video-capturado.mp4",
-                                filePath = "",
-                                status = FileStatus.PENDIENTE,
-                                contentStatus = ContentStatus.BORRADOR,
-                            ),
+                UploadPickerSources(UploadPickerSource.entries, UploadPickerSource.IMPORTED, enabled = true, onSelect = {})
+                FileList(
+                    files = listOf(
+                        VideoFile(
+                            fileName = "video-capturado.mp4",
+                            filePath = "",
+                            status = FileStatus.PENDIENTE,
+                            contentStatus = ContentStatus.BORRADOR,
+                            platforms = listOf(Platform.TIKTOK),
                         ),
-                        nextUploads = emptyMap(),
-                        onSelect = {},
-                    )
-                }
+                    ),
+                    nextUploads = mapOf(Platform.YOUTUBE to "video-capturado.mp4"),
+                    onSelect = {},
+                )
             }
         }
     }
@@ -331,50 +331,55 @@ private fun UploadGalleryActionStatesPreview() {
     }
 }
 
-@Preview(name = "Nube · 2 columnas 320, texto grande", showBackground = true, widthDp = 320, heightDp = 760, fontScale = 1.3f)
+@Preview(name = "Selector · compacto con texto grande", showBackground = true, widthDp = 320, heightDp = 640, fontScale = 1.3f)
 @Composable
-private fun UploadCloudGridCompactPreview() = UploadCloudGridPreview()
+private fun UploadPickerCompactPreview() = UploadPickerPreview()
 
-@Preview(name = "Nube · reflujo ancho", showBackground = true, widthDp = 800, heightDp = 600)
+@Preview(name = "Selector · oscuro", showBackground = true, widthDp = 360, heightDp = 760)
 @Composable
-private fun UploadCloudGridWidePreview() = UploadCloudGridPreview()
+private fun UploadPickerDarkPreview() = UploadPickerPreview(dark = true)
+
+@Preview(name = "Selector · ancho", showBackground = true, widthDp = 800, heightDp = 600)
+@Composable
+private fun UploadPickerWidePreview() = UploadPickerPreview()
+
+@Preview(name = "Selector · nube", showBackground = true, widthDp = 400, heightDp = 800)
+@Composable
+private fun UploadPickerLightPreview() = UploadPickerPreview()
 
 @Composable
-private fun UploadCloudGridPreview() {
-    CreatorHomeTheme {
+private fun UploadPickerPreview(dark: Boolean = false) {
+    var selected by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(UploadPickerSource.CLOUD) }
+    CreatorHomeTheme(darkTheme = dark) {
         Box {
             CreatorStudioBackdrop()
-            BoxWithConstraints(Modifier.fillMaxSize()) {
-                val columns = when {
-                    maxWidth >= 640.dp -> 4
-                    maxWidth >= 480.dp -> 3
-                    else -> 2
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 20.dp, top = 24.dp, end = 20.dp, bottom = 124.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                item(key = "header") { UploadStudioHeader("Luna", onProfileClick = {}, subtitle = "Elegí un video para continuar.") }
+                item(key = "gallery") {
+                    Column(Modifier.padding(top = 12.dp, bottom = 16.dp)) {
+                        UploadGalleryAction(isLoading = false, error = null, enabled = true, onClick = {})
+                    }
                 }
-                val rows = previewCloudVideos.chunked(columns)
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    item(key = "cloud-preview-header") {
-                        UploadStudioHeader("Luna", onProfileClick = {}, subtitle = "Elegí qué video querés publicar.")
-                    }
-                    item(key = "cloud-preview-state") {
-                        SourceSection("Nube") {
-                            Text("Tres resultados; el primero simula una importación activa.", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                    items(rows, key = { row -> "preview-row-${row.first()._id}-${row.last()._id}" }) { row ->
-                        UploadCloudVideoGridRow(
-                            videos = row,
-                            columns = columns,
-                            importingId = "gallery-preview-1",
-                            importInProgress = true,
+                item(key = "sources") {
+                    UploadPickerSources(UploadPickerSource.entries, selected, enabled = true, onSelect = { selected = it })
+                }
+                if (selected == UploadPickerSource.CLOUD) {
+                    items(previewCloudVideos, key = { it._id }) { video ->
+                        UploadCloudVideoCard(
+                            video = video,
+                            importing = false,
+                            enabled = true,
                             nextUploads = mapOf(Platform.YOUTUBE to "video-pendiente.mp4"),
-                            thumbnailUrl = { null },
-                            onSelect = {},
+                            thumbnailUrl = null,
+                            onClick = {},
                         )
                     }
+                } else {
+                    item(key = "empty") { SourceStatusRow("No hay videos en esta fuente.") }
                 }
             }
         }

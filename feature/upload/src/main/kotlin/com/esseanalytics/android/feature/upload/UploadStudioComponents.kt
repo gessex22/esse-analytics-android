@@ -1,15 +1,18 @@
 package com.esseanalytics.android.feature.upload
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
@@ -23,8 +26,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -43,7 +44,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,19 +59,9 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.esseanalytics.android.core.designsystem.component.CreatorSerif
 import com.esseanalytics.android.core.designsystem.component.PlaceholderScreen
-import com.esseanalytics.android.core.designsystem.theme.FacebookBlue
-import com.esseanalytics.android.core.designsystem.theme.InstagramPurple
-import com.esseanalytics.android.core.designsystem.theme.TiktokPink
-import com.esseanalytics.android.core.designsystem.theme.YoutubeRed
-import com.esseanalytics.android.core.designsystem.icon.PlatformIcons
-import com.esseanalytics.android.core.designsystem.icon.YoutubeLogo
-import com.esseanalytics.android.core.designsystem.icon.InstagramLogo
-import com.esseanalytics.android.core.designsystem.icon.TiktokLogo
-import com.esseanalytics.android.core.designsystem.icon.FacebookLogo
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.role
 
 @Composable
 internal fun UploadStudioCard(
@@ -204,17 +194,21 @@ internal fun UploadGalleryAction(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    UploadStudioPrimaryButton(
-        text = if (isLoading) "Importando video…" else "Elegir desde la galería",
+    Button(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 52.dp),
+        shape = RoundedCornerShape(16.dp),
         enabled = enabled && !isLoading,
-    )
-    if (isLoading) {
-        CircularProgressIndicator(
-            modifier = Modifier.size(20.dp).padding(top = 2.dp),
-            strokeWidth = 2.dp,
-        )
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (isLoading) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                Icon(Icons.Outlined.VideoLibrary, contentDescription = null, modifier = Modifier.size(20.dp))
+            }
+            Text(if (isLoading) "Importando video…" else "Elegir desde la galería")
+        }
     }
     error?.let {
         Text(
@@ -227,39 +221,6 @@ internal fun UploadGalleryAction(
 }
 
 @Composable
-internal fun UploadCloudVideoGridRow(
-    videos: List<RemoteLibraryVideoDto>,
-    columns: Int,
-    importingId: String?,
-    importInProgress: Boolean,
-    nextUploads: Map<Platform, String>,
-    thumbnailUrl: (RemoteLibraryVideoDto) -> String?,
-    onSelect: (RemoteLibraryVideoDto) -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.Top,
-    ) {
-        videos.forEach { video ->
-            key(video._id) {
-                UploadCloudVideoCard(
-                    video = video,
-                    importing = importingId == video._id,
-                    enabled = !importInProgress,
-                    nextUploads = nextUploads,
-                    thumbnailUrl = thumbnailUrl(video),
-                    modifier = Modifier.weight(1f),
-                    onClick = { onSelect(video) },
-                )
-            }
-        }
-        repeat((columns - videos.size).coerceAtLeast(0)) { Spacer(Modifier.weight(1f)) }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
 internal fun UploadCloudVideoCard(
     video: RemoteLibraryVideoDto,
     importing: Boolean,
@@ -269,124 +230,17 @@ internal fun UploadCloudVideoCard(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(18.dp)
-    Surface(
-        modifier = modifier.clip(shape).clickable(
-            enabled = enabled,
-            onClick = onClick,
-            role = Role.Button,
-        ),
-        shape = shape,
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Column {
-            Box(
-                modifier = Modifier.fillMaxWidth().aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (thumbnailUrl != null) {
-                    AsyncImage(
-                        model = thumbnailUrl,
-                        contentDescription = "Miniatura de ${video.fileName}",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Outlined.VideoLibrary,
-                        contentDescription = "Sin miniatura para ${video.fileName}",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(36.dp),
-                    )
-                }
-                if (importing) {
-                    Box(
-                        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.scrim.copy(alpha = .45f)),
-                        contentAlignment = Alignment.Center,
-                    ) { CircularProgressIndicator(color = MaterialTheme.colorScheme.onPrimary) }
-                }
-            }
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Text(
-                    video.fileName,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    minLines = 2,
-                )
-                val published = video.platforms.mapNotNull(Platform::fromApiValue).toSet()
-                val visiblePlatforms = Platform.publishable + if (Platform.FACEBOOK in published) listOf(Platform.FACEBOOK) else emptyList()
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    visiblePlatforms.forEach { platform ->
-                        val state = when {
-                            platform in published -> UploadCloudPlatformBadgeState.PUBLISHED
-                            platform.apiValue in video.platformsDiscarded -> UploadCloudPlatformBadgeState.DISCARDED
-                            else -> UploadCloudPlatformBadgeState.PENDING
-                        }
-                        UploadCloudPlatformBadge(platform, state)
-                    }
-                    Platform.publishable.filter { nextUploads[it] == video.fileName }.forEach { platform ->
-                        Text(
-                            "Próximo · ${uploadCloudPlatformShortLabel(platform)}",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = uploadCloudPlatformColor(platform),
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-internal enum class UploadCloudPlatformBadgeState { PUBLISHED, PENDING, DISCARDED }
-
-@Composable
-internal fun UploadCloudPlatformBadge(platform: Platform, state: UploadCloudPlatformBadgeState) {
-    val label = when (state) {
-        UploadCloudPlatformBadgeState.PUBLISHED -> "publicado"
-        UploadCloudPlatformBadgeState.PENDING -> "pendiente"
-        UploadCloudPlatformBadgeState.DISCARDED -> "descartado"
-    }
-    val tint = if (state == UploadCloudPlatformBadgeState.PUBLISHED) {
-        uploadCloudPlatformColor(platform)
-    } else MaterialTheme.colorScheme.onSurfaceVariant
-    Box(contentAlignment = Alignment.Center) {
-        Icon(
-            imageVector = when (platform) {
-                Platform.YOUTUBE -> PlatformIcons.YoutubeLogo
-                Platform.INSTAGRAM -> PlatformIcons.InstagramLogo
-                Platform.TIKTOK -> PlatformIcons.TiktokLogo
-                Platform.FACEBOOK -> PlatformIcons.FacebookLogo
-            },
-            contentDescription = "${platform.displayName}: $label",
-            tint = tint,
-            modifier = Modifier.size(20.dp),
-        )
-        if (state == UploadCloudPlatformBadgeState.DISCARDED) {
-            Text("╱", color = tint, fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clearAndSetSemantics {})
-        }
-    }
-}
-
-private fun uploadCloudPlatformColor(platform: Platform): Color = when (platform) {
-    Platform.YOUTUBE -> YoutubeRed
-    Platform.INSTAGRAM -> InstagramPurple
-    Platform.TIKTOK -> TiktokPink
-    Platform.FACEBOOK -> FacebookBlue
-}
-
-private fun uploadCloudPlatformShortLabel(platform: Platform): String = when (platform) {
-    Platform.YOUTUBE -> "YT"
-    Platform.INSTAGRAM -> "IG"
-    Platform.TIKTOK -> "TT"
-    Platform.FACEBOOK -> "FB"
+    UploadPickerVideoRow(
+        fileName = video.fileName,
+        thumbnail = thumbnailUrl,
+        published = video.platforms.mapNotNull(Platform::fromApiValue),
+        discarded = video.platformsDiscarded.mapNotNull(Platform::fromApiValue),
+        nextFor = Platform.publishable.filter { nextUploads[it] == video.fileName },
+        importing = importing,
+        enabled = enabled,
+        modifier = modifier,
+        onClick = onClick,
+    )
 }
 
 internal enum class UploadStudioPlatformState { AVAILABLE, PENDING, RUNNING, SUCCEEDED, FAILED, CANCELLED }
@@ -499,30 +353,33 @@ internal fun UploadStudioDetailsFields(
     description: String,
     onDescriptionChange: (String) -> Unit,
     enabled: Boolean,
+    showYoutubeDescription: Boolean = true,
 ) {
     UploadStudioCard(contentPadding = 16.dp, contentSpacing = 12.dp) {
-        OutlinedTextField(
+        PublicationTextField(
+            label = "Título / caption",
+            placeholder = "Se publica como caption en Instagram y TikTok",
             value = title,
-            onValueChange = onTitleChange,
-            label = { Text("Título de la publicación") },
-            singleLine = true,
             enabled = enabled,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant),
+            minLines = 4,
+            maxLines = 4,
+            onChange = onTitleChange,
         )
-        OutlinedTextField(
-            value = description,
-            onValueChange = onDescriptionChange,
-            label = { Text("Descripción") },
-            placeholder = { Text("¿Qué quieres contar sobre este video?") },
-            minLines = 2,
-            maxLines = 5,
-            enabled = enabled,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant),
-        )
+        AnimatedVisibility(
+            visible = showYoutubeDescription,
+            enter = fadeIn(tween(180)) + expandVertically(tween(240)),
+            exit = fadeOut(tween(120)) + shrinkVertically(tween(200)),
+        ) {
+            PublicationTextField(
+                label = "Descripción para YouTube",
+                placeholder = "Descripción del video",
+                value = description,
+                enabled = enabled,
+                minLines = 3,
+                maxLines = 3,
+                onChange = onDescriptionChange,
+            )
+        }
     }
 }
 
@@ -683,10 +540,17 @@ internal fun UploadStudioPublishFooter(
     confirmationKey: Any? = null,
     completedAttemptKey: Any? = null,
 ) {
-    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp, shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)) {
-        Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = navigationClearance), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-            SlideToPublishBar(selectedPlatforms, enabled, isPublishing, onPublish, confirmationKey, completedAttemptKey)
+    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = navigationClearance)) {
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 3.dp,
+            shape = RoundedCornerShape(20.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        ) {
+            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                SlideToPublishBar(selectedPlatforms, enabled, isPublishing, onPublish, confirmationKey, completedAttemptKey)
+            }
         }
     }
 }

@@ -42,6 +42,7 @@ data class VideoFile(
     val remoteLibraryVideoId: String? = null,
     // Retains import deduplication when an opaque source name gets a readable label.
     val importSourceName: String? = null,
+    val contentSha256: String? = null,
 ) {
     val isFullyResolved: Boolean
         get() = Platform.publishable.all { it in platforms || it in platformsDiscarded }

@@ -164,7 +164,7 @@ fun StatsScreen(
     val success = state as? StatsUiState.Success
     val hasCurrentFilter = success?.loadedFilter == filter
     val items = if (hasCurrentFilter) success?.items.orEmpty() else emptyList()
-    val orderedItems = remember(items) { items.sortedByDescending { it.fecha_creacion } }
+    val orderedItems = remember(items) { items.sortedWith(compareBy<GroupStatsItemDto> { it.fecha_creacion == null }.thenByDescending { it.fecha_creacion }) }
     val listState = rememberLazyListState()
     val pullState = rememberPullToRefreshState()
     val loading = state == StatsUiState.Loading || success?.isRefreshing == true
@@ -483,7 +483,7 @@ private fun StatsVideoChart(
 ) {
     val itemsByKey = remember(items) { items.associateBy(::videoKey) }
     val bars = remember(items, filter, metric) {
-        items.sortedBy { it.fecha_creacion }.map { item ->
+        items.sortedWith(compareBy<GroupStatsItemDto> { it.fecha_creacion != null }.thenBy { it.fecha_creacion }).map { item ->
             val value = videoMetric(item, filter, metric)
             CreatorChartBar(
                 value = value, label = displayTitle(item), id = videoKey(item),
@@ -701,14 +701,20 @@ private fun ExpandedStatsChart(
     }
 }
 
-private fun formatDate(iso: String): String = runCatching {
+private fun formatDate(iso: String?): String {
+    if (iso == null) return "—"
+    return runCatching {
     val date = Instant.parse(iso).atZone(ZoneId.systemDefault()).toLocalDate()
     date.format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale("es")))
-}.getOrElse { iso.take(10) }
+    }.getOrElse { iso.take(10).ifBlank { "—" } }
+}
 
-private fun formatChartDate(iso: String): String = runCatching {
+private fun formatChartDate(iso: String?): String {
+    if (iso == null) return "—"
+    return runCatching {
     Instant.parse(iso).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("d/M", Locale("es")))
-}.getOrElse { iso.take(5) }
+    }.getOrElse { iso.take(5).ifBlank { "—" } }
+}
 
 private val previewItem = GroupStatsItemDto(
     fileId = "preview-1",

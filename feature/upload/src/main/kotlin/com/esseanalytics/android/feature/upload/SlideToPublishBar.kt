@@ -85,6 +85,8 @@ internal fun SlideToPublishBar(
     val scheme = MaterialTheme.colorScheme
     val pending = state.confirmed || isPublishing
     val interactive = canPublish && !state.confirmed
+    val trackColor = if (canPublish || pending) scheme.primaryContainer else scheme.surfaceVariant
+    val trackContentColor = if (canPublish || pending) scheme.onPrimaryContainer else scheme.onSurfaceVariant
     val handleSize = 60.dp
     val insetPx = with(density) { 6.dp.toPx() }
     val travel = (widthPx - with(density) { handleSize.toPx() } - insetPx * 2).coerceAtLeast(0f)
@@ -135,7 +137,7 @@ internal fun SlideToPublishBar(
     Box(
         Modifier.fillMaxWidth().height(trackHeight)
             .clip(RoundedCornerShape(50))
-            .background(if (canPublish || pending) scheme.primary else scheme.surfaceVariant)
+            .background(trackColor)
             .onSizeChanged { widthPx = it.width.toFloat() }
             .semantics(mergeDescendants = true) {
                 role = Role.Button
@@ -159,12 +161,12 @@ internal fun SlideToPublishBar(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold,
-                color = if (canPublish || pending) scheme.onPrimary else scheme.onSurfaceVariant,
+                color = trackContentColor,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 destinations.forEach { platform ->
                     platformIcon(platform)?.let { Icon(it, contentDescription = null, modifier = Modifier.size(17.dp),
-                        tint = if (canPublish || pending) scheme.onPrimary else scheme.onSurfaceVariant) }
+                        tint = trackContentColor) }
                 }
             }
         }
@@ -192,10 +194,10 @@ internal fun SlideToPublishBar(
             contentAlignment = Alignment.Center,
         ) {
             when {
-                isPublishing -> CircularProgressIndicator(modifier = Modifier.size(22.dp), color = scheme.primary, strokeWidth = 2.dp)
-                state.confirmed -> Icon(Icons.Outlined.Check, contentDescription = null, tint = scheme.primary)
+                isPublishing -> CircularProgressIndicator(modifier = Modifier.size(22.dp), color = trackContentColor, strokeWidth = 2.dp)
+                state.confirmed -> Icon(Icons.Outlined.Check, contentDescription = null, tint = trackContentColor)
                 else -> Icon(Icons.AutoMirrored.Outlined.ArrowForward, contentDescription = null,
-                    tint = if (interactive) scheme.primary else scheme.onSurfaceVariant)
+                    tint = if (interactive) trackContentColor else scheme.onSurfaceVariant)
             }
         }
     }

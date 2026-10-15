@@ -12,20 +12,20 @@ import javax.inject.Singleton
 
 /**
  * Caché corta para datos compartidos por Inicio, Calendario, Videos, Subir y
- * Estadísticas. Evita que cambiar de pestaña vuelva a pedir inmediatamente el
- * mismo calendar-config; el Mutex también deduplica dos cargas concurrentes.
+ * Estadísticas. El modo, plataforma y límite distinguen cada consulta; el Mutex
+ * también deduplica dos cargas concurrentes de la misma combinación.
  */
 @Singleton
 class SyncRepository @Inject constructor(
     private val api: SyncApi,
 ) {
     private val calendarMutex = Mutex()
-    private val statsMutexes = mutableMapOf<String?, Mutex>()
+    private val statsMutexes = mutableMapOf<StatsCacheKey, Mutex>()
     private val historyMutex = Mutex()
     private var calendarCache: Timed<List<CalendarConfigDto>>? = null
     // Cada filtro devuelve un conjunto distinto; un único slot podía mostrar
     // el resultado combinado al cambiar a una plataforma (o viceversa).
-    private val statsCache = mutableMapOf<String?, Timed<GroupStatsResponse>>()
+    private val statsCache = mutableMapOf<StatsCacheKey, Timed<GroupStatsResponse>>()
     private var historyCache: Timed<List<UploadHistoryItemDto>>? = null
 
     suspend fun getCalendarConfig(force: Boolean = false): List<CalendarConfigDto> = calendarMutex.withLock {
@@ -34,17 +34,22 @@ class SyncRepository @Inject constructor(
         api.getCalendarConfig().also { calendarCache = Timed(it) }
     }
 
-    suspend fun getGroupStats(limit: Int = 5, platform: String? = null, force: Boolean = false): GroupStatsResponse = statsMutexFor(platform).withLock {
-        val cached = synchronized(statsCache) { statsCache[platform] }
-        if (!force && cached != null && !cached.expired()) return@withLock cached.value
-        api.getGroupStats(limit, platform).also { response ->
-            synchronized(statsCache) { statsCache[platform] = Timed(response) }
+    suspend fun getGroupStats(limit: Int = 5, platform: String? = null, force: Boolean = false, mode: String? = null): GroupStatsResponse {
+        val key = StatsCacheKey(mode, platform, limit)
+        return statsMutexFor(key).withLock {
+            val cached = synchronized(statsCache) { statsCache[key] }
+            if (!force && cached != null && !cached.expired()) return@withLock cached.value
+            api.getGroupStats(limit, platform, mode).also { response ->
+                synchronized(statsCache) { statsCache[key] = Timed(response) }
+            }
         }
     }
 
-    private fun statsMutexFor(platform: String?): Mutex = synchronized(statsMutexes) {
-        statsMutexes.getOrPut(platform) { Mutex() }
+    private fun statsMutexFor(key: StatsCacheKey): Mutex = synchronized(statsMutexes) {
+        statsMutexes.getOrPut(key) { Mutex() }
     }
+
+    private data class StatsCacheKey(val mode: String?, val platform: String?, val limit: Int)
 
     suspend fun getHistory(limit: Int = 1, force: Boolean = false): List<UploadHistoryItemDto> = historyMutex.withLock {
         val cached = historyCache
@@ -52,9 +57,7 @@ class SyncRepository @Inject constructor(
         api.getHistory(limit = limit).items.also { historyCache = Timed(it) }
     }
 
-    // Fallback puntual del Dashboard cuando el último publicado no está en el
-    // top-N "completo" de getGroupStats -- sin cache, se pide una sola vez por
-    // cada video que necesite resolverse así.
+    // Estadísticas puntuales de un archivo, también usadas por Calendario.
     suspend fun getFileStats(fileId: String? = null, fileName: String? = null): GroupStatsItemDto =
         api.getFileStats(fileId = fileId, fileName = fileName)
 

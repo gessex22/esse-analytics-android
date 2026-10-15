@@ -10,6 +10,10 @@ import com.esseanalytics.android.core.network.LanLibraryRepository
 import com.esseanalytics.android.core.network.LocalBackendApiFactory
 import com.esseanalytics.android.core.network.SyncRepository
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
+import com.esseanalytics.android.core.network.api.BackupApi
+import com.esseanalytics.android.core.network.util.CanonicalPlatformState
+import com.esseanalytics.android.core.network.util.matchCanonicalPlatformState
+import com.esseanalytics.android.core.network.util.withCanonicalPlatformState
 import com.esseanalytics.android.core.network.di.CentralRetrofit
 import com.esseanalytics.android.core.network.dto.LocalPcInstagramUploadRequest
 import com.esseanalytics.android.core.network.dto.LocalPcTiktokUploadRequest
@@ -30,6 +34,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -46,9 +51,10 @@ sealed interface LanPublishResult {
 
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
-    fileRepository: FileRepository,
+    private val fileRepository: FileRepository,
     private val deleteVideoUseCase: DeleteVideoUseCase,
     private val remoteLibraryApi: RemoteLibraryApi,
+    private val backupApi: BackupApi,
     private val syncRepository: SyncRepository,
     private val tokenStore: TokenStore,
     private val localBackendApiFactory: LocalBackendApiFactory,
@@ -99,6 +105,8 @@ class LibraryViewModel @Inject constructor(
     val lanLoadError: StateFlow<String?> = lanLibraryRepository.loadError
 
     private val _remoteVideos = MutableStateFlow<List<RemoteLibraryVideoDto>>(emptyList())
+    private val _canonicalPlatformStates = MutableStateFlow<Map<Long, CanonicalPlatformState>>(emptyMap())
+    private var canonicalStatusOwner: String? = null
 
     private val _lanPublishState = MutableStateFlow<Map<Platform, LanPublishResult>>(emptyMap())
     val lanPublishState: StateFlow<Map<Platform, LanPublishResult>> = _lanPublishState.asStateFlow()
@@ -157,7 +165,8 @@ class LibraryViewModel @Inject constructor(
         _remoteVideos,
         lanLibraryRepository.videos,
         _filter,
-    ) { local, remote, lan, filter ->
+        _canonicalPlatformStates,
+    ) { local, remote, lan, filter, canonical ->
         // Mismo criterio que LibraryView.swift (iOS): un video real puede
         // existir en más de una de las 3 fuentes (local + cola remota, o cola
         // remota + biblioteca LAN) -- sin este cruce, "Todos" lo mostraba una
@@ -169,8 +178,9 @@ class LibraryViewModel @Inject constructor(
         // remoto le gana a LAN (tiene miniatura real cacheada, sin depender
         // de que la PC siga viva en este instante). Cada chip de filtro
         // individual sigue mostrando su fuente completa sin filtrar.
-        val localRemoteIds = local.mapNotNull { it.remoteLibraryVideoId }.toSet()
-        val localFileNames = local.map { it.fileName }.toSet()
+        val resolvedLocal = local.map { file -> file.withCanonicalPlatformState(canonical[file.id]) }
+        val localRemoteIds = resolvedLocal.mapNotNull { it.remoteLibraryVideoId }.toSet()
+        val localFileNames = resolvedLocal.map { it.fileName }.toSet()
         val remoteFileNames = remote.map { it.fileName }.toSet()
 
         fun isAlreadyLocal(video: RemoteLibraryVideoDto) =
@@ -180,7 +190,7 @@ class LibraryViewModel @Inject constructor(
 
         val merged = buildList {
             if (filter == LibraryFilter.ALL || filter == LibraryFilter.LOCAL) {
-                addAll(local.map { LibraryListItem.Local(it) })
+                addAll(resolvedLocal.map { LibraryListItem.Local(it) })
             }
             if (filter == LibraryFilter.ALL || filter == LibraryFilter.REMOTE) {
                 val videos = if (filter == LibraryFilter.ALL) {
@@ -217,6 +227,32 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { withContext(Dispatchers.IO) { remoteLibraryApi.listVideos().videos } }
                 .onSuccess { _remoteVideos.value = it }
+        }
+    }
+
+    /** Actualiza los badges locales con el catálogo de publicación compartido desde PC/UIEsse. */
+    fun refreshPlatformStates() {
+        val user = tokenStore.currentUser
+        if (user == null) {
+            canonicalStatusOwner = null
+            _canonicalPlatformStates.value = emptyMap()
+            return
+        }
+        if (canonicalStatusOwner != user.id) {
+            canonicalStatusOwner = user.id
+            _canonicalPlatformStates.value = emptyMap()
+        }
+        if (!user.isPremium) return
+        viewModelScope.launch {
+            runCatching {
+                val catalog = withContext(Dispatchers.IO) { backupApi.listFiles(includeResolved = true).files }
+                val localFiles = fileRepository.observeAll().first()
+                localFiles.mapNotNull { file ->
+                    matchCanonicalPlatformState(file, catalog, localFiles)?.let { file.id to it }
+                }.toMap()
+            }.onSuccess { states ->
+                if (tokenStore.currentUser?.id == user.id) _canonicalPlatformStates.value = states
+            }
         }
     }
 

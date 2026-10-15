@@ -57,4 +57,5 @@ data class FileEntity(
     // fileName, que se rompe fácil (nombres repetidos, doble extensión).
     val remoteLibraryVideoId: String? = null,
     val importSourceName: String? = null,
+    val contentSha256: String? = null,
 )

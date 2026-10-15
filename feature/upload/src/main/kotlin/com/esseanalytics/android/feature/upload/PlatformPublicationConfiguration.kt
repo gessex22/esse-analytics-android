@@ -208,10 +208,20 @@ private fun PublicationCheck(label: String, checked: Boolean, enabled: Boolean, 
 }
 
 @Composable
-private fun PublicationTextField(label: String, placeholder: String, value: String, enabled: Boolean, onChange: (String) -> Unit) {
+internal fun PublicationTextField(
+    label: String,
+    placeholder: String,
+    value: String,
+    enabled: Boolean,
+    singleLine: Boolean = false,
+    minLines: Int = 1,
+    maxLines: Int = Int.MAX_VALUE,
+    onChange: (String) -> Unit,
+) {
     OutlinedTextField(
         value, onChange, label = { Text(label) }, placeholder = { Text(placeholder) },
         enabled = enabled, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+        singleLine = singleLine, minLines = minLines, maxLines = maxLines,
         colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant),
     )
 }

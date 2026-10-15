@@ -139,7 +139,10 @@ fun LibraryScreen(
     LaunchedEffect(canUseCloudStorage) {
         if (canUseCloudStorage) viewModel.refreshRemote()
     }
-    LaunchedEffect(Unit) { viewModel.refreshNextUploads() }
+    LaunchedEffect(Unit) {
+        viewModel.refreshNextUploads()
+        viewModel.refreshPlatformStates()
+    }
     // Descubrimiento corre SOLO mientras esta pantalla está visible --
     // ref-count compartido con Ajustes si esa pantalla también lo pide al
     // mismo tiempo (ver LanPcDiscoveryStore.start/stop), no un simple on/off
@@ -163,6 +166,7 @@ fun LibraryScreen(
             onRefresh = {
                 if (canUseCloudStorage) viewModel.refreshRemote()
                 viewModel.refreshNextUploads()
+                viewModel.refreshPlatformStates()
             },
             onImportClick = onImportClick,
             thumbnailUrl = { item ->

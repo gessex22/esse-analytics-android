@@ -22,16 +22,26 @@ import com.esseanalytics.android.core.network.dto.SyncStatsDto
 import com.esseanalytics.android.core.network.dto.TriggerSyncResponse
 import com.esseanalytics.android.core.network.dto.UploadHistoryResponse
 import retrofit2.Response
+import okhttp3.MultipartBody
+import okhttp3.ResponseBody
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.Multipart
+import retrofit2.http.Part
 
 // Cubre lo que necesita el MVP (Calendario básico + Estadísticas + Sync de
 // Fase 2). Mismos endpoints que ya consume frontend/src/components/SyncPanel.tsx.
 interface SyncApi {
+    @Multipart
+    @POST("api/backup/files/{contentId}/thumbnail")
+    suspend fun uploadCatalogThumbnail(
+        @Path("contentId") contentId: String,
+        @Part thumbnail: MultipartBody.Part,
+    ): Response<ResponseBody>
     @POST("api/upload-jobs")
     suspend fun reportUploadJob(@Body body: UploadJobReportRequest): Response<UploadJobReportResponse>
 
@@ -53,6 +63,7 @@ interface SyncApi {
     suspend fun getGroupStats(
         @Query("limit") limit: Int = 5,
         @Query("platform") platform: String? = null,
+        @Query("mode") mode: String? = null,
     ): GroupStatsResponse
 
     // Stats en vivo de UN archivo puntual (por fileId de Mongo o por fileName),

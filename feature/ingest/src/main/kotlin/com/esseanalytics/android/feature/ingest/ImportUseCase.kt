@@ -14,6 +14,7 @@ import com.esseanalytics.android.core.model.FileStatus
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
+import com.esseanalytics.android.core.network.CatalogRegistrationOutbox
 import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +25,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
 import java.io.File
+import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
@@ -53,6 +55,7 @@ class ImportUseCase @Inject constructor(
     private val thumbnailGenerator: AndroidFrameThumbnailGenerator,
     private val settingsStore: SettingsStore,
     private val remoteLibraryApi: RemoteLibraryApi,
+    private val catalogRegistrationOutbox: CatalogRegistrationOutbox,
     private val nameAllocator: ImportVideoNameAllocator,
 ) {
     suspend fun import(
@@ -86,18 +89,15 @@ class ImportUseCase @Inject constructor(
 
             val info = mediaProber.probe(mediaSource)
             val durationSeconds = info.durationSeconds?.toInt()
+            val contentSha256 = sha256(uri, copiedFile)
 
-            // Dedup por (fileName, duración, formato) de lo ya importado, NO
-            // por el Uri de origen (no es estable entre selecciones) — ver el
-            // plan, sección "Ingesta de videos".
-            val existing = sourceName?.let { name ->
-                fileRepository.findImportCandidates(name).firstOrNull {
-                    it.duracionSegundos == durationSeconds && it.formato == extension
-                }
-            }
+            // Solo la huella de todos los bytes demuestra que es el mismo video.
+            // Nombre/duración/formato no distinguen archivos homónimos reales.
+            val existing = fileRepository.findBySha256(contentSha256)
             if (existing != null) {
                 copiedFile?.delete()
                 if (persisted && existing.filePath != uri.toString()) releasePersistedPermissionBestEffort(uri)
+                enqueueCatalogBestEffort(existing, contentSha256)
                 return@withContext ImportResult.Duplicate(existing)
             }
 
@@ -118,6 +118,7 @@ class ImportUseCase @Inject constructor(
                 formato = extension,
                 thumbnailPath = if (hasThumbnail) thumbnailFile.absolutePath else null,
                 fechaCreacion = Instant.now(),
+                contentSha256 = contentSha256,
             )
             coroutineContext.ensureActive()
             val importedFile = withContext(NonCancellable) {
@@ -129,6 +130,8 @@ class ImportUseCase @Inject constructor(
                 val id = fileRepository.insert(namedFile).also { committed = true }
                 namedFile.copy(id = id)
             }
+
+            enqueueCatalogBestEffort(importedFile, contentSha256)
 
             // Sin sentido si no se copió nada -- "eliminar original" borraría
             // la ÚNICA copia que existe (ver persisted arriba).
@@ -162,8 +165,10 @@ class ImportUseCase @Inject constructor(
         try {
             val existing = fileRepository.findByRemoteLibraryVideoId(video._id)
             if (existing != null) {
-                val merged = mergePlatformsFromRemote(existing, video)
+                val hash = existing.contentSha256 ?: File(existing.filePath).takeIf(File::isFile)?.let(::sha256)
+                val merged = mergePlatformsFromRemote(existing, video).copy(contentSha256 = hash)
                 if (merged != existing) fileRepository.update(merged)
+                hash?.let { enqueueCatalogBestEffort(merged, it) }
                 return@withContext ImportResult.Success(merged)
             }
 
@@ -174,6 +179,7 @@ class ImportUseCase @Inject constructor(
             remoteLibraryApi.streamVideo(video._id).byteStream().use { input ->
                 destination.outputStream().use { output -> input.copyTo(output) }
             }
+            val contentSha256 = sha256(destination)
 
             val mediaSource = MediaSource.LocalFile(destination)
             val thumbnailsDir = File(context.filesDir, "thumbnails").apply { mkdirs() }
@@ -197,9 +203,12 @@ class ImportUseCase @Inject constructor(
                 thumbnailPath = if (hasThumbnail) thumbnailFile.absolutePath else null,
                 fechaCreacion = video.createdAt?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: Instant.now(),
                 remoteLibraryVideoId = video._id,
+                contentSha256 = contentSha256,
             )
             val id = fileRepository.insert(videoFile)
-            ImportResult.Success(videoFile.copy(id = id))
+            val imported = videoFile.copy(id = id)
+            enqueueCatalogBestEffort(imported, contentSha256)
+            ImportResult.Success(imported)
         } catch (e: Exception) {
             ImportResult.Error(e.message ?: "No se pudo bajar el video de la nube.")
         }
@@ -252,4 +261,40 @@ class ImportUseCase @Inject constructor(
                 val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                 if (index >= 0) cursor.getString(index) else null
             }
+
+    private fun sha256(uri: Uri, copiedFile: File?): String {
+        val stream = copiedFile?.inputStream() ?: context.contentResolver.openInputStream(uri)
+            ?: throw IllegalStateException("No se pudo leer el archivo para verificar su identidad.")
+        return stream.use { input ->
+            val digest = MessageDigest.getInstance("SHA-256")
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        }
+    }
+
+    private fun sha256(file: File): String = file.inputStream().use { input ->
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+        digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    private suspend fun enqueueCatalogBestEffort(file: VideoFile, sha256: String) {
+        try {
+            catalogRegistrationOutbox.enqueue(file, sha256)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // The local import remains successful; next app start retries queued registrations.
+        }
+    }
 }

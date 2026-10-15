@@ -25,7 +25,8 @@ class PlatformPublicationOptionsTest {
     @Test fun instagramHashtagsAndFeedChoiceReachTheUploader() {
         val options = PlatformPublicationOptions(instagramHashtags = "#receta", instagramShareToFeed = false)
         val metadata = options.metadataFor(Platform.INSTAGRAM, "Título", "Descripción", crossPostFacebook = true)
-        assertEquals("Descripción\n\n#receta", metadata.description)
+        assertEquals("Título", metadata.title)
+        assertEquals("#receta", metadata.description)
         assertFalse(metadata.shareToFeed)
         assertTrue(metadata.crossPostFacebook)
         assertTrue(options.metadataFor(Platform.YOUTUBE, "Título", "Descripción").shareToFeed)
@@ -36,7 +37,8 @@ class PlatformPublicationOptionsTest {
         assertNull(options.validationError(setOf(Platform.TIKTOK), creator, 30))
         val metadata = options.metadataFor(Platform.TIKTOK, "Título", "Descripción", creator = creator)
         assertEquals("MUTUAL_FOLLOW_FRIENDS", metadata.tiktokPrivacyLevel)
-        assertEquals("Título\n\nDescripción", metadata.title)
+        assertEquals("Título", metadata.title)
+        assertEquals("", metadata.description)
         assertTrue(metadata.disableComment)
         assertTrue(metadata.disableDuet) // restriction from the creator account
         assertFalse(metadata.disableStitch)

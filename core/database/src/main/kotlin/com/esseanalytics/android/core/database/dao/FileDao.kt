@@ -18,6 +18,15 @@ interface FileDao {
     @Query("SELECT * FROM files WHERE filePath = :path LIMIT 1")
     suspend fun findByPath(path: String): FileEntity?
 
+    @Query("SELECT * FROM files WHERE contentSha256 = :sha256 LIMIT 1")
+    suspend fun findBySha256(sha256: String): FileEntity?
+
+    @Query("SELECT * FROM files WHERE status != 'ELIMINADO_DISCO'")
+    suspend fun getFilesPendingCatalogReconciliation(): List<FileEntity>
+
+    @Query("UPDATE files SET contentSha256 = :sha256 WHERE id = :id AND contentSha256 IS NULL")
+    suspend fun setSha256IfMissing(id: Long, sha256: String): Int
+
     @Query("SELECT * FROM files WHERE fileName = :name LIMIT 1")
     suspend fun findByName(name: String): FileEntity?
 

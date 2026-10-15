@@ -45,12 +45,12 @@ data class PlatformPublicationOptions(
             tags = youtubeTags.split(',').map(String::trim).filter(String::isNotEmpty).distinct(),
         )
         Platform.INSTAGRAM -> UploadMetadata(
-            title = title, description = listOf(description, instagramHashtags.trim()).filter(String::isNotBlank).joinToString("\n\n"),
+            title = title, description = instagramHashtags.trim(),
             thumbnailOffsetMs = thumbnailOffsetMs, crossPostFacebook = crossPostFacebook,
             shareToFeed = instagramShareToFeed,
         )
         Platform.TIKTOK -> UploadMetadata(
-            title = listOf(title, description).filter(String::isNotBlank).joinToString("\n\n"),
+            title = title,
             thumbnailOffsetMs = thumbnailOffsetMs, tiktokPrivacyLevel = tiktokPrivacy,
             disableComment = !tiktokAllowComment || creator?.commentDisabled == true,
             disableDuet = !tiktokAllowDuet || creator?.duetDisabled == true,

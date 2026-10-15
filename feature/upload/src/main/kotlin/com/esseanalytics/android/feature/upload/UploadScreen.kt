@@ -6,12 +6,17 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -33,14 +38,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.outlined.Computer
-import androidx.compose.material.icons.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material.icons.outlined.Close
@@ -98,11 +101,11 @@ import com.esseanalytics.android.core.designsystem.theme.YoutubeRed
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
 import com.esseanalytics.android.core.network.dto.LocalPcVideoDto
+import com.esseanalytics.android.core.network.util.withCanonicalPlatformState
 import java.io.File
 
-// REDISEÑO BENTO: Subir como retícula de tarjetas en dos pasos — PASO 1
-// "elegí el video" con cada fuente en tarjetas, PASO 2 el formulario como
-// tarjetas: detalles, portada, plataformas y el botón publicar expresivo.
+// Subir en dos pasos: selector compacto con una sola fuente visible y
+// formulario de publicación con detalles, portada, plataformas y confirmación.
 // Toda la funcionalidad intacta: auto-selección del pendiente, lote activo
 // con progreso y cancelación, reintento de fallidas, confirmación humana de
 // blocked, crosspost a Facebook, picker de portada, diálogos de éxito y de
@@ -170,6 +173,9 @@ private fun UploadScreenContent(
     val galleryImportSelection by viewModel.galleryImportSelection.collectAsState()
     val nextUploads by viewModel.nextUploads.collectAsState()
     val activeBatch by viewModel.activeBatch.collectAsState()
+    val canonicalPlatformStates by viewModel.canonicalPlatformStates.collectAsState()
+    val refreshingPlatformStates by viewModel.refreshingPlatformStates.collectAsState()
+    val platformStateRefreshError by viewModel.platformStateRefreshError.collectAsState()
     val pendingBatchFileId by viewModel.pendingBatchFileId.collectAsState()
     val canSeeLanLibrary by viewModel.canSeeLanLibrary.collectAsState()
     val lanVideos by viewModel.lanVideos.collectAsState()
@@ -182,7 +188,10 @@ private fun UploadScreenContent(
     LaunchedEffect(canUseCloudStorage) {
         if (canUseCloudStorage) viewModel.refreshRemoteVideos()
     }
-    LaunchedEffect(Unit) { viewModel.refreshNextUploads() }
+    LaunchedEffect(Unit) {
+        viewModel.refreshNextUploads()
+        viewModel.refreshPlatformStates()
+    }
     // Mismo patrón ref-counted que LibraryScreen.kt (feature:library) --
     // LanLibraryRepository soporta los dos consumidores activos a la vez sin
     // pisarse. Ver ese archivo.
@@ -199,6 +208,15 @@ private fun UploadScreenContent(
     var galleryPickerOpen by rememberSaveable { mutableStateOf(false) }
     var sourceRequestId by rememberSaveable { mutableStateOf(0L) }
     val isVideoImportInProgress = isVideoImporting || isGalleryImporting || importingRemoteId != null || galleryImportSelection != null
+    var selectedPickerSource by rememberSaveable { mutableStateOf<String?>(null) }
+    val pickerSources = buildList {
+        if (canUseCloudStorage) add(UploadPickerSource.CLOUD)
+        if (canSeeLanLibrary) add(UploadPickerSource.PC)
+        add(UploadPickerSource.IMPORTED)
+    }
+    val pickerSource = pickerSources.firstOrNull { it.name == selectedPickerSource } ?: pickerSources.first()
+    val pickerListState = rememberLazyListState()
+    LaunchedEffect(pickerSource) { pickerListState.scrollToItem(0) }
     val galleryPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
@@ -246,6 +264,17 @@ private fun UploadScreenContent(
         viewModel.acknowledgeGalleryImport(selection.requestId)
     }
 
+    // El formulario mantiene una referencia al video elegido. Cuando un
+    // worker termina, Room actualiza la lista reactiva; reemplazamos esa
+    // referencia para que el formulario refleje de inmediato las plataformas
+    // publicadas, incluso si otro destino del mismo lote falló.
+    LaunchedEffect(files, canonicalPlatformStates, selectedFile?.id) {
+        val selected = selectedFile ?: return@LaunchedEffect
+        val latest = files.firstOrNull { it.id == selected.id }
+            ?: selected.withCanonicalPlatformState(canonicalPlatformStates[selected.id])
+        if (latest != selected) selectedFile = latest
+    }
+
     // Éxito total -- se muestra el modal, y al cerrarlo se limpia todo
     // (soltar selectedFile para que la próxima entrada resuelva de nuevo el
     // siguiente pendiente) y se redirige a Inicio. Biblioteca se refresca
@@ -282,49 +311,34 @@ private fun UploadScreenContent(
                 browsingList = true
             }
         } else if (current == null) {
-            // PASO 1 -- elegir el video. Cada fuente (Nube, PC local,
-            // archivos del teléfono) es una sección de tarjetas.
-            BoxWithConstraints(Modifier.fillMaxSize()) {
-                val cloudColumns = when {
-                    maxWidth >= 640.dp -> 4
-                    maxWidth >= 480.dp -> 3
-                    else -> 2
-                }
-                val remoteRows = remoteVideos.chunked(cloudColumns)
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(
-                        start = 16.dp,
-                        top = 24.dp,
-                        end = 16.dp,
-                        bottom = 124.dp,
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
+            // Una sola fuente visible; las identidades y los callbacks de selección no cambian.
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                state = pickerListState,
+                contentPadding = PaddingValues(start = 20.dp, top = 24.dp, end = 20.dp, bottom = 124.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 item(key = "pickerHeader") {
-                    UploadStudioHeader(username, onProfileClick, subtitle = "Elegí qué video querés publicar.")
+                    UploadStudioHeader(username, onProfileClick, subtitle = "Elegí un video para continuar.")
                 }
-                item(key = "localPanel") {
-                    UploadStudioSection("En este teléfono", "Elegí un video de la galería del dispositivo.") {
+                item(key = "galleryAction") {
+                    Column(Modifier.animateContentSize(tween(180)).padding(top = 12.dp, bottom = 16.dp)) {
                         UploadGalleryAction(
                             isLoading = isGalleryImporting,
                             error = galleryImportError,
                             enabled = !isVideoImportInProgress && !galleryPickerOpen,
                             onClick = openGallery,
                         )
-                        if (files.isEmpty()) {
-                            Text(
-                                "Todavía no hay videos importados. También podés elegir uno desde la galería.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 8.dp),
-                            )
-                        }
                     }
                 }
-                // Antes un video de Nube sin bytes (storage dinámico ya los
-                // liberó) fallaba en silencio -- el spinner se apagaba y no
-                // pasaba nada visible. Ahora se muestra el motivo real.
+                item(key = "pickerSources") {
+                    UploadPickerSources(
+                        sources = pickerSources,
+                        selected = pickerSource,
+                        enabled = !isVideoImportInProgress && !galleryPickerOpen,
+                        onSelect = { selectedPickerSource = it.name },
+                    )
+                }
                 remoteImportError?.let { message ->
                     item(key = "remoteImportError") {
                         UploadStudioCard {
@@ -337,80 +351,58 @@ private fun UploadScreenContent(
                         }
                     }
                 }
-                // Además de lo local, deja elegir un video de Nube como fuente --
-                // se baja y de ahí en más se publica igual que cualquier archivo
-                // local (mismo criterio que VideoPickerView en iOS). Antes esta
-                // pantalla solo consultaba el catálogo local, la cola remota no
-                // aparecía acá aunque sí existiera en la pestaña Nube.
-                if (canUseCloudStorage) {
-                    item(key = "remotePanel") {
-                        SourceSection(title = "Nube") {
-                            when {
-                                remoteVideosLoading -> SourceStatusRow("Cargando videos…", loading = true)
-                                remoteVideosError != null -> SourceStatusRow(
-                                    message = remoteVideosError ?: "No se pudo cargar la nube.",
-                                    onRetry = viewModel::refreshRemoteVideos,
-                                )
-                                remoteVideos.isEmpty() -> SourceStatusRow("No hay videos pendientes en la nube.")
-                                else -> Text(
-                                    "Videos de la nube listos para elegir.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                when (pickerSource) {
+                    UploadPickerSource.CLOUD -> {
+                        when {
+                            remoteVideosLoading -> item(key = "cloudLoading") { SourceStatusRow("Cargando videos…", loading = true) }
+                            remoteVideosError != null -> item(key = "cloudError") {
+                                SourceStatusRow(remoteVideosError ?: "No se pudo cargar la nube.", onRetry = viewModel::refreshRemoteVideos)
+                            }
+                            remoteVideos.isEmpty() -> item(key = "cloudEmpty") { SourceStatusRow("No hay videos pendientes en la nube.") }
+                            else -> items(remoteVideos, key = { "remote-${it._id}" }) { video ->
+                                UploadCloudVideoCard(
+                                    video = video,
+                                    importing = importingRemoteId == video._id,
+                                    enabled = !isVideoImportInProgress && !galleryPickerOpen,
+                                    nextUploads = nextUploads,
+                                    thumbnailUrl = viewModel.thumbnailUrl(video),
+                                    modifier = Modifier.animateItem(fadeInSpec = tween(160), placementSpec = tween(200), fadeOutSpec = tween(100)),
+                                    onClick = {
+                                        if (!isVideoImportInProgress && !galleryPickerOpen) {
+                                            sourceRequestId += 1L
+                                            val requestId = sourceRequestId
+                                            browsingList = true
+                                            viewModel.importFromRemote(video) { file ->
+                                                if (requestId == sourceRequestId && file != null) {
+                                                    selectedFile = file
+                                                    selectedLan = null
+                                                    browsingList = false
+                                                }
+                                            }
+                                        }
+                                    },
                                 )
                             }
                         }
                     }
-                    if (canUseCloudStorage && remoteVideos.isNotEmpty() && !remoteVideosLoading && remoteVideosError == null) {
-                        items(
-                            items = remoteRows,
-                            key = { row -> "remote-row-${row.first()._id}-${row.last()._id}" },
-                        ) { row ->
-                            UploadCloudVideoGridRow(
-                                videos = row,
-                                columns = cloudColumns,
-                                importingId = importingRemoteId,
-                                importInProgress = isVideoImportInProgress || galleryPickerOpen,
-                                nextUploads = nextUploads,
-                                thumbnailUrl = viewModel::thumbnailUrl,
-                                onSelect = { video ->
-                                    if (!isVideoImportInProgress && !galleryPickerOpen) {
-                                        sourceRequestId += 1L
-                                        val requestId = sourceRequestId
-                                        browsingList = true
-                                        viewModel.importFromRemote(video) { file ->
-                                            if (requestId == sourceRequestId && file != null) {
-                                                selectedFile = file
-                                                selectedLan = null
-                                                browsingList = false
-                                            }
-                                        }
-                                    }
-                                },
-                            )
-                        }
-                    }
-                }
-                // FIX 2026-08-18: mismo gap que BUG-2026-08-16-03 (ver
-                // docs/bug-reports.md en content-automation-dashboard) -- antes
-                // este picker no tenía forma de cambiar a un video de la PC en
-                // Biblioteca LAN. Solo aparece con PC autorizada ahora mismo
-                // (canSeeLanLibrary), sin fallback a ningún mirror.
-                if (canSeeLanLibrary) {
-                    item(key = "lanPanel") {
+                    UploadPickerSource.PC -> {
                         val currentLanBaseUrl = lanBaseUrl
-                        SourceSection(title = "PC local") {
-                            when {
-                                lanLoadError != null -> SourceStatusRow(
-                                    message = lanLoadError ?: "No se pudo cargar la biblioteca de la PC.",
-                                    onRetry = viewModel::refreshLanLibrary,
-                                )
-                                currentLanBaseUrl == null -> SourceStatusRow("Conectando con la PC…", loading = true)
-                                lanVideos.isEmpty() -> SourceStatusRow("No hay videos pendientes en la PC.")
-                                else -> LanVideoStrip(
-                                    videos = lanVideos,
-                                    nextUploads = nextUploads,
-                                    thumbnailUrl = { video -> viewModel.lanThumbnailUrl(video, currentLanBaseUrl) },
-                                    onSelect = { video ->
+                        when {
+                            lanLoadError != null -> item(key = "lanError") {
+                                SourceStatusRow(lanLoadError ?: "No se pudo cargar la biblioteca de la PC.", onRetry = viewModel::refreshLanLibrary)
+                            }
+                            currentLanBaseUrl == null -> item(key = "lanLoading") { SourceStatusRow("Conectando con la PC…", loading = true) }
+                            lanVideos.isEmpty() -> item(key = "lanEmpty") { SourceStatusRow("No hay videos pendientes en la PC.") }
+                            else -> items(lanVideos, key = { "lan-${it._id}" }) { video ->
+                                UploadPickerVideoRow(
+                                    modifier = Modifier.animateItem(fadeInSpec = tween(160), placementSpec = tween(200), fadeOutSpec = tween(100)),
+                                    fileName = video.fileName,
+                                    thumbnail = viewModel.lanThumbnailUrl(video, currentLanBaseUrl),
+                                    published = video.platforms.mapNotNull(Platform::fromApiValue),
+                                    discarded = video.platforms_discarded.mapNotNull(Platform::fromApiValue),
+                                    nextFor = Platform.publishable.filter { nextUploads[it] == video.fileName },
+                                    enabled = !isVideoImportInProgress && !galleryPickerOpen,
+                                    onClick = {
                                         if (!isVideoImportInProgress && !galleryPickerOpen) {
                                             sourceRequestId += 1L
                                             selectedFile = null
@@ -422,17 +414,37 @@ private fun UploadScreenContent(
                             }
                         }
                     }
-                }
-                if (files.isNotEmpty()) {
-                    item(key = "alreadyImported") {
-                        SourceSection(title = "Ya importados") {
-                            FileList(
-                                files = files,
-                                nextUploads = nextUploads,
-                                onSelect = {
+                    UploadPickerSource.IMPORTED -> {
+                        if (refreshingPlatformStates) {
+                            item(key = "platformStatesLoading") { SourceStatusRow("Actualizando estados desde la PC…", loading = true) }
+                        } else if (platformStateRefreshError != null) {
+                            item(key = "platformStatesError") {
+                                SourceStatusRow(platformStateRefreshError ?: "No se pudieron actualizar los estados.", onRetry = viewModel::refreshPlatformStates)
+                            }
+                        }
+                        if (files.isEmpty()) {
+                            item(key = "importedEmpty") {
+                                Text(
+                                    "Tus videos importados aparecerán acá. Elegí uno desde la galería para empezar.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(vertical = 16.dp),
+                                )
+                            }
+                        }
+                        items(files, key = { "local-${it.id}" }) { file ->
+                            UploadPickerVideoRow(
+                                modifier = Modifier.animateItem(fadeInSpec = tween(160), placementSpec = tween(200), fadeOutSpec = tween(100)),
+                                fileName = file.fileName,
+                                thumbnail = file.thumbnailPath?.let(::File),
+                                published = file.platforms,
+                                discarded = file.platformsDiscarded,
+                                nextFor = Platform.publishable.filter { nextUploads[it] == file.fileName },
+                                enabled = !isVideoImportInProgress && !galleryPickerOpen,
+                                onClick = {
                                     if (!isVideoImportInProgress && !galleryPickerOpen) {
                                         sourceRequestId += 1L
-                                        selectedFile = it
+                                        selectedFile = file
                                         selectedLan = null
                                         browsingList = false
                                     }
@@ -440,7 +452,6 @@ private fun UploadScreenContent(
                             )
                         }
                     }
-                }
                 }
             }
         } else {
@@ -456,6 +467,7 @@ private fun UploadScreenContent(
                 username = username,
                 onProfileClick = onProfileClick,
                 onBackToList = {
+                    viewModel.refreshPlatformStates()
                     selectedFile = null
                     browsingList = true
                 },
@@ -527,139 +539,26 @@ internal fun SourceStatusRow(
     }
 }
 
-// Tira horizontal para Biblioteca LAN, mismo patrón visual que RemoteVideoStrip
-// -- fuente distinta (server-side, sin bytes que bajar al teléfono), por eso
-// onSelect acá NO dispara ningún import: solo avisa al caller (ver
-// onSelectLan en UploadScreen) qué video+baseUrl se tocó.
-@Composable
-private fun LanVideoStrip(
-    videos: List<LocalPcVideoDto>,
-    nextUploads: Map<Platform, String>,
-    thumbnailUrl: (LocalPcVideoDto) -> String?,
-    onSelect: (LocalPcVideoDto) -> Unit,
-) {
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(videos, key = { it._id }) { video ->
-            UploadStudioCard(
-                modifier = Modifier.width(150.dp),
-                onClick = { onSelect(video) },
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(84.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    val url = thumbnailUrl(video)
-                    if (url != null) {
-                        AsyncImage(
-                            model = url,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    } else {
-                        Icon(
-                            Icons.Outlined.Computer,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                Text(
-                    video.fileName,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                val nextFor = Platform.publishable.filter { nextUploads[it] == video.fileName }
-                if (nextFor.isNotEmpty()) NextUploadBadgeRow(nextFor)
-            }
-        }
-    }
-}
-
-// Tarjetas del PASO 1: miniatura, nombre, sello de qué plataformas faltan
-// y flecha de affordance.
+// El mismo componente compacto se usa en los fixtures del selector.
 @Composable
 internal fun FileList(
     files: List<VideoFile>,
     nextUploads: Map<Platform, String>,
     onSelect: (VideoFile) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         files.forEach { file ->
-            UploadStudioCard(onClick = { onSelect(file) }) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    UploadThumbnail(file.thumbnailPath)
-                    Column(modifier = Modifier.padding(start = 16.dp).weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            file.fileName,
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        val pending = pendingPlatforms(file)
-                        if (pending.isNotEmpty()) {
-                            Row(
-                                modifier = Modifier.semantics {
-                                    contentDescription = "Pendientes: ${pending.joinToString { platformFullLabel(it) }}"
-                                },
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                pending.forEach { platform ->
-                                    Icon(
-                                        platformIcon(platform)!!,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(18.dp),
-                                    )
-                                }
-                            }
-                        }
-                        val nextFor = Platform.publishable.filter { nextUploads[it] == file.fileName }
-                        if (nextFor.isNotEmpty()) NextUploadBadgeRow(nextFor)
-                    }
-                    Icon(
-                        Icons.Outlined.KeyboardArrowRight,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-// Mismo badge que LibraryScreen.kt (feature:library) -- duplicado a
-// propósito, mismo criterio que platformColor/platformIcon acá abajo: cada
-// feature module ya repite estos helpers en vez de forzar una dependencia
-// cruzada solo para esto.
-@Composable
-private fun NextUploadBadgeRow(platforms: List<Platform>) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        platforms.forEach { platform ->
-            Text(
-                "Próximo · ${platformShortLabel(platform)}",
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                color = platformColor(platform),
+            UploadPickerVideoRow(
+                fileName = file.fileName,
+                thumbnail = file.thumbnailPath?.let(::File),
+                published = file.platforms,
+                discarded = file.platformsDiscarded,
+                nextFor = Platform.publishable.filter { nextUploads[it] == file.fileName },
+                enabled = true,
+                onClick = { onSelect(file) },
             )
         }
     }
-}
-
-private fun platformShortLabel(platform: Platform): String = when (platform) {
-    Platform.YOUTUBE -> "YT"
-    Platform.INSTAGRAM -> "IG"
-    Platform.TIKTOK -> "TT"
-    Platform.FACEBOOK -> "FB"
 }
 
 @Composable
@@ -689,10 +588,6 @@ private fun UploadThumbnail(thumbnailPath: String?) {
     }
 }
 
-private fun pendingPlatforms(file: VideoFile): List<Platform> =
-    Platform.publishable
-        .filter { it !in file.platforms && it !in file.platformsDiscarded }
-
 // ── PASO 2: formulario de publicación ─────────────────────────────────────
 
 @Composable
@@ -710,6 +605,12 @@ private fun PublishForm(
         mutableStateOf(
             Platform.publishable.filter { it !in file.platforms && it !in file.platformsDiscarded }.toSet(),
         )
+    }
+    LaunchedEffect(file.id, file.platforms, file.platformsDiscarded) {
+        // Un resultado de otro lote/dispositivo puede resolver este destino
+        // mientras el formulario sigue abierto. No lo dejamos marcado para
+        // volver a publicar; el usuario puede volver a seleccionarlo después.
+        selectedPlatforms = selectedPlatforms - (file.platforms + file.platformsDiscarded).toSet()
     }
     var thumbnailOffsetSec by remember(file.id) { mutableFloatStateOf(0f) }
     var crossPostFacebook by remember(file.id) { mutableStateOf(false) }
@@ -797,6 +698,7 @@ private fun PublishForm(
                     description = description,
                     onDescriptionChange = { description = it },
                     enabled = !isPublishing,
+                    showYoutubeDescription = Platform.YOUTUBE in selectedPlatforms,
                 )
             }
 
@@ -841,7 +743,11 @@ private fun PublishForm(
                             },
                             viewModel = viewModel,
                             configuration = {
-                                if (!alreadyDone && selected) {
+                                AnimatedVisibility(
+                                    visible = !alreadyDone && selected,
+                                    enter = fadeIn(tween(160)) + expandVertically(tween(220)),
+                                    exit = fadeOut(tween(100)) + shrinkVertically(tween(180)),
+                                ) {
                                     PlatformPublicationConfiguration(
                                         platform, publicationOptions, { publicationOptions = it }, !isPublishing,
                                         tiktokCreator, tiktokCreatorLoading, tiktokCreatorError, viewModel::loadTiktokCreator,

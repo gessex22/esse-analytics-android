@@ -93,14 +93,26 @@ data class PlatformCausalResponse(
 @Serializable
 data class ResolveIdentityRequest(
     val fileName: String,
+    val contentId: String? = null,
     val remoteLibraryVideoId: String? = null,
     val deviceId: String,
     val clientFileId: String,
+    val contentSha256: String? = null,
+    val metadata: CatalogImportMetadata? = null,
+)
+
+@Serializable
+data class CatalogImportMetadata(
+    val duracion_segundos: Int? = null,
+    val resolucion: String? = null,
+    val formato: String? = null,
+    val fecha_creacion: String? = null,
 )
 
 @Serializable
 data class ResolveIdentityResponse(
     val contentId: String? = null,
+    val contentSha256: String? = null,
     // Revisión actual por plataforma (apiValue -> versión), igual que
     // RemoteLibraryVideoDto.platformRev -- baseVersion real contra la que la
     // central valida una transición. Opcional: sin esto, una transición espera

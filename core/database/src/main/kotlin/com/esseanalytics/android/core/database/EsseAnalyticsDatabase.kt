@@ -18,6 +18,8 @@ import com.esseanalytics.android.core.database.entity.PlatformRevisionEntity
 import com.esseanalytics.android.core.database.entity.PlatformTransitionOutboxEntity
 import com.esseanalytics.android.core.database.entity.PlatformVideoEntity
 import com.esseanalytics.android.core.database.entity.PublishOperationEntity
+import com.esseanalytics.android.core.database.entity.PendingCatalogRegistrationEntity
+import com.esseanalytics.android.core.database.dao.PendingCatalogRegistrationDao
 import java.util.UUID
 
 // La base arrancó en v1 con la app nueva (sin usuarios en producción) y desde
@@ -35,8 +37,9 @@ import java.util.UUID
         PlatformRevisionEntity::class,
         PlatformTransitionOutboxEntity::class,
         PublishOperationEntity::class,
+        PendingCatalogRegistrationEntity::class,
     ],
-    version = 8,
+    version = 12,
     exportSchema = true,
 )
 abstract class EsseAnalyticsDatabase : RoomDatabase() {
@@ -46,6 +49,40 @@ abstract class EsseAnalyticsDatabase : RoomDatabase() {
     abstract fun pendingPlatformUpdateDao(): PendingPlatformUpdateDao
     abstract fun causalPlatformDao(): CausalPlatformDao
     abstract fun publishOperationDao(): PublishOperationDao
+    abstract fun pendingCatalogRegistrationDao(): PendingCatalogRegistrationDao
+}
+
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE files ADD COLUMN contentSha256 TEXT")
+        db.execSQL("CREATE TABLE IF NOT EXISTS pending_catalog_registrations (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `userKey` TEXT NOT NULL, `serverUrl` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `clientFileId` TEXT NOT NULL, `remoteLibraryVideoId` TEXT, `contentId` TEXT, `fileName` TEXT NOT NULL, `sha256` TEXT NOT NULL, `durationSeconds` INTEGER, `resolution` TEXT, `format` TEXT, `createdAt` TEXT, `attempts` INTEGER NOT NULL DEFAULT 0, `nextAttemptAtEpochMs` INTEGER NOT NULL DEFAULT 0, `state` TEXT NOT NULL DEFAULT 'pending', `lastError` TEXT)")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_pending_catalog_registrations_userKey_serverUrl_clientFileId` ON `pending_catalog_registrations` (`userKey`, `serverUrl`, `clientFileId`)")
+    }
+}
+
+val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE pending_history_events ADD COLUMN contentId TEXT")
+        db.execSQL("ALTER TABLE pending_history_events ADD COLUMN clientFileId TEXT")
+    }
+}
+
+val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE pending_catalog_registrations ADD COLUMN thumbnailPath TEXT")
+        db.execSQL("ALTER TABLE pending_catalog_registrations ADD COLUMN thumbnailUploaded INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
+val MIGRATION_11_12 = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE pending_history_events ADD COLUMN userKey TEXT")
+        db.execSQL("ALTER TABLE pending_history_events ADD COLUMN serverUrl TEXT")
+        db.execSQL("ALTER TABLE pending_history_events ADD COLUMN nextAttemptAtEpochMs INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE pending_history_events ADD COLUMN state TEXT NOT NULL DEFAULT 'blocked'")
+        db.execSQL("ALTER TABLE pending_history_events ADD COLUMN lastError TEXT")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_pending_history_events_userKey_serverUrl_state_nextAttemptAtEpochMs ON pending_history_events (userKey, serverUrl, state, nextAttemptAtEpochMs)")
+    }
 }
 
 // Preserve the source name separately from the readable import label.

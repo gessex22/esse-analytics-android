@@ -18,6 +18,8 @@ import androidx.lifecycle.lifecycleScope
 import com.esseanalytics.android.core.datastore.AuthState
 import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.datastore.TokenStore
+import com.esseanalytics.android.core.network.CatalogRegistrationOutbox
+import com.esseanalytics.android.core.network.HistoryOutbox
 import com.esseanalytics.android.core.designsystem.theme.EsseAnalyticsColorTheme
 import com.esseanalytics.android.core.designsystem.theme.EsseAnalyticsTheme
 import com.esseanalytics.android.feature.auth.AuthRepository
@@ -47,6 +49,12 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var authRepository: AuthRepository
+
+    @Inject
+    lateinit var catalogRegistrationOutbox: CatalogRegistrationOutbox
+
+    @Inject
+    lateinit var historyOutbox: HistoryOutbox
 
     private val entitlementsRefreshGate = EntitlementsRefreshGate(
         clockMs = SystemClock::elapsedRealtime,
@@ -91,6 +99,7 @@ class MainActivity : ComponentActivity() {
                     return@collect
                 }
                 lastLoggedInUserId = userId
+                flushCatalogThenHistory()
             }
         }
 
@@ -115,6 +124,7 @@ class MainActivity : ComponentActivity() {
         super.onStart()
 
         val userId = tokenStore.currentUser?.id ?: return
+        lifecycleScope.launch { flushCatalogThenHistory() }
         if (tokenStore.token == null || !entitlementsRefreshGate.shouldRefresh(userId)) return
 
         // No bloquea el inicio ni borra el snapshot local si no hay conexión.
@@ -137,6 +147,11 @@ class MainActivity : ComponentActivity() {
             else -> emptyList()
         }
         if (uris.isNotEmpty()) pendingImportUris = uris
+    }
+
+    private suspend fun flushCatalogThenHistory() {
+        catalogRegistrationOutbox.reconcileAndFlush()
+        historyOutbox.flush()
     }
 
     @Suppress("DEPRECATION")

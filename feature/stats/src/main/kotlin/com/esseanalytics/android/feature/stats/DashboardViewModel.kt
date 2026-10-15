@@ -35,12 +35,6 @@ data class DashboardData(
     val items: List<GroupStatsItemDto>,
     val calendar: List<CalendarConfigDto>,
     val latestHistory: UploadHistoryItemDto?,
-    // Stats puntuales del último publicado cuando NO aparece en `items` --
-    // group-stats solo trae videos ya cross-posteados a las 3 plataformas, y
-    // el más reciente puede no estarlo todavía. Sin esto, DashboardScreen
-    // mostraba la tarjeta con todo en 0 / "Pendiente de datos" aunque el
-    // video sí tuviera métricas reales en al menos una red.
-    val fallbackItem: GroupStatsItemDto? = null,
     // Plataforma real de la última subida, solo cuando el modo es AVANZADO --
     // mirror de focusPlatform en DashboardView.tsx (escritorio) y
     // DashboardView.swift (iOS). En modo simple queda null: ahí publicar
@@ -135,7 +129,7 @@ class DashboardViewModel @Inject constructor(
             refreshTracker.setRefreshing("dashboard", true)
             try {
                 val result = supervisorScope {
-                    val stats = async { runCatching { syncRepository.getGroupStats(limit = 5, force = force) } }
+                    val stats = async { runCatching { syncRepository.getGroupStats(limit = 5, force = force, mode = "recent") } }
                     val individualStats = Platform.publishable.map { platform ->
                         async { runCatching { syncRepository.getGroupStats(limit = 5, platform = platform.apiValue, force = force) } }
                     }
@@ -145,8 +139,8 @@ class DashboardViewModel @Inject constructor(
                     val mainStats = stats.await()
                     currentCoroutineContext().ensureActive()
                     // Las barras y la lista tienen su propio resultado. Se muestran
-                    // al llegar, sin esperar calendario, historial, tres plataformas
-                    // ni la consulta adicional del último video no emparejado.
+                    // al llegar, sin esperar calendario, historial ni las tres
+                    // consultas por plataforma del podio.
                     if (mainStats.isSuccess && tokenStore.token == requestedSession) {
                         val currentData = (_uiState.value as? DashboardUiState.Success)?.data
                         val ready = currentData?.copy(items = mainStats.getOrThrow().items)
@@ -174,15 +168,6 @@ class DashboardViewModel @Inject constructor(
                     val items = stats.getOrThrow().items
                     val latestHistory = triple.third.getOrDefault(emptyList()).firstOrNull()
                     val historyPlatform = latestHistory?.platform?.let { Platform.fromApiValue(it) }
-                    val alreadyMatched = latestHistory == null || items.any { entry ->
-                        entry.fileName == latestHistory.fileName ||
-                            (historyPlatform != null && entry.platforms[historyPlatform.apiValue]?.platformId == latestHistory.platformId)
-                    }
-                    val fallbackItem = if (!alreadyMatched) {
-                        latestHistory?.fileName?.let { fileName ->
-                            runCatching { syncRepository.getFileStats(fileName = fileName) }.getOrNull()
-                        }
-                    } else null
                     currentCoroutineContext().ensureActive()
                     if (tokenStore.token != requestedSession) {
                         _uiState.value = DashboardUiState.Error("La sesión cambió. Vuelve a actualizar los datos.")
@@ -194,7 +179,6 @@ class DashboardViewModel @Inject constructor(
                             items = items,
                             calendar = triple.second.getOrDefault(emptyList()),
                             latestHistory = latestHistory,
-                            fallbackItem = fallbackItem,
                             focusPlatform = if (isSimpleFlow) null else historyPlatform,
                             individualItems = individualStats.flatMap { it.getOrNull()?.items.orEmpty() },
                             podiumMode = (_uiState.value as? DashboardUiState.Success)?.data?.podiumMode ?: podiumMode,

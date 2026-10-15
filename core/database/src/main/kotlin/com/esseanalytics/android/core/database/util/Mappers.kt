@@ -37,6 +37,7 @@ fun FileEntity.toDomain() = VideoFile(
     updatedAt = Instant.ofEpochMilli(updatedAtEpochMs),
     remoteLibraryVideoId = remoteLibraryVideoId,
     importSourceName = importSourceName,
+    contentSha256 = contentSha256,
 )
 
 fun VideoFile.toEntity() = FileEntity(
@@ -58,6 +59,7 @@ fun VideoFile.toEntity() = FileEntity(
     updatedAtEpochMs = updatedAt.toEpochMilli(),
     remoteLibraryVideoId = remoteLibraryVideoId,
     importSourceName = importSourceName,
+    contentSha256 = contentSha256,
 )
 
 fun PlatformVideoEntity.toDomain() = PlatformVideo(

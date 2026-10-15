@@ -5,6 +5,8 @@ import com.esseanalytics.android.core.database.entity.PlatformRevisionEntity
 import com.esseanalytics.android.core.database.entity.PlatformTransitionOutboxEntity
 import com.esseanalytics.android.core.database.entity.PlatformTransitionOutboxEntity.Companion.KIND_LINK
 import com.esseanalytics.android.core.datastore.TokenStore
+import com.esseanalytics.android.core.datastore.SettingsStore
+import kotlinx.coroutines.flow.first
 import com.esseanalytics.android.core.network.api.SyncApi
 import com.esseanalytics.android.core.network.dto.ManualPlatformLinkRequest
 import com.esseanalytics.android.core.network.dto.PlatformCausalResponse
@@ -151,9 +153,10 @@ class CausalFlusher @Inject constructor(
 class CausalPlatformOutbox @Inject constructor(
     private val flusher: CausalFlusher,
     private val tokenStore: TokenStore,
+    private val settingsStore: SettingsStore,
 ) {
     suspend fun flush() {
         val userKey = tokenStore.currentUser?.id ?: return
-        flusher.flush(userKey)
+        flusher.flush(CatalogRegistrationOutbox.scope(userKey, settingsStore.serverUrl.first()))
     }
 }

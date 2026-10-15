@@ -94,12 +94,7 @@ fun DashboardScreen(
     val success = state as? DashboardUiState.Success
     val pullState = rememberPullToRefreshState()
     val isLoading = state == DashboardUiState.Loading || success?.isRefreshing == true
-    val recentVideos = remember(success?.data?.items, success?.data?.fallbackItem) {
-        val data = success?.data
-        (data?.items.orEmpty() + listOfNotNull(data?.fallbackItem))
-            .distinctBy(::homeVideoId)
-            .sortedByDescending { it.fecha_creacion }
-    }
+    val recentVideos = success?.data?.items.orEmpty()
     val total = remember(recentVideos, metric) { recentVideos.sumOf { videoMetric(it, metric) } }
     val bars = remember(recentVideos, metric) {
         recentVideos.asReversed().map {
@@ -258,10 +253,13 @@ private fun HomeVideoRow(
         },
         metadata = {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                presentPlatforms.forEach { platform ->
-                    CreatorPlatformBadge(homePlatformIcon(platform), platform.displayName, homePlatformColor(platform))
+                Platform.entries.filter { it != Platform.FACEBOOK }.forEach { platform ->
+                    if (platform in presentPlatforms) {
+                        CreatorPlatformBadge(homePlatformIcon(platform), platform.displayName, homePlatformColor(platform))
+                    } else {
+                        Text("${platform.displayName} pendiente", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+                    }
                 }
-                if (presentPlatforms.isEmpty()) Text("Pendiente", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
             }
         },
         menu = {

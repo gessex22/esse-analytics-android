@@ -31,6 +31,8 @@ import com.esseanalytics.android.core.network.dto.UploadJobReportResponse
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import retrofit2.Response
+import okhttp3.MultipartBody
+import okhttp3.ResponseBody
 
 // Fakes compartidos de la infra causal. Nada acá pega a la red: si un test
 // termina llamando a un endpoint que no configuró, el fake falla ruidosamente
@@ -109,7 +111,17 @@ class FakeFileDao(private val files: List<FileEntity> = emptyList()) : FileDao {
 
     override suspend fun findByPath(path: String): FileEntity? = files.firstOrNull { it.filePath == path }
 
+    override suspend fun findBySha256(sha256: String): FileEntity? = files.firstOrNull { it.contentSha256 == sha256 }
+
+    override suspend fun getFilesPendingCatalogReconciliation(): List<FileEntity> = files.filter { it.status != "ELIMINADO_DISCO" }
+
+    override suspend fun setSha256IfMissing(id: Long, sha256: String): Int = 0
+
     override suspend fun findByName(name: String): FileEntity? = files.firstOrNull { it.fileName == name }
+
+    override suspend fun findImportCandidates(name: String): List<FileEntity> = files.filter { it.fileName == name || it.importSourceName == name }
+
+    override suspend fun getImportNames(): List<String> = files.map { it.fileName }
 
     override suspend fun findByRemoteLibraryVideoId(remoteId: String): FileEntity? =
         files.firstOrNull { it.remoteLibraryVideoId == remoteId }
@@ -145,6 +157,9 @@ open class FakeSyncApi : SyncApi {
         resolveIdentityError?.let { throw it }
         return resolveIdentityResponse
     }
+
+    override suspend fun uploadCatalogThumbnail(contentId: String, thumbnail: MultipartBody.Part): Response<ResponseBody> =
+        unexpected("catalog-thumbnail")
 
     override suspend fun platformTransition(body: PlatformTransitionRequest): Response<PlatformCausalResponse> {
         transitionRequests += body

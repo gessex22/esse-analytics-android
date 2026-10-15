@@ -29,6 +29,10 @@ import com.esseanalytics.android.core.network.api.RemoteLibraryApi
 import com.esseanalytics.android.core.network.api.PlatformAuthApi
 import com.esseanalytics.android.core.network.dto.TiktokCreatorInfoDto
 import com.esseanalytics.android.core.network.SyncRepository
+import com.esseanalytics.android.core.network.api.BackupApi
+import com.esseanalytics.android.core.network.util.CanonicalPlatformState
+import com.esseanalytics.android.core.network.util.matchCanonicalPlatformState
+import com.esseanalytics.android.core.network.util.withCanonicalPlatformState
 import com.esseanalytics.android.core.network.di.CentralRetrofit
 import com.esseanalytics.android.core.network.dto.LocalPcVideoDto
 import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
@@ -69,15 +73,9 @@ class UploadViewModel @Inject constructor(
     private val importUseCase: ImportUseCase,
     private val syncRepository: SyncRepository,
     private val tokenStore: TokenStore,
-    // FIX 2026-08-18 (ver UIEssePanel/PLAN_LAN_PICKER_Y_REPRODUCTOR-2026-08-18.md):
-    // mismo repositorio compartido que LibraryViewModel -- el picker "Cambiar
-    // video" puede ofrecer Biblioteca LAN con la MISMA política (PC
-    // autorizada por Bonjour) sin reimplementar discovery/fetch acá.
+    private val backupApi: BackupApi,
     private val lanLibraryRepository: LanLibraryRepository,
     @CentralRetrofit private val retrofit: Retrofit,
-    // Journal durable anti-duplicados (ver PublishOperationEntity): la
-    // confirmación humana de una publicación ambigua (fila `blocked`) pasa
-    // por este store — nunca se toca el DAO del journal desde acá.
     private val publishOperationStore: PublishOperationStore,
     private val platformAuthApi: PlatformAuthApi,
 ) : ViewModel() {
@@ -129,8 +127,18 @@ class UploadViewModel @Inject constructor(
 
     // Solo archivos que todavía tienen alguna plataforma pendiente -- no
     // tiene sentido ofrecer "subir" uno que ya está resuelto en las 3.
-    val files: StateFlow<List<VideoFile>> = fileRepository.observeAll()
-        .map { list -> list.filter { !it.isFullyResolved } }
+    private val _canonicalPlatformStates = MutableStateFlow<Map<Long, CanonicalPlatformState>>(emptyMap())
+    internal val canonicalPlatformStates = _canonicalPlatformStates.asStateFlow()
+    private var canonicalStatusOwner: String? = null
+    private val _refreshingPlatformStates = MutableStateFlow(false)
+    val refreshingPlatformStates = _refreshingPlatformStates.asStateFlow()
+    private val _platformStateRefreshError = MutableStateFlow<String?>(null)
+    val platformStateRefreshError = _platformStateRefreshError.asStateFlow()
+
+    val files: StateFlow<List<VideoFile>> = combine(fileRepository.observeAll(), _canonicalPlatformStates) { list, canonical ->
+        list.map { file -> file.withCanonicalPlatformState(canonical[file.id]) }
+            .filter { !it.isFullyResolved }
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // Además de los locales, el picker de Subir deja elegir un video de Nube
@@ -263,6 +271,43 @@ class UploadViewModel @Inject constructor(
                         if (platform != null && !title.isNullOrBlank()) platform to title else null
                     }.toMap()
                 }
+        }
+    }
+
+    /** Actualiza los estados compartidos de la PC al volver al selector. */
+    fun refreshPlatformStates() {
+        val user = tokenStore.currentUser
+        if (user == null) {
+            canonicalStatusOwner = null
+            _canonicalPlatformStates.value = emptyMap()
+            return
+        }
+        if (canonicalStatusOwner != user.id) {
+            canonicalStatusOwner = user.id
+            _canonicalPlatformStates.value = emptyMap()
+        }
+        if (!user.isPremium || _refreshingPlatformStates.value) return
+        _refreshingPlatformStates.value = true
+        viewModelScope.launch {
+            _platformStateRefreshError.value = null
+            try {
+                val catalog = withContext(Dispatchers.IO) {
+                    backupApi.listFiles(includeResolved = true).files
+                }
+                if (tokenStore.currentUser?.id != user.id) return@launch
+                val localFiles = fileRepository.observeAll().first()
+                _canonicalPlatformStates.value = localFiles.mapNotNull { file ->
+                    matchCanonicalPlatformState(file, catalog, localFiles)?.let { file.id to it }
+                }.toMap()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                if (tokenStore.currentUser?.id == user.id) {
+                    _platformStateRefreshError.value = "No se pudieron actualizar los estados desde la PC."
+                }
+            } finally {
+                _refreshingPlatformStates.value = false
+            }
         }
     }
 

@@ -2,6 +2,8 @@ package com.esseanalytics.android.core.database.entity
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import androidx.room.Index
+import androidx.room.ColumnInfo
 
 // Outbox persistente para SyncApi.recordPublish -- hallazgo SYNC-02#4 de la
 // auditoría de sincronización 2026-08-30 (ver
@@ -16,10 +18,12 @@ import androidx.room.PrimaryKey
 // camino a la central -- esto es el equivalente para el camino DIRECTO
 // Android→central (modo remoto, sin PC). Mirror de PendingHistoryEvent.swift
 // (iOS, mismos campos).
-@Entity(tableName = "pending_history_events")
+@Entity(tableName = "pending_history_events", indices = [Index(value = ["userKey", "serverUrl", "state", "nextAttemptAtEpochMs"])])
 data class PendingHistoryEventEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val platform: String,
+    val contentId: String?,
+    val clientFileId: String?,
     val platformId: String,
     val platformUrl: String?,
     val fileName: String?,
@@ -31,4 +35,10 @@ data class PendingHistoryEventEntity(
     val deviceName: String?,
     val createdAtEpochMs: Long = System.currentTimeMillis(),
     val attempts: Int = 0,
+    // Legacy rows migrate with NULL scope and remain blocked from cross-session delivery.
+    val userKey: String? = null,
+    val serverUrl: String? = null,
+    @ColumnInfo(defaultValue = "0") val nextAttemptAtEpochMs: Long = 0,
+    @ColumnInfo(defaultValue = "'blocked'") val state: String = "blocked",
+    val lastError: String? = null,
 )

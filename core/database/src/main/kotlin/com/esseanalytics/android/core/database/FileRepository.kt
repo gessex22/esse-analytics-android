@@ -41,6 +41,8 @@ class FileRepository @Inject constructor(
 
     suspend fun findByPath(path: String): VideoFile? = fileDao.findByPath(path)?.toDomain()
 
+    suspend fun findBySha256(sha256: String): VideoFile? = fileDao.findBySha256(sha256)?.toDomain()
+
     suspend fun findNextUnpublished(platform: Platform): VideoFile? =
         fileDao.findNextUnpublished(platform.apiValue)?.toDomain()
 

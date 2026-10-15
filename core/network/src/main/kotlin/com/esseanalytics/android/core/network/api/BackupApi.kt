@@ -2,6 +2,7 @@ package com.esseanalytics.android.core.network.api
 
 import com.esseanalytics.android.core.network.dto.BackupFilesResponse
 import retrofit2.http.GET
+import retrofit2.http.Query
 
 // Catálogo de solo lectura del backup automático del escritorio -- gate real
 // es requirePremium (backend/src/routes/backup.routes.ts), no
@@ -9,5 +10,5 @@ import retrofit2.http.GET
 // remota con bytes reales (RemoteLibraryApi).
 interface BackupApi {
     @GET("api/backup/files")
-    suspend fun listFiles(): BackupFilesResponse
+    suspend fun listFiles(@Query("includeResolved") includeResolved: Boolean = false): BackupFilesResponse
 }

@@ -6,6 +6,8 @@ import com.esseanalytics.android.core.database.dao.FileDao
 import com.esseanalytics.android.core.database.entity.ContentIdentityEntity
 import com.esseanalytics.android.core.database.entity.PlatformRevisionEntity
 import com.esseanalytics.android.core.datastore.TokenStore
+import com.esseanalytics.android.core.datastore.SettingsStore
+import kotlinx.coroutines.flow.first
 import com.esseanalytics.android.core.network.api.SyncApi
 import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
 import com.esseanalytics.android.core.network.dto.ResolveIdentityRequest
@@ -125,10 +127,12 @@ class CausalIdentityResolution @Inject constructor(
 class PlatformIdentityStore @Inject constructor(
     private val resolution: CausalIdentityResolution,
     private val tokenStore: TokenStore,
+    private val settingsStore: SettingsStore,
 ) : CausalIdentityResolver {
 
     suspend fun hydrateFromRemote(videos: List<RemoteLibraryVideoDto>) {
-        val userKey = tokenStore.currentUser?.id ?: return
+        val userId = tokenStore.currentUser?.id ?: return
+        val userKey = CatalogRegistrationOutbox.scope(userId, settingsStore.serverUrl.first())
         resolution.hydrateFromRemote(userKey, videos)
     }
 
