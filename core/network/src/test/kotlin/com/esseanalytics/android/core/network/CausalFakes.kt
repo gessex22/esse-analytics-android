@@ -178,7 +178,7 @@ open class FakeSyncApi : SyncApi {
     override suspend fun updateCalendarConfig(platform: String, body: Map<String, String>) =
         unexpected("calendar-config")
     override suspend fun skipNextCalendarVideo(platform: String, body: SkipNextRequest) = unexpected("skip-next")
-    override suspend fun getGroupStats(limit: Int, platform: String?): GroupStatsResponse = unexpected("group-stats")
+    override suspend fun getGroupStats(limit: Int, platform: String?, mode: String?): GroupStatsResponse = unexpected("group-stats")
     override suspend fun getFileStats(fileId: String?, fileName: String?): GroupStatsItemDto = unexpected("file-stats")
     override suspend fun getHistory(limit: Int, offset: Int, platform: String?): UploadHistoryResponse =
         unexpected("history")
