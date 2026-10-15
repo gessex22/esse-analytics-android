@@ -15,6 +15,9 @@ interface FileDao {
     @Query("SELECT * FROM files WHERE id = :id LIMIT 1")
     suspend fun findById(id: Long): FileEntity?
 
+    @Query("SELECT * FROM files WHERE clientFileId = :clientFileId LIMIT 1")
+    suspend fun findByClientFileId(clientFileId: String): FileEntity?
+
     @Query("SELECT * FROM files WHERE filePath = :path LIMIT 1")
     suspend fun findByPath(path: String): FileEntity?
 
@@ -77,4 +80,7 @@ interface FileDao {
 
     @Update
     suspend fun update(file: FileEntity)
+
+    @Query("UPDATE files SET displayName = :name, displayNameRevision = :revision, displayNameState = :state, displayNameOwnerId = :ownerId, displayNameServerUrl = :serverUrl WHERE clientFileId = :clientFileId")
+    suspend fun updateCatalogName(clientFileId: String, name: String?, revision: Int, state: String?, ownerId: String, serverUrl: String)
 }

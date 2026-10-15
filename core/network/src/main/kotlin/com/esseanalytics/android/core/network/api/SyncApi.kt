@@ -1,6 +1,8 @@
 package com.esseanalytics.android.core.network.api
 
 import com.esseanalytics.android.core.network.dto.CalendarConfigDto
+import com.esseanalytics.android.core.network.dto.CatalogDisplayNameRequestDto
+import com.esseanalytics.android.core.network.dto.CatalogDisplayNameResponseDto
 import com.esseanalytics.android.core.network.dto.ConfirmLinkRequest
 import com.esseanalytics.android.core.network.dto.CrossMatchCandidatesResponseDto
 import com.esseanalytics.android.core.network.dto.GroupStatsItemDto
@@ -36,6 +38,8 @@ import retrofit2.http.Part
 // Cubre lo que necesita el MVP (Calendario básico + Estadísticas + Sync de
 // Fase 2). Mismos endpoints que ya consume frontend/src/components/SyncPanel.tsx.
 interface SyncApi {
+    @PATCH("api/sync/catalog-name")
+    suspend fun updateCatalogDisplayName(@Body body: CatalogDisplayNameRequestDto): Response<CatalogDisplayNameResponseDto>
     @Multipart
     @POST("api/backup/files/{contentId}/thumbnail")
     suspend fun uploadCatalogThumbnail(

@@ -58,4 +58,9 @@ data class FileEntity(
     val remoteLibraryVideoId: String? = null,
     val importSourceName: String? = null,
     val contentSha256: String? = null,
+    val displayName: String? = null,
+    @ColumnInfo(defaultValue = "0") val displayNameRevision: Int = 0,
+    val displayNameState: String? = null,
+    val displayNameOwnerId: String? = null,
+    val displayNameServerUrl: String? = null,
 )

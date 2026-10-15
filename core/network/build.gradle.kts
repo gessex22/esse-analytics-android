@@ -18,6 +18,9 @@ dependencies {
     // necesita Room para encolar eventos que fallaron -- core:database no
     // depende de core:network, así que no hay ciclo.
     implementation(project(":core:database"))
+    // Atomic name cache + outbox persistence across process crashes.
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
 
     implementation(libs.retrofit.core)
     implementation(libs.retrofit.kotlinx.serialization)

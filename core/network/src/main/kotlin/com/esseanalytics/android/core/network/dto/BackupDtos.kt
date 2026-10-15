@@ -9,6 +9,9 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class BackupFileDto(
     val file_name: String,
+    val content_id: String? = null,
+    val display_name: String? = null,
+    val display_name_rev: Int? = null,
     val platforms: List<String> = emptyList(),
     val platforms_discarded: List<String> = emptyList(),
     val content_status: String? = null,

@@ -45,6 +45,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -58,6 +59,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -105,6 +107,7 @@ import com.esseanalytics.android.core.model.VideoFile
 import com.esseanalytics.android.core.network.dto.RemoteLibraryVideoDto
 import java.io.File
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 private val FloatingNavClearance = 124.dp
 
@@ -134,6 +137,10 @@ fun LibraryScreen(
     var editingFile by remember { mutableStateOf<VideoFile?>(null) }
     var editingRemoteVideo by remember { mutableStateOf<RemoteLibraryVideoDto?>(null) }
     var editingLan by remember { mutableStateOf<LibraryListItem.LanVideo?>(null) }
+    var renameTarget by remember { mutableStateOf<com.esseanalytics.android.core.model.VideoFile?>(null) }
+    var renameValue by remember { mutableStateOf("") }
+    var renameConflict by remember { mutableStateOf<Pair<com.esseanalytics.android.core.model.VideoFile, String>?>(null) }
+    val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(canUseCloudStorage) {
@@ -142,6 +149,14 @@ fun LibraryScreen(
     LaunchedEffect(Unit) {
         viewModel.refreshNextUploads()
         viewModel.refreshPlatformStates()
+    }
+    LaunchedEffect(items) {
+        if (renameConflict == null) {
+            for (item in items) if (item is LibraryListItem.Local) {
+                val current = viewModel.pendingSharedNameConflict(item.file)
+                if (current != null) { renameConflict = item.file to current; break }
+            }
+        }
     }
     // Descubrimiento corre SOLO mientras esta pantalla está visible --
     // ref-count compartido con Ajustes si esa pantalla también lo pide al
@@ -196,6 +211,12 @@ fun LibraryScreen(
                     is LibraryListItem.Local -> editingFile = item.file
                     is LibraryListItem.Remote -> editingRemoteVideo = item.video
                     is LibraryListItem.LanVideo -> editingLan = item
+                }
+            },
+            onRename = { item ->
+                (item as? LibraryListItem.Local)?.file?.let { file ->
+                    renameTarget = file
+                    renameValue = file.libraryDisplayName
                 }
             },
             deleteTarget = deleteTarget,
@@ -268,6 +289,38 @@ fun LibraryScreen(
             },
         )
     }
+
+    renameTarget?.let { file ->
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text("Cambiar nombre de biblioteca") },
+            text = { Column {
+                Text("El archivo conservará su nombre y ubicación. Este nombre se comparte con tus dispositivos.")
+                OutlinedTextField(value = renameValue, onValueChange = { renameValue = it }, label = { Text("Nombre visible") }, singleLine = true)
+            } },
+            confirmButton = { TextButton(onClick = {
+                coroutineScope.launch {
+                    runCatching { viewModel.renameInSharedLibrary(file, renameValue) }
+                        .onSuccess { currentName ->
+                            if (currentName != null) renameConflict = file to currentName
+                            else snackbarHostState.showSnackbar("Nombre guardado en la biblioteca")
+                            renameTarget = null
+                        }
+                        .onFailure { snackbarHostState.showSnackbar(it.message ?: "No se pudo guardar el nombre") }
+                }
+            }) { Text("Guardar") } },
+            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Cancelar") } },
+        )
+    }
+    renameConflict?.let { (file, currentName) ->
+        AlertDialog(
+            onDismissRequest = { renameConflict = null },
+            title = { Text("Conflicto de nombre") },
+            text = { Text("Otro dispositivo eligió «$currentName». Puedes conservar tu propuesta o usar el nombre vigente.") },
+            confirmButton = { TextButton(onClick = { coroutineScope.launch { viewModel.keepMySharedName(file); renameConflict = null } }) { Text("Conservar mi nombre") } },
+            dismissButton = { TextButton(onClick = { coroutineScope.launch { viewModel.useCurrentSharedName(file); renameConflict = null } }) { Text("Usar nombre actual") } },
+        )
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -289,6 +342,7 @@ internal fun LibraryStudioContent(
     onOpenDetails: (LibraryListItem) -> Unit,
     onPlay: (LibraryListItem) -> Unit,
     onEdit: (LibraryListItem) -> Unit,
+    onRename: (LibraryListItem) -> Unit = {},
     deleteTarget: LibraryListItem?,
     onDeleteRequested: (LibraryListItem) -> Unit,
     onDeleteConfirmed: (LibraryListItem) -> Unit,
@@ -374,6 +428,7 @@ internal fun LibraryStudioContent(
                             onOpenDetails = { onOpenDetails(item) },
                             onPlay = { onPlay(item) },
                             onEdit = { onEdit(item) },
+                            onRename = { onRename(item) },
                             onDelete = { onDeleteRequested(item) },
                         )
                     }
@@ -544,6 +599,7 @@ private fun LibraryStudioRow(
     onOpenDetails: () -> Unit,
     onPlay: () -> Unit,
     onEdit: () -> Unit,
+    onRename: () -> Unit = {},
     onDelete: () -> Unit,
 ) {
     var menuExpanded by remember(item) { mutableStateOf(false) }
@@ -552,7 +608,8 @@ private fun LibraryStudioRow(
         is LibraryListItem.Remote -> item.video.platforms.mapNotNull(Platform::fromApiValue) to item.video.platformsDiscarded
         is LibraryListItem.LanVideo -> item.video.platforms.mapNotNull(Platform::fromApiValue) to item.video.platforms_discarded
     }
-    val nextFor = Platform.publishable.filter { nextUploads[it] == item.displayName }
+    val sourceName = (item as? LibraryListItem.Local)?.file?.fileName ?: item.displayName
+    val nextFor = Platform.publishable.filter { nextUploads[it] == sourceName }
     val visiblePlatforms = Platform.publishable +
         if (Platform.FACEBOOK in published) listOf(Platform.FACEBOOK) else emptyList()
     val durationLabel = formatLibraryDuration(
@@ -595,6 +652,10 @@ private fun LibraryStudioRow(
             LibraryStudioThumbnail(item, thumbnailUrl, durationLabel)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(item.displayName, fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                when ((item as? LibraryListItem.Local)?.file?.displayNameState) {
+                    "pending" -> Text("Pendiente de sincronización", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    "conflict" -> Text("Requiere resolver un conflicto", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         visiblePlatforms.forEach { platform ->
@@ -625,6 +686,11 @@ private fun LibraryStudioRow(
                         text = { Text("Editar plataformas") },
                         leadingIcon = { Icon(Icons.Outlined.Edit, null) },
                         onClick = { menuExpanded = false; onEdit() },
+                    )
+                    if (item is LibraryListItem.Local) DropdownMenuItem(
+                        text = { Text("Cambiar nombre") },
+                        leadingIcon = { Icon(Icons.Outlined.Edit, null) },
+                        onClick = { menuExpanded = false; onRename() },
                     )
                     if (item !is LibraryListItem.LanVideo) {
                         DropdownMenuItem(

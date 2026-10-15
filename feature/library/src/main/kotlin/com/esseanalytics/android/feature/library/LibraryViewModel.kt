@@ -5,8 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.esseanalytics.android.core.database.FileRepository
 import com.esseanalytics.android.core.datastore.AuthState
 import com.esseanalytics.android.core.datastore.TokenStore
+import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.LanLibraryRepository
+import com.esseanalytics.android.core.network.CatalogRegistrationOutbox
 import com.esseanalytics.android.core.network.LocalBackendApiFactory
 import com.esseanalytics.android.core.network.SyncRepository
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
@@ -57,6 +59,7 @@ class LibraryViewModel @Inject constructor(
     private val backupApi: BackupApi,
     private val syncRepository: SyncRepository,
     private val tokenStore: TokenStore,
+    private val settingsStore: SettingsStore,
     private val localBackendApiFactory: LocalBackendApiFactory,
     // FIX 2026-08-18: reemplaza al acceso directo a LanPcDiscoveryStore (ver
     // UIEssePanel/PLAN_LAN_PICKER_Y_REPRODUCTOR-2026-08-18.md) -- el catálogo
@@ -64,8 +67,42 @@ class LibraryViewModel @Inject constructor(
     // través de este repositorio, en vez de que cada ViewModel reimplemente
     // su propio refreshLan()/authorizedLanBaseUrl.
     private val lanLibraryRepository: LanLibraryRepository,
+    private val catalogRegistrationOutbox: CatalogRegistrationOutbox,
     @CentralRetrofit private val retrofit: Retrofit,
 ) : ViewModel() {
+
+    private val _displayNameScope = MutableStateFlow<String?>(null)
+
+    init {
+        viewModelScope.launch {
+            combine(tokenStore.authState, settingsStore.serverUrl) { auth, server ->
+                val userId = (auth as? AuthState.LoggedIn)?.user?.id ?: return@combine null
+                "${CatalogRegistrationOutbox.canonicalServer(server)}|$userId"
+            }.collect { _displayNameScope.value = it }
+        }
+    }
+
+    suspend fun renameInSharedLibrary(file: com.esseanalytics.android.core.model.VideoFile, rawName: String): String? {
+        val name = rawName.trim()
+        require(name.isNotEmpty() && name.length <= 120 && name.none { it.isISOControl() })
+        val session = tokenStore.currentSession() ?: error("Inicia sesión para cambiar el nombre de biblioteca.")
+        val server = CatalogRegistrationOutbox.canonicalServer(settingsStore.serverUrl.first())
+        val scopedFile = file.copy(displayName = name, displayNameState = "pending", displayNameOwnerId = session.second, displayNameServerUrl = server)
+        catalogRegistrationOutbox.enqueueDisplayName(scopedFile, name)
+        if (tokenStore.currentSession() != session || CatalogRegistrationOutbox.canonicalServer(settingsStore.serverUrl.first()) != server) error("La sesión cambió mientras se guardaba el nombre. Vuelve a abrir la biblioteca.")
+        return catalogRegistrationOutbox.displayNameConflict(scopedFile)?.currentName
+    }
+
+    suspend fun keepMySharedName(file: com.esseanalytics.android.core.model.VideoFile) {
+        catalogRegistrationOutbox.keepDisplayNameProposal(file)
+    }
+
+    suspend fun useCurrentSharedName(file: com.esseanalytics.android.core.model.VideoFile): String? {
+        return catalogRegistrationOutbox.acceptServerDisplayName(file)
+    }
+
+    suspend fun pendingSharedNameConflict(file: com.esseanalytics.android.core.model.VideoFile): String? =
+        catalogRegistrationOutbox.displayNameConflict(file)?.currentName
 
     // Mirror de RemoteLibraryAPI.thumbnailURL en iOS -- ver
     // remoteLibraryThumbnailUrl. Null si el video no tiene miniatura.
@@ -178,7 +215,14 @@ class LibraryViewModel @Inject constructor(
         // remoto le gana a LAN (tiene miniatura real cacheada, sin depender
         // de que la PC siga viva en este instante). Cada chip de filtro
         // individual sigue mostrando su fuente completa sin filtrar.
-        val resolvedLocal = local.map { file -> file.withCanonicalPlatformState(canonical[file.id]) }
+        val currentScope = _displayNameScope.value
+        val resolvedLocal = local.map { file ->
+            val isOwnName = file.displayNameOwnerId != null
+                && file.displayNameOwnerId == currentScope?.substringAfterLast('|')
+                && file.displayNameServerUrl == currentScope?.substringBeforeLast('|')
+            val scoped = if (isOwnName) file else file.copy(displayName = null, displayNameRevision = 0, displayNameState = null)
+            scoped.withCanonicalPlatformState(canonical[file.id])
+        }
         val localRemoteIds = resolvedLocal.mapNotNull { it.remoteLibraryVideoId }.toSet()
         val localFileNames = resolvedLocal.map { it.fileName }.toSet()
         val remoteFileNames = remote.map { it.fileName }.toSet()
@@ -242,6 +286,7 @@ class LibraryViewModel @Inject constructor(
             canonicalStatusOwner = user.id
             _canonicalPlatformStates.value = emptyMap()
         }
+        viewModelScope.launch { catalogRegistrationOutbox.refreshCatalogDisplayNames() }
         if (!user.isPremium) return
         viewModelScope.launch {
             runCatching {

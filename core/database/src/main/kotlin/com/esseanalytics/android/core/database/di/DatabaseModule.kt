@@ -13,8 +13,11 @@ import com.esseanalytics.android.core.database.MIGRATION_8_9
 import com.esseanalytics.android.core.database.MIGRATION_9_10
 import com.esseanalytics.android.core.database.MIGRATION_10_11
 import com.esseanalytics.android.core.database.MIGRATION_11_12
+import com.esseanalytics.android.core.database.MIGRATION_12_13
 import com.esseanalytics.android.core.database.dao.CausalPlatformDao
 import com.esseanalytics.android.core.database.dao.FileDao
+import com.esseanalytics.android.core.database.dao.PendingCatalogRegistrationDao
+import com.esseanalytics.android.core.database.dao.PendingCatalogNameDao
 import com.esseanalytics.android.core.database.dao.PendingHistoryEventDao
 import com.esseanalytics.android.core.database.dao.PendingPlatformUpdateDao
 import com.esseanalytics.android.core.database.dao.PlatformVideoDao
@@ -33,7 +36,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): EsseAnalyticsDatabase =
         Room.databaseBuilder(context, EsseAnalyticsDatabase::class.java, "essenalytics.db")
-            .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
+            .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
             // Red de contención acotada a la ÚNICA versión sin Migration
             // escrita (la v1 del scaffold inicial). Antes era
             // fallbackToDestructiveMigration() a secas, que habilitaba borrar
@@ -53,6 +56,12 @@ object DatabaseModule {
 
     @Provides
     fun providePendingHistoryEventDao(db: EsseAnalyticsDatabase): PendingHistoryEventDao = db.pendingHistoryEventDao()
+
+    @Provides
+    fun providePendingCatalogRegistrationDao(db: EsseAnalyticsDatabase): PendingCatalogRegistrationDao = db.pendingCatalogRegistrationDao()
+
+    @Provides
+    fun providePendingCatalogNameDao(db: EsseAnalyticsDatabase): PendingCatalogNameDao = db.pendingCatalogNameDao()
 
     @Provides
     fun providePendingPlatformUpdateDao(db: EsseAnalyticsDatabase): PendingPlatformUpdateDao = db.pendingPlatformUpdateDao()

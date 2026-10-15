@@ -19,7 +19,9 @@ import com.esseanalytics.android.core.database.entity.PlatformTransitionOutboxEn
 import com.esseanalytics.android.core.database.entity.PlatformVideoEntity
 import com.esseanalytics.android.core.database.entity.PublishOperationEntity
 import com.esseanalytics.android.core.database.entity.PendingCatalogRegistrationEntity
+import com.esseanalytics.android.core.database.entity.PendingCatalogNameEntity
 import com.esseanalytics.android.core.database.dao.PendingCatalogRegistrationDao
+import com.esseanalytics.android.core.database.dao.PendingCatalogNameDao
 import java.util.UUID
 
 // La base arrancó en v1 con la app nueva (sin usuarios en producción) y desde
@@ -38,8 +40,9 @@ import java.util.UUID
         PlatformTransitionOutboxEntity::class,
         PublishOperationEntity::class,
         PendingCatalogRegistrationEntity::class,
+        PendingCatalogNameEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 abstract class EsseAnalyticsDatabase : RoomDatabase() {
@@ -50,6 +53,7 @@ abstract class EsseAnalyticsDatabase : RoomDatabase() {
     abstract fun causalPlatformDao(): CausalPlatformDao
     abstract fun publishOperationDao(): PublishOperationDao
     abstract fun pendingCatalogRegistrationDao(): PendingCatalogRegistrationDao
+    abstract fun pendingCatalogNameDao(): PendingCatalogNameDao
 }
 
 val MIGRATION_8_9 = object : Migration(8, 9) {
@@ -82,6 +86,18 @@ val MIGRATION_11_12 = object : Migration(11, 12) {
         db.execSQL("ALTER TABLE pending_history_events ADD COLUMN state TEXT NOT NULL DEFAULT 'blocked'")
         db.execSQL("ALTER TABLE pending_history_events ADD COLUMN lastError TEXT")
         db.execSQL("CREATE INDEX IF NOT EXISTS index_pending_history_events_userKey_serverUrl_state_nextAttemptAtEpochMs ON pending_history_events (userKey, serverUrl, state, nextAttemptAtEpochMs)")
+    }
+}
+
+val MIGRATION_12_13 = object : Migration(12, 13) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE files ADD COLUMN displayName TEXT")
+        db.execSQL("ALTER TABLE files ADD COLUMN displayNameRevision INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE files ADD COLUMN displayNameState TEXT")
+        db.execSQL("ALTER TABLE files ADD COLUMN displayNameOwnerId TEXT")
+        db.execSQL("ALTER TABLE files ADD COLUMN displayNameServerUrl TEXT")
+        db.execSQL("CREATE TABLE IF NOT EXISTS pending_catalog_names (`operationId` TEXT NOT NULL, `userKey` TEXT NOT NULL, `serverUrl` TEXT NOT NULL, `clientFileId` TEXT NOT NULL, `contentId` TEXT, `displayName` TEXT NOT NULL, `desiredName` TEXT NOT NULL DEFAULT '', `baseRevision` INTEGER NOT NULL, `attempts` INTEGER NOT NULL, `nextAttemptAtEpochMs` INTEGER NOT NULL, `state` TEXT NOT NULL, `currentName` TEXT, `currentRevision` INTEGER, `lastError` TEXT, PRIMARY KEY(`operationId`))")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_pending_catalog_names_userKey_serverUrl_clientFileId ON pending_catalog_names (userKey, serverUrl, clientFileId)")
     }
 }
 

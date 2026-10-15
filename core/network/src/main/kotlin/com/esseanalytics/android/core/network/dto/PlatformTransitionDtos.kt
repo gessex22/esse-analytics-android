@@ -113,6 +113,8 @@ data class CatalogImportMetadata(
 data class ResolveIdentityResponse(
     val contentId: String? = null,
     val contentSha256: String? = null,
+    val displayName: String? = null,
+    val displayNameRevision: Int? = null,
     // Revisión actual por plataforma (apiValue -> versión), igual que
     // RemoteLibraryVideoDto.platformRev -- baseVersion real contra la que la
     // central valida una transición. Opcional: sin esto, una transición espera

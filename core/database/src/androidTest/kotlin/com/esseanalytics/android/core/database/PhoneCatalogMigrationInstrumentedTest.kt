@@ -64,5 +64,38 @@ class PhoneCatalogMigrationInstrumentedTest {
         }
     }
 
-    private companion object { const val TEST_DB = "phone-catalog-migration-test.db" }
+    @Test
+    fun migration12To13PreservesPhysicalFileAndCreatesScopedNameOutbox() {
+        helper.createDatabase(TEST_NAME_DB, 12).apply {
+            execSQL("INSERT INTO files (clientFileId,fileName,filePath,status,contentStatus,platforms,platformsDiscarded,createdAtEpochMs,updatedAtEpochMs) VALUES ('client-name','VID_20261014.mp4','content://media/name','TRANSCRITO','BORRADOR','','',21,22)")
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_NAME_DB, 13, true, MIGRATION_12_13)
+        helper.closeWhenFinished(db)
+        db.query("SELECT fileName,filePath,displayName,displayNameRevision,displayNameState FROM files WHERE clientFileId='client-name'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("VID_20261014.mp4", cursor.getString(0))
+            assertEquals("content://media/name", cursor.getString(1))
+            assertNull(cursor.getString(2))
+            assertEquals(0, cursor.getInt(3))
+            assertNull(cursor.getString(4))
+        }
+        db.execSQL("INSERT INTO pending_catalog_names (operationId,userKey,serverUrl,clientFileId,displayName,desiredName,baseRevision,attempts,nextAttemptAtEpochMs,state) VALUES ('op-a','https://central/|user-a','https://central/','client-name','A','A',0,0,0,'pending')")
+        db.query("SELECT userKey,serverUrl,clientFileId,displayName,desiredName,baseRevision,state FROM pending_catalog_names").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("https://central/|user-a", cursor.getString(0))
+            assertEquals("https://central/", cursor.getString(1))
+            assertEquals("client-name", cursor.getString(2))
+            assertEquals("A", cursor.getString(3))
+            assertEquals("A", cursor.getString(4))
+            assertEquals(0, cursor.getInt(5))
+            assertEquals("pending", cursor.getString(6))
+        }
+    }
+
+    private companion object {
+        const val TEST_DB = "phone-catalog-migration-test.db"
+        const val TEST_NAME_DB = "phone-catalog-name-migration-test.db"
+    }
 }

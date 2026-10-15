@@ -38,6 +38,11 @@ fun FileEntity.toDomain() = VideoFile(
     remoteLibraryVideoId = remoteLibraryVideoId,
     importSourceName = importSourceName,
     contentSha256 = contentSha256,
+    displayName = displayName,
+    displayNameRevision = displayNameRevision,
+    displayNameState = displayNameState,
+    displayNameOwnerId = displayNameOwnerId,
+    displayNameServerUrl = displayNameServerUrl,
 )
 
 fun VideoFile.toEntity() = FileEntity(
@@ -60,6 +65,11 @@ fun VideoFile.toEntity() = FileEntity(
     remoteLibraryVideoId = remoteLibraryVideoId,
     importSourceName = importSourceName,
     contentSha256 = contentSha256,
+    displayName = displayName,
+    displayNameRevision = displayNameRevision,
+    displayNameState = displayNameState,
+    displayNameOwnerId = displayNameOwnerId,
+    displayNameServerUrl = displayNameServerUrl,
 )
 
 fun PlatformVideoEntity.toDomain() = PlatformVideo(

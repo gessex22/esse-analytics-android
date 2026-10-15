@@ -43,7 +43,13 @@ data class VideoFile(
     // Retains import deduplication when an opaque source name gets a readable label.
     val importSourceName: String? = null,
     val contentSha256: String? = null,
+    val displayName: String? = null,
+    val displayNameRevision: Int = 0,
+    val displayNameState: String? = null,
+    val displayNameOwnerId: String? = null,
+    val displayNameServerUrl: String? = null,
 ) {
+    val libraryDisplayName: String get() = displayName?.takeIf { it.isNotBlank() } ?: fileName
     val isFullyResolved: Boolean
         get() = Platform.publishable.all { it in platforms || it in platformsDiscarded }
 }

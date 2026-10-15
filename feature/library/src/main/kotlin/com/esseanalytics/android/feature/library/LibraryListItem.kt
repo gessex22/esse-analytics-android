@@ -20,7 +20,7 @@ sealed interface LibraryListItem {
     val sortInstant: Instant
 
     data class Local(val file: VideoFile) : LibraryListItem {
-        override val displayName get() = file.fileName
+        override val displayName get() = file.libraryDisplayName
         override val sortInstant: Instant get() = file.createdAt
     }
 

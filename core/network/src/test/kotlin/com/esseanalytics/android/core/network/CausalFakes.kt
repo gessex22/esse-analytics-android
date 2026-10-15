@@ -8,6 +8,8 @@ import com.esseanalytics.android.core.database.entity.PlatformRevisionEntity
 import com.esseanalytics.android.core.database.entity.PlatformTransitionOutboxEntity
 import com.esseanalytics.android.core.network.api.SyncApi
 import com.esseanalytics.android.core.network.dto.CalendarConfigDto
+import com.esseanalytics.android.core.network.dto.CatalogDisplayNameRequestDto
+import com.esseanalytics.android.core.network.dto.CatalogDisplayNameResponseDto
 import com.esseanalytics.android.core.network.dto.ConfirmLinkRequest
 import com.esseanalytics.android.core.network.dto.CrossMatchCandidatesResponseDto
 import com.esseanalytics.android.core.network.dto.GroupStatsItemDto
@@ -108,6 +110,7 @@ class FakeCausalPlatformDao : CausalPlatformDao {
 // FileDao en memoria -- solo lo que la identidad causal consulta de verdad.
 class FakeFileDao(private val files: List<FileEntity> = emptyList()) : FileDao {
     override suspend fun findById(id: Long): FileEntity? = files.firstOrNull { it.id == id }
+    override suspend fun findByClientFileId(clientFileId: String): FileEntity? = files.firstOrNull { it.clientFileId == clientFileId }
 
     override suspend fun findByPath(path: String): FileEntity? = files.firstOrNull { it.filePath == path }
 
@@ -137,6 +140,8 @@ class FakeFileDao(private val files: List<FileEntity> = emptyList()) : FileDao {
     override suspend fun insert(file: FileEntity): Long = throw UnsupportedOperationException()
 
     override suspend fun update(file: FileEntity) = throw UnsupportedOperationException()
+
+    override suspend fun updateCatalogName(clientFileId: String, name: String?, revision: Int, state: String?, ownerId: String, serverUrl: String) = Unit
 }
 
 // SyncApi fake: solo responde lo causal. Cualquier otro endpoint revienta a
@@ -157,6 +162,9 @@ open class FakeSyncApi : SyncApi {
         resolveIdentityError?.let { throw it }
         return resolveIdentityResponse
     }
+
+    override suspend fun updateCatalogDisplayName(body: CatalogDisplayNameRequestDto): Response<CatalogDisplayNameResponseDto> =
+        unexpected("catalog-name")
 
     override suspend fun uploadCatalogThumbnail(contentId: String, thumbnail: MultipartBody.Part): Response<ResponseBody> =
         unexpected("catalog-thumbnail")

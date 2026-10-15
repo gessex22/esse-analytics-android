@@ -3,6 +3,17 @@ package com.esseanalytics.android.core.network.dto
 import kotlinx.serialization.Serializable
 
 @Serializable
+data class CatalogDisplayNameRequestDto(
+    val contentId: String,
+    val displayName: String,
+    val baseRevision: Int,
+    val operationId: String,
+)
+
+@Serializable
+data class CatalogDisplayNameResponseDto(val displayName: String, val revision: Int, val operationId: String, val replayed: Boolean = false)
+
+@Serializable
 data class GroupStatsSlotDto(
     val platformId: String,
     val platformUrl: String,
