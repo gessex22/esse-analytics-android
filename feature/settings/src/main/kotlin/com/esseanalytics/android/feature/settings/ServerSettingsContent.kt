@@ -2,6 +2,8 @@ package com.esseanalytics.android.feature.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -18,7 +20,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,9 +45,10 @@ private const val LAB_PRESET_URL = "http://10.0.2.2:5055"
 // se inicia al entrar y se frena en onDispose para no dejar el listener NSD
 // vivo fuera de la pantalla.
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 fun ServerSettingsContent(viewModel: SettingsViewModel, modifier: Modifier = Modifier) {
     val serverUrl by viewModel.serverUrl.collectAsState()
-    var serverUrlDraft by remember(serverUrl) { mutableStateOf(serverUrl) }
+    var serverUrlDraft by rememberSaveable(serverUrl) { mutableStateOf(serverUrl) }
     val discoveredPc by viewModel.discoveredPc.collectAsState()
     val isLabMode by viewModel.isLabMode.collectAsState()
     val saveState by viewModel.serverSaveState.collectAsState()
@@ -66,9 +69,10 @@ fun ServerSettingsContent(viewModel: SettingsViewModel, modifier: Modifier = Mod
                 viewModel.resetServerSaveState()
             }) { Text("Usar esta PC ($url)") }
         }
-        Row(
+        FlowRow(
             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             OutlinedButton(onClick = {
                 serverUrlDraft = ""

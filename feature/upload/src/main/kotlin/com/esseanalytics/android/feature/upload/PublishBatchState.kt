@@ -56,11 +56,14 @@ data class PublishBatchState(
 // fabricar un estado extra.
 fun WorkInfo?.toPlatformStage(): PlatformPublishStage = when (this?.state) {
     null, WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> PlatformPublishStage.PENDING
-    WorkInfo.State.RUNNING -> PlatformPublishStage.UPLOADING
+    WorkInfo.State.RUNNING -> runningPlatformStage(progress.getBoolean(UploadWorker.KEY_WAITING_FOR_UPLOAD_SLOT, false))
     WorkInfo.State.SUCCEEDED -> PlatformPublishStage.SUCCESS
     WorkInfo.State.FAILED -> PlatformPublishStage.FAILED
     WorkInfo.State.CANCELLED -> PlatformPublishStage.CANCELLED
 }
+
+internal fun runningPlatformStage(waitingForUploadSlot: Boolean): PlatformPublishStage =
+    if (waitingForUploadSlot) PlatformPublishStage.PENDING else PlatformPublishStage.UPLOADING
 
 fun deriveBatchStage(platforms: List<PlatformPublishState>): BatchStage {
     if (platforms.isEmpty()) return BatchStage.PREPARING

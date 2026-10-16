@@ -180,7 +180,7 @@ private fun LocalPcPublishContentBody(
     // componente que usa LibraryScreen para playingLan), se reusa tal cual.
     var showPlayer by remember { mutableStateOf(false) }
 
-    val isSubmitting = publishState.values.any { it is LanPublishResult.InProgress }
+    val isSubmitting = publishState.values.any { it is LanPublishResult.Pending || it is LanPublishResult.InProgress }
 
     if (showPlayer) {
         RemoteVideoPlayerDialog(
@@ -371,6 +371,7 @@ private fun LanPublishPlatformRow(
                     append(platform.displayName)
                     append(if (selected) ", seleccionado" else ", no seleccionado")
                     when (result) {
+                        LanPublishResult.Pending -> append(", en espera")
                         LanPublishResult.InProgress -> append(", publicando")
                         LanPublishResult.Success -> append(", publicado")
                         null -> if (alreadyPublished) append(", publicado")
@@ -398,6 +399,7 @@ private fun LanPublishPlatformRow(
             }
             Spacer(Modifier.weight(1f))
             when (result) {
+                is LanPublishResult.Pending -> Text("En espera", style = MaterialTheme.typography.labelSmall)
                 is LanPublishResult.InProgress -> CircularProgressIndicator(modifier = Modifier.size(18.dp))
                 is LanPublishResult.Success -> Icon(
                     Icons.Outlined.Check,

@@ -42,3 +42,15 @@ try {
 ```
 
 `git diff --check` quedó limpio. No se añadieron ni ejecutaron tests, no se generó ni instaló APK. El emulador está disponible, pero el render de este binario queda pendiente.
+
+## Iconos compactos de estado en Inicio · 2026-10-15
+
+En «Videos recientes», los destinos ausentes conservan su posición y ahora se
+representan con el logo gris del mismo tamaño y geometría que los logos
+publicados; se quitó el texto visible «{plataforma} pendiente». El nombre y
+estado se conservan en la descripción accesible de cada icono. La detección de
+publicaciones reales, la lista de plataformas y el color de marca de las
+publicadas no cambian; Facebook no se agrega a la lista por inferencia.
+
+Validación: `:feature:stats:compileDebugKotlin`, `:app:compileDebugKotlin` y
+`git diff --check` correctos. Sin tests de layout, APK ni instalación.

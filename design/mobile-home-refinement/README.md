@@ -53,3 +53,18 @@ El gráfico representa acumulados por video, ordenados del más antiguo al más 
 - `CreatorStudioPreview.kt`: previews de Android Studio para claro, oscuro, texto grande, ancho de 320 dp, contenido desplazado bajo las acciones y barra de actualización. Los ejemplos usan datos ilustrativos solo dentro de Preview.
 
 Validación: compilación Kotlin de `:feature:stats` y `:app`, revisión del diff y comprobación numérica del contraste del gráfico en ambas paletas. La revisión visual en emulador y celular queda pendiente de instalar esta versión.
+
+## Logos de plataformas en recientes — 2026-10-15
+
+En Videos recientes, las plataformas pendientes se representan únicamente con
+su logo gris neutro, ajustado para claro y oscuro. Se elimina el texto visible
+«[plataforma] pendiente» y se conserva el nombre y estado en accesibilidad.
+Las plataformas publicadas mantienen su color y se reutiliza el mismo badge
+Studio de 22 dp con logo de 14 dp. No cambia la selección de plataformas que
+la fila ya mostraba, ni se añade Facebook como pendiente por inferencia.
+Datos, consultas, métricas y navegación permanecen intactos.
+
+Luna inició el cambio y el agente principal lo terminó al agotarse su límite
+de uso. Compilación `:feature:stats:compileDebugKotlin :app:compileDebugKotlin`
+correcta y diff revisado sin errores. Revisión visual del resultado en teléfono
+pendiente; sin APK ni instalación.

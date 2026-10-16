@@ -15,6 +15,7 @@ import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.HistoryOutbox
 import com.esseanalytics.android.core.network.LabModeStatus
+import com.esseanalytics.android.core.network.upload.UploadConcurrencyGate
 import com.esseanalytics.android.core.network.api.SyncApi
 import com.esseanalytics.android.core.network.dto.RecordPublishRequest
 import com.esseanalytics.android.core.network.dto.UploadJobReportRequest
@@ -56,6 +57,7 @@ class UploadWorker @AssistedInject constructor(
     private val mockTiktokUploader: MockTiktokUploader,
     private val labModeStatus: LabModeStatus,
     private val tokenStore: TokenStore,
+    private val uploadConcurrencyGate: UploadConcurrencyGate,
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
@@ -68,12 +70,7 @@ class UploadWorker @AssistedInject constructor(
             return Result.failure(workDataOf(KEY_ERROR to "Datos de subida incompletos."))
         }
 
-        // En Laboratorio (confirmado en vivo por LabModeStatus, nunca por
-        // heurística) se usa el uploader mock en vez del real -- único punto
-        // de rama, el resto de doWork() (Room, reportPublish, Biblioteca
-        // remota) sigue exactamente igual sea cual sea el resultado. Ver
-        // Core/Network/LabModeStatus.swift (iOS) para el mismo criterio.
-        val isLabMode = labModeStatus.isActive()
+        setProgress(workDataOf(KEY_WAITING_FOR_UPLOAD_SLOT to true))
         val clientJobId = "${operationId ?: id}:${platform.apiValue}"
         fun report(status: String, progress: Int? = null, message: String? = null) {
             CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
@@ -85,6 +82,30 @@ class UploadWorker @AssistedInject constructor(
         }
         report("queued", 0)
 
+        return uploadConcurrencyGate.withPermit {
+            val isLabMode = labModeStatus.isActive()
+            setProgress(workDataOf(KEY_WAITING_FOR_UPLOAD_SLOT to false))
+            performUpload(fileId, platform, title, operationId, isLabMode) { status, progress, message ->
+                report(status, progress, message)
+            }
+        }
+    }
+
+    private suspend fun performUpload(
+        fileId: Long,
+        platform: Platform,
+        title: String,
+        operationId: String?,
+        isLabMode: Boolean,
+        reportUpload: (status: String, progress: Int?, message: String?) -> Unit,
+    ): Result {
+        fun report(status: String, progress: Int? = null, message: String? = null) = reportUpload(status, progress, message)
+
+        // En Laboratorio (confirmado en vivo por LabModeStatus, nunca por
+        // heurística) se usa el uploader mock en vez del real -- único punto
+        // de rama, el resto de doWork() (Room, reportPublish, Biblioteca
+        // remota) sigue exactamente igual sea cual sea el resultado. Ver
+        // Core/Network/LabModeStatus.swift (iOS) para el mismo criterio.
         // Facebook es crossposting (Fase 3, ver el plan), no un uploader
         // directo -- no debería llegar acá nunca, pero se cubre el caso.
         val uploader = when (platform) {
@@ -325,6 +346,7 @@ class UploadWorker @AssistedInject constructor(
         // para asociar múltiples eventos de una misma publicación").
         const val KEY_OPERATION_ID = "operationId"
         const val KEY_PROGRESS = "progress"
+        const val KEY_WAITING_FOR_UPLOAD_SLOT = "waitingForUploadSlot"
         const val KEY_RESULT_URL = "resultUrl"
         const val KEY_FACEBOOK_URL = "facebookUrl"
         const val KEY_FACEBOOK_ERROR = "facebookError"

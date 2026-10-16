@@ -37,6 +37,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -240,6 +242,11 @@ private fun HomeVideoRow(
         val slot = video.platforms[platform.apiValue]
         slot != null && (slot.platformId.isNotBlank() || slot.platformUrl.isNotBlank() || slot.thumbnail.isNotBlank())
     }
+    val pendingLogoColor = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+        Color(0xFFA3A3A3)
+    } else {
+        Color(0xFF737373)
+    }
     CreatorVideoListItem(
         title = videoTitle(video),
         value = formatCreatorMetric(videoMetric(video, metric)),
@@ -255,9 +262,17 @@ private fun HomeVideoRow(
             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Platform.entries.filter { it != Platform.FACEBOOK }.forEach { platform ->
                     if (platform in presentPlatforms) {
-                        CreatorPlatformBadge(homePlatformIcon(platform), platform.displayName, homePlatformColor(platform))
+                        CreatorPlatformBadge(
+                            homePlatformIcon(platform),
+                            "${platform.displayName} publicado",
+                            homePlatformColor(platform),
+                        )
                     } else {
-                        Text("${platform.displayName} pendiente", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+                        CreatorPlatformBadge(
+                            homePlatformIcon(platform),
+                            "${platform.displayName} pendiente",
+                            pendingLogoColor,
+                        )
                     }
                 }
             }

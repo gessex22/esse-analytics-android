@@ -323,7 +323,9 @@ private fun MainAppScaffold(
             currentDestination?.route.matchesDestination(Routes.STATS) == true ||
             currentDestination?.route.matchesDestination(Routes.CALENDAR) == true ||
             currentDestination?.route.matchesDestination(Routes.LIBRARY) == true ||
-            currentDestination?.route.matchesDestination(Routes.UPLOAD) == true
+            currentDestination?.route.matchesDestination(Routes.UPLOAD) == true ||
+            currentDestination?.route.matchesDestination(Routes.MORE) == true ||
+            currentDestination?.route.matchesDestination(Routes.SETTINGS) == true
         ) && !isSystemInDarkTheme()
     val hostActivity = LocalContext.current.hostActivity()
     val view = LocalView.current
@@ -363,7 +365,8 @@ private fun MainAppScaffold(
                 currentDestination?.route.matchesDestination(Routes.STATS) == true ||
                 currentDestination?.route.matchesDestination(Routes.CALENDAR) == true ||
                 currentDestination?.route.matchesDestination(Routes.LIBRARY) == true ||
-                currentDestination?.route.matchesDestination(Routes.UPLOAD) == true
+                currentDestination?.route.matchesDestination(Routes.UPLOAD) == true ||
+                currentDestination?.route.matchesDestination(Routes.MORE) == true
             if (!hideTopBar && (currentDestination == null || isMainTabRoute(currentDestination.route))) {
                 AppTopBar(
                     username = username,
@@ -540,7 +543,7 @@ private fun MainAppScaffold(
                         DetailScaffold("Gemas", onBack = navController::popBackStack) { GemsScreen() }
                     }
                     composable(Routes.SETTINGS) {
-                        DetailScaffold("Ajustes", onBack = navController::popBackStack) { SettingsScreen() }
+                        SettingsScreen(onBack = { navController.popBackStack() }, username = username)
                     }
                     composable(
                         route = "${Routes.REMOTE_LIBRARY}?videoId={videoId}",
@@ -677,135 +680,19 @@ private fun UserAvatar(username: String, onClick: () -> Unit) {
     }
 }
 
-// Agrupa las pantallas que no entran en la barra inferior — mismo criterio que
-// el acordeón de Ajustes del frontend web (SettingsView.tsx): Sincronización,
-// Estadísticas, Usuarios y Gemas viven acá, no en la nav principal. Usuarios
-// es owner-only (la central igual 403-earía, pero no tiene sentido mostrar
-// una entrada que va a fallar seguro).
-//
-// Antes era un ListItem con solo el nombre -- una lista de texto plano no se
-// distingue en nada de cualquier otra pantalla genérica de Android. Ahora
-// cada fila tiene ícono + descripción corta + flecha, agrupadas en una sola
-// tarjeta (mismo patrón "settings list" que iOS/Android usan para esto,
-// elevation=0.dp para que coincida con el resto de las Card() de la app).
 @Composable
 private fun MoreScreen(navController: NavHostController, isOwner: Boolean, canUseCloudStorage: Boolean) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-    ) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        ) {
-            Column {
-                // "Videos" se sacó de acá -- Biblioteca ya es uno de los 5
-                // accesos de la cápsula flotante (floatingMainDestinations),
-                // tenerlo duplicado en este menú era ruido puro (pedido
-                // explícito del usuario).
-                MoreItem(
-                    icon = Icons.Outlined.Sync,
-                    label = "Sincronización",
-                    description = "Emparejar videos entre plataformas",
-                    onClick = { navController.navigate(Routes.SYNC) },
-                )
-                HorizontalDivider()
-                MoreItem(
-                    icon = Icons.Outlined.QueryStats,
-                    label = "Estadísticas",
-                    description = "Vistas, likes y comentarios por red",
-                    // Estadísticas SÍ sigue siendo tab del bottom nav a la
-                    // vez -- a diferencia de Videos, acá el pedido no era
-                    // sacarla, era agregar una forma de volver cuando se
-                    // entra por acá. Ruta hermana con DetailScaffold en vez
-                    // de Routes.STATS (esa la sigue usando el tab, sin back
-                    // button, igual que el resto de las tabs principales).
-                    onClick = { navController.navigate(Routes.STATS_DETAIL) },
-                )
-                HorizontalDivider()
-                MoreItem(
-                    icon = Icons.Outlined.History,
-                    label = "Historial",
-                    description = "Todas las subidas confirmadas, con filtro por plataforma",
-                    onClick = { navController.navigate(Routes.HISTORY) },
-                )
-                if (isOwner) {
-                    HorizontalDivider()
-                    MoreItem(
-                        icon = Icons.Outlined.PeopleOutline,
-                        label = "Usuarios",
-                        description = "Administrar cuentas de la app",
-                        onClick = { navController.navigate(Routes.USERS) },
-                    )
-                }
-                // Premium + entitlement de storage aparte (ver
-                // requireCloudStorage/hasCloudStorage) -- generalizado desde
-                // owner-only, ver Parte D del plan. El owner sigue viéndolo
-                // porque canUseCloudStorage ya lo incluye (User.kt).
-                if (canUseCloudStorage) {
-                    HorizontalDivider()
-                    MoreItem(
-                        icon = Icons.Outlined.CloudQueue,
-                        label = "Biblioteca remota",
-                        description = "Cola de videos en la nube, publicable desde cualquier lado",
-                        onClick = { navController.navigate(Routes.REMOTE_LIBRARY) },
-                    )
-                }
-                HorizontalDivider()
-                MoreItem(
-                    icon = Icons.Outlined.Diamond,
-                    label = "Gemas",
-                    description = "Herramientas auxiliares (solo Windows)",
-                    onClick = { navController.navigate(Routes.GEMS) },
-                )
-                HorizontalDivider()
-                MoreItem(
-                    icon = Icons.Outlined.Settings,
-                    label = "Ajustes",
-                    description = "Tema, flujo de trabajo, cuenta",
-                    onClick = { navController.navigate(Routes.SETTINGS) },
-                )
-            }
-        }
+    val items = buildList {
+        add(MoreStudioItem("Sincronización", Icons.Outlined.Sync) { navController.navigate(Routes.SYNC) })
+        add(MoreStudioItem("Estadísticas", Icons.Outlined.QueryStats) { navController.navigate(Routes.STATS_DETAIL) })
+        add(MoreStudioItem("Historial", Icons.Outlined.History) { navController.navigate(Routes.HISTORY) })
+        if (isOwner) add(MoreStudioItem("Usuarios", Icons.Outlined.PeopleOutline) { navController.navigate(Routes.USERS) })
+        if (canUseCloudStorage) add(MoreStudioItem("Biblioteca remota", Icons.Outlined.CloudQueue) { navController.navigate(Routes.REMOTE_LIBRARY) })
+        add(MoreStudioItem("Gemas", Icons.Outlined.Diamond) { navController.navigate(Routes.GEMS) })
+        add(MoreStudioItem("Ajustes", Icons.Outlined.Settings) { navController.navigate(Routes.SETTINGS) })
     }
-}
-
-@Composable
-private fun MoreItem(icon: ImageVector, label: String, description: String, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(22.dp),
-        )
-        Column(
-            modifier = Modifier
-                .padding(start = 16.dp)
-                .weight(1f),
-        ) {
-            Text(label, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                description,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Icon(
-            Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(20.dp),
-        )
+    CreatorHomeTheme {
+        MoreStudioContent(items)
     }
 }
 

@@ -10,6 +10,7 @@ import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.LanLibraryRepository
 import com.esseanalytics.android.core.network.CatalogRegistrationOutbox
 import com.esseanalytics.android.core.network.LocalBackendApiFactory
+import com.esseanalytics.android.core.network.upload.UploadConcurrencyGate
 import com.esseanalytics.android.core.network.SyncRepository
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
 import com.esseanalytics.android.core.network.api.BackupApi
@@ -29,6 +30,8 @@ import com.esseanalytics.android.core.network.util.remoteLibraryThumbnailUrl
 import dagger.hilt.android.lifecycle.HiltViewModel
 import retrofit2.Retrofit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -46,6 +49,7 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 sealed interface LanPublishResult {
+    data object Pending : LanPublishResult
     data object InProgress : LanPublishResult
     data object Success : LanPublishResult
     data class Failure(val message: String) : LanPublishResult
@@ -61,6 +65,7 @@ class LibraryViewModel @Inject constructor(
     private val tokenStore: TokenStore,
     private val settingsStore: SettingsStore,
     private val localBackendApiFactory: LocalBackendApiFactory,
+    private val uploadConcurrencyGate: UploadConcurrencyGate,
     // FIX 2026-08-18: reemplaza al acceso directo a LanPcDiscoveryStore (ver
     // UIEssePanel/PLAN_LAN_PICKER_Y_REPRODUCTOR-2026-08-18.md) -- el catálogo
     // LAN (discovery + fetch paginado) se comparte con UploadViewModel a
@@ -308,22 +313,11 @@ class LibraryViewModel @Inject constructor(
 
     fun stopLanDiscovery() = lanLibraryRepository.stop()
 
-    // Server-side y sin bytes -- la PC lee su propio archivo del disco y lo
-    // sube ella misma (mismo mecanismo que LocalBackendUploadAPI en iOS), el
-    // celular solo manda un comando JSON por plataforma. Se publican en
-    // secuencia (no en paralelo) para que el estado por plataforma
-    // (lanPublishState) sea legible mientras corre, y porque local-backend
-    // ya serializa sus propias subidas del lado de la PC.
-    // FIX 2026-08-17 (review externo, observación no bloqueante): cerrar
-    // LocalPcPublishSheet (onDismiss) limpia lanPublishState en la UI, pero
-    // antes NO cancelaba el job en curso -- si el usuario cerraba y volvía a
-    // abrir la hoja (mismo video u otro) mientras una publicación anterior
-    // seguía corriendo en background, esa corrutina vieja terminaba
-    // actualizando lanPublishState por encima de una sesión de diálogo
-    // nueva. Se cancela cualquier publishLan() anterior antes de arrancar
-    // uno nuevo -- local-backend igual serializa sus propias subidas del
-    // lado de la PC, cancelar acá solo evita que el celular siga esperando/
-    // pisando estado de un pedido que el usuario ya abandonó en la UI.
+    // La PC lee y sube su propio archivo; Android envía un comando por red.
+    // El mismo cupo que las subidas del teléfono permite hasta tres comandos
+    // simultáneos por Wi-Fi y uno fuera de Wi-Fi, con resultados independientes.
+    // Una nueva sesión cancela la espera anterior para no escribir resultados
+    // sobre la hoja de otro video; no se reenvía automáticamente ningún comando.
     private var publishLanJob: Job? = null
 
     fun publishLan(
@@ -334,51 +328,61 @@ class LibraryViewModel @Inject constructor(
         tiktokPublic: Boolean,
         crossPostFacebook: Boolean = false,
     ) {
+        if (platforms.isEmpty()) return
         publishLanJob?.cancel()
+        _lanPublishState.update { previous -> previous + platforms.associateWith { LanPublishResult.Pending } }
         publishLanJob = viewModelScope.launch {
             val api = localBackendApiFactory.create(item.baseUrl)
-            for (platform in platforms) {
-                _lanPublishState.update { it + (platform to LanPublishResult.InProgress) }
-                val outcome = runCatching {
-                    withContext(Dispatchers.IO) {
-                        when (platform) {
-                            Platform.YOUTUBE -> api.uploadYoutube(
-                                LocalPcYoutubeUploadRequest(
-                                    fileId = item.video._id,
-                                    title = title.ifBlank { item.video.fileName },
-                                    description = description,
-                                ),
+            supervisorScope {
+                platforms.forEach { platform ->
+                    launch {
+                        uploadConcurrencyGate.withPermit {
+                            _lanPublishState.update { it + (platform to LanPublishResult.InProgress) }
+                            val outcome = runCatching {
+                                withContext(Dispatchers.IO) {
+                                    when (platform) {
+                                        Platform.YOUTUBE -> api.uploadYoutube(
+                                            LocalPcYoutubeUploadRequest(
+                                                fileId = item.video._id,
+                                                title = title.ifBlank { item.video.fileName },
+                                                description = description,
+                                            ),
+                                        )
+                                        Platform.INSTAGRAM -> api.uploadInstagram(
+                                            LocalPcInstagramUploadRequest(
+                                                fileId = item.video._id,
+                                                caption = description,
+                                                crossPostFacebook = crossPostFacebook,
+                                            ),
+                                        )
+                                        Platform.TIKTOK -> api.uploadTiktok(
+                                            LocalPcTiktokUploadRequest(
+                                                fileId = item.video._id,
+                                                title = title,
+                                                privacyLevel = if (tiktokPublic) "PUBLIC_TO_EVERYONE" else "SELF_ONLY",
+                                            ),
+                                        )
+                                        Platform.FACEBOOK -> error("Facebook no es una plataforma publicable directa")
+                                    }
+                                }
+                            }.onFailure { error ->
+                                if (error is CancellationException) throw error
+                            }
+                            val result = outcome.fold(
+                                onSuccess = { response ->
+                                    if (response.isSuccessful) {
+                                        LanPublishResult.Success
+                                    } else {
+                                        val message = runCatching { response.errorBody()?.string() }.getOrNull()?.take(200)
+                                        LanPublishResult.Failure(message ?: "Error ${response.code()}")
+                                    }
+                                },
+                                onFailure = { error -> LanPublishResult.Failure(error.message ?: "Error de red") },
                             )
-                            Platform.INSTAGRAM -> api.uploadInstagram(
-                                LocalPcInstagramUploadRequest(
-                                    fileId = item.video._id,
-                                    caption = description,
-                                    crossPostFacebook = crossPostFacebook,
-                                ),
-                            )
-                            Platform.TIKTOK -> api.uploadTiktok(
-                                LocalPcTiktokUploadRequest(
-                                    fileId = item.video._id,
-                                    title = title,
-                                    privacyLevel = if (tiktokPublic) "PUBLIC_TO_EVERYONE" else "SELF_ONLY",
-                                ),
-                            )
-                            Platform.FACEBOOK -> error("Facebook no es una plataforma publicable directa")
+                            _lanPublishState.update { it + (platform to result) }
                         }
                     }
                 }
-                val result = outcome.fold(
-                    onSuccess = { response ->
-                        if (response.isSuccessful) {
-                            LanPublishResult.Success
-                        } else {
-                            val message = runCatching { response.errorBody()?.string() }.getOrNull()?.take(200)
-                            LanPublishResult.Failure(message ?: "Error ${response.code()}")
-                        }
-                    },
-                    onFailure = { error -> LanPublishResult.Failure(error.message ?: "Error de red") },
-                )
-                _lanPublishState.update { it + (platform to result) }
             }
             lanLibraryRepository.refresh()
         }
