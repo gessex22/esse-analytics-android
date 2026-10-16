@@ -40,6 +40,51 @@ class PlatformTransitionRepository @Inject constructor(
     private val fileDao: FileDao,
     private val causalDao: CausalPlatformDao,
 ) {
+    // Resolver la selección de una publicación en modo Simple y propagar cada
+    // descarte como una transición causal. El estado local y el outbox se
+    // escriben en la misma transacción: no puede quedar un descarte visible
+    // solo en este teléfono si falla la persistencia de su intención remota.
+    suspend fun resolvePublicationSelectionAndEnqueue(
+        fileId: Long,
+        selected: Set<Platform>,
+        userKey: String,
+    ): VideoFile? = db.withTransaction {
+        val file = fileDao.findById(fileId)?.toDomain() ?: return@withTransaction null
+        val toDiscard = Platform.publishable.filter {
+            it !in selected && it !in file.platforms && it !in file.platformsDiscarded
+        }
+        val toRestore = selected.filter { it in file.platformsDiscarded && it !in file.platforms }
+
+        for (platform in toDiscard) {
+            enqueueTransitionInternal(
+                userKey = userKey,
+                contentId = resolveCachedContentId(userKey, file.remoteLibraryVideoId, file.clientFileId),
+                remoteLibraryVideoId = file.remoteLibraryVideoId,
+                clientFileId = file.clientFileId,
+                fileName = file.fileName,
+                platform = platform,
+                action = ACTION_DISCARD,
+            )
+        }
+        for (platform in toRestore) {
+            enqueueTransitionInternal(
+                userKey = userKey,
+                contentId = resolveCachedContentId(userKey, file.remoteLibraryVideoId, file.clientFileId),
+                remoteLibraryVideoId = file.remoteLibraryVideoId,
+                clientFileId = file.clientFileId,
+                fileName = file.fileName,
+                platform = platform,
+                action = ACTION_UNLINK,
+            )
+        }
+
+        val nextDiscarded = (file.platformsDiscarded - selected + toDiscard).distinct()
+        if (nextDiscarded == file.platformsDiscarded) return@withTransaction file
+        val updated = file.copy(platformsDiscarded = nextDiscarded, updatedAt = Instant.now())
+        fileDao.update(updated.toEntity())
+        updated
+    }
+
     // Ciclo de badge (pendiente->publicado->descartado->pendiente) + intención
     // causal, atómico. Devuelve el archivo actualizado, o null si no se pudo
     // (archivo inexistente, o el insert del outbox falló y Room revirtió todo).

@@ -13,6 +13,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.esseanalytics.android.core.database.FileRepository
+import com.esseanalytics.android.core.database.PlatformTransitionRepository
 import com.esseanalytics.android.core.database.PublishOperationStore
 import com.esseanalytics.android.core.database.PublishOperationStoreException
 import com.esseanalytics.android.core.datastore.PendingBatchStore
@@ -25,6 +26,7 @@ import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.model.VideoFile
 import com.esseanalytics.android.core.model.WorkflowMode
 import com.esseanalytics.android.core.network.LanLibraryRepository
+import com.esseanalytics.android.core.network.CausalPlatformOutbox
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
 import com.esseanalytics.android.core.network.api.PlatformAuthApi
 import com.esseanalytics.android.core.network.dto.TiktokCreatorInfoDto
@@ -66,6 +68,8 @@ import javax.inject.Inject
 class UploadViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val fileRepository: FileRepository,
+    private val platformTransitionRepository: PlatformTransitionRepository,
+    private val causalPlatformOutbox: CausalPlatformOutbox,
     private val settingsStore: SettingsStore,
     private val pendingBatchStore: PendingBatchStore,
     private val thumbnailGenerator: AndroidFrameThumbnailGenerator,
@@ -403,8 +407,15 @@ class UploadViewModel @Inject constructor(
             return false
         }
         viewModelScope.launch {
-            if (settingsStore.workflowMode.first() == WorkflowMode.SIMPLE) {
-                fileRepository.resolvePublicationSelection(file.id, platforms)
+            val resolveSimpleSelection = settingsStore.workflowMode.first() == WorkflowMode.SIMPLE
+            if (resolveSimpleSelection) {
+                val userKey = tokenStore.currentUser?.id
+                if (userKey != null) {
+                    platformTransitionRepository.resolvePublicationSelectionAndEnqueue(file.id, platforms, userKey)
+                } else {
+                    // Sesión ausente: conserva el comportamiento local existente.
+                    fileRepository.resolvePublicationSelection(file.id, platforms)
+                }
             }
             val networkType = if (settingsStore.wifiOnlyUploads.first()) NetworkType.UNMETERED else NetworkType.CONNECTED
             val operationId = UUID.randomUUID().toString()
@@ -434,6 +445,11 @@ class UploadViewModel @Inject constructor(
                 ),
             )
             startBatchObserver(operationId, file, platformList)
+            if (resolveSimpleSelection && tokenStore.currentUser?.id != null) {
+                // No bloquea la publicación. El outbox es durable y se volverá
+                // a drenar desde los próximos flushes si la red no está lista.
+                viewModelScope.launch { runCatching { causalPlatformOutbox.flush() } }
+            }
         }
         return true
     }
