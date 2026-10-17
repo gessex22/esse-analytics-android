@@ -65,6 +65,12 @@ class SettingsStore @Inject constructor(
     // mapeo string→enum vive en :app, que ya depende de los dos.
     val colorTheme: Flow<String> = context.dataStore.data.map { it[KEY_COLOR_THEME] ?: "rojo" }
 
+    val dashboardStyle: Flow<String> = context.dataStore.data.map { it[KEY_DASHBOARD_STYLE] ?: "current" }
+
+    suspend fun setDashboardStyle(value: String) {
+        context.dataStore.edit { it[KEY_DASHBOARD_STYLE] = if (value == "apple") "apple" else "current" }
+    }
+
     suspend fun setColorTheme(value: String) {
         context.dataStore.edit { it[KEY_COLOR_THEME] = value }
     }
@@ -98,6 +104,7 @@ class SettingsStore @Inject constructor(
     }
 
     private companion object {
+        val KEY_DASHBOARD_STYLE = stringPreferencesKey("dashboard_style")
         val KEY_WORKFLOW_MODE = stringPreferencesKey("workflow_mode")
         val KEY_WIFI_ONLY = booleanPreferencesKey("wifi_only_uploads")
         val KEY_SERVER_URL = stringPreferencesKey("server_url")

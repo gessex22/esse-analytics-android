@@ -49,6 +49,13 @@ class SettingsViewModel @Inject constructor(
     val colorTheme: StateFlow<String> = settingsStore.colorTheme
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "rojo")
 
+    val dashboardStyle = settingsStore.dashboardStyle
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "current")
+
+    fun setDashboardStyle(value: String) {
+        viewModelScope.launch { settingsStore.setDashboardStyle(value) }
+    }
+
     val workflowMode: StateFlow<WorkflowMode> = settingsStore.workflowMode
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkflowMode.SIMPLE)
 

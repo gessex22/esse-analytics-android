@@ -29,6 +29,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val colorTheme by viewModel.colorTheme.collectAsState()
+    val dashboardStyle by viewModel.dashboardStyle.collectAsState()
     val workflowMode by viewModel.workflowMode.collectAsState()
     val wifiOnly by viewModel.wifiOnlyUploads.collectAsState()
     val connections by viewModel.connections.collectAsState()
@@ -47,6 +48,8 @@ fun SettingsScreen(
         SettingsStudioContent(
             username = username,
             colorTheme = colorTheme,
+            dashboardStyle = dashboardStyle,
+            onDashboardStyle = viewModel::setDashboardStyle,
             workflowMode = workflowMode,
             wifiOnly = wifiOnly,
             connections = connections,

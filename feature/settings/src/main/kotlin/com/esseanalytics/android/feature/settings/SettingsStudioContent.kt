@@ -101,6 +101,8 @@ internal fun SettingsStudioContent(
     serverContent: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     initiallyExpandedSections: Set<String> = emptySet(),
+    dashboardStyle: String = "current",
+    onDashboardStyle: (String) -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -171,6 +173,16 @@ internal fun SettingsStudioContent(
             item(key = "preferences") {
                 SettingsSection("Preferencias") {
                     SettingsSurface {
+                        SettingsDisclosure(
+                            title = "Diseño del Dashboard",
+                            summary = if (dashboardStyle == "apple") "Apple" else "Actual",
+                        ) {
+                            Column(Modifier.selectableGroup()) {
+                                WorkflowOption("Actual", "El estilo de la app con la nueva estructura.", dashboardStyle != "apple") { onDashboardStyle("current") }
+                                WorkflowOption("Apple", "Tarjetas agrupadas, azul y tipografía del sistema.", dashboardStyle == "apple") { onDashboardStyle("apple") }
+                            }
+                        }
+                        SettingsDivider()
                         SettingsDisclosure(
                             title = "Color de acento",
                             summary = when (colorTheme) { "ambar" -> "Ámbar"; "morado" -> "Morado"; else -> "Rojo" },

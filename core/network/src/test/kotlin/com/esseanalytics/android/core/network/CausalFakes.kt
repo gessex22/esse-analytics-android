@@ -148,6 +148,7 @@ class FakeFileDao(private val files: List<FileEntity> = emptyList()) : FileDao {
 // propósito -- si un test lo alcanza, es que el código está llamando algo que
 // no debería.
 open class FakeSyncApi : SyncApi {
+    override suspend fun getDashboardSummary(timeZone: String): com.esseanalytics.android.core.network.dto.DashboardSummaryDto = unexpected("dashboard-summary")
     val resolveIdentityRequests = mutableListOf<ResolveIdentityRequest>()
     val transitionRequests = mutableListOf<PlatformTransitionRequest>()
     val linkRequests = mutableListOf<ManualPlatformLinkRequest>()

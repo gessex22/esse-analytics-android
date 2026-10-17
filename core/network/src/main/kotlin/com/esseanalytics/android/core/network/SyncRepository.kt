@@ -5,10 +5,27 @@ import com.esseanalytics.android.core.network.dto.CalendarConfigDto
 import com.esseanalytics.android.core.network.dto.GroupStatsItemDto
 import com.esseanalytics.android.core.network.dto.GroupStatsResponse
 import com.esseanalytics.android.core.network.dto.UploadHistoryItemDto
+import com.esseanalytics.android.core.network.dto.DashboardSummaryDto
+import com.esseanalytics.android.core.network.dto.DashboardFollowersDto
+import com.esseanalytics.android.core.network.dto.DashboardFollowerDto
+import com.esseanalytics.android.core.network.dto.DashboardWeekDto
+import com.esseanalytics.android.core.network.dto.DashboardLatestDto
+import com.esseanalytics.android.core.network.dto.DashboardVideoDto
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import retrofit2.HttpException
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.temporal.TemporalAdjusters
 import javax.inject.Inject
 import javax.inject.Singleton
+
+data class DashboardSummaryResult(val data: DashboardSummaryDto, val compatibilityMode: Boolean = false)
 
 /**
  * Caché corta para datos compartidos por Inicio, Calendario, Videos, Subir y
@@ -19,6 +36,40 @@ import javax.inject.Singleton
 class SyncRepository @Inject constructor(
     private val api: SyncApi,
 ) {
+    // Session-bound DashboardViewModel owns the last good result. No cross-account cache.
+    suspend fun getDashboardSummary(timeZone: String): DashboardSummaryResult {
+        try {
+            return DashboardSummaryResult(api.getDashboardSummary(timeZone))
+        } catch (error: HttpException) {
+            // Older centrals have no summary route. Authentication, outages and
+            // invalid responses must still fail normally, never become empty data.
+            if (error.code() != 404 && error.code() != 405) throw error
+        }
+        val platforms = listOf("youtube", "instagram", "tiktok")
+        val latest = coroutineScope {
+            platforms.map { platform ->
+                async {
+                    val item = api.getGroupStats(limit = 1, platform = platform, mode = "recent").items.firstOrNull()
+                    val slot = item?.platforms?.get(platform)
+                    DashboardLatestDto(platform, slot?.takeIf { it.platformId.isNotBlank() }?.let {
+                        DashboardVideoDto(platform, it.platformId, it.platformUrl, it.title.ifBlank { item.fileName.substringBeforeLast('.') },
+                            it.thumbnail, it.views.toLong(), item.fecha_creacion, item.fileId, item.fileName)
+                    })
+                }
+            }.awaitAll()
+        }
+        val zone = ZoneId.of(timeZone)
+        val start = LocalDate.now(zone).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).atStartOfDay(zone).toInstant()
+        return DashboardSummaryResult(
+            DashboardSummaryDto(
+                generatedAt = Instant.now().toString(), timeZone = timeZone,
+                followers = DashboardFollowersDto(null, true, platforms.map { DashboardFollowerDto(it, null, null, "unavailable") }),
+                week = DashboardWeekDto(start.toString(), null, null, null),
+                pending = null, latest = latest,
+            ), compatibilityMode = true,
+        )
+    }
+
     private val calendarMutex = Mutex()
     private val statsMutexes = mutableMapOf<StatsCacheKey, Mutex>()
     private val historyMutex = Mutex()

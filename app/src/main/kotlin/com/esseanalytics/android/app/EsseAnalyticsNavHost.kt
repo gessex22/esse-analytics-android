@@ -74,6 +74,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -347,6 +353,10 @@ private fun MainAppScaffold(
     // puede leer isLoading directo de cada ViewModel de tab.
     val topBarViewModel: TopBarViewModel = hiltViewModel()
     val isAnyRefreshing by topBarViewModel.isAnyRefreshing.collectAsState()
+    val dashboardStyle by topBarViewModel.dashboardStyle.collectAsState()
+    val appleDashboard = dashboardStyle == "apple" && currentDestination?.route.matchesDestination(Routes.DASHBOARD)
+    val dashboardBackdrop = rememberGraphicsLayer()
+    var dashboardBackdropOrigin by remember { mutableStateOf(Offset.Zero) }
     // En las pestañas principales la barra muestra el título de navegación;
     // Inicio usa solo el logo. Los destinos de detalle usan DetailScaffold y
     // no necesitan una segunda barra compartida.
@@ -406,7 +416,12 @@ private fun MainAppScaffold(
         // Box para permitir que el bottom nav flote SOBRE el contenido (Overlay real).
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             // Contenido principal en una Column para el banner y el NavHost.
-            Column(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize().onGloballyPositioned { dashboardBackdropOrigin = it.positionInRoot() }.then(
+                if (appleDashboard) Modifier.drawWithContent {
+                    dashboardBackdrop.record { this@drawWithContent.drawContent() }
+                    drawLayer(dashboardBackdrop)
+                } else Modifier,
+            )) {
                 if (isLabMode) LabModeBanner()
                 NavHost(
                     navController = navController,
@@ -446,14 +461,10 @@ private fun MainAppScaffold(
                 ) {
                     composable(Routes.DASHBOARD) {
                         DashboardScreen(
-                            username = username,
-                            onProfileClick = { navController.navigate(Routes.SETTINGS) },
-                            onSeeAllClick = { navController.navigateToMainTab(Routes.STATS) },
                             onVideoClick = { video ->
                                 val key = video.fileId.ifBlank { video.fileName }
                                 navController.openStatsVideo(key)
                             },
-                            onNotificationClick = { navController.navigateToMainTab(Routes.CALENDAR) },
                         )
                     }
                     composable(Routes.LIBRARY) {
@@ -558,7 +569,14 @@ private fun MainAppScaffold(
             }
             // Overlay real, no bottomBar de Scaffold: el contenido queda por
             // debajo y los huecos alrededor de la cápsula son transparentes.
-            FloatingBottomNavigation(
+            if (appleDashboard) AppleDashboardNavigation(
+                items = bottomDestinations.map { CreatorNavItem(it.route, it.label, it.icon) },
+                selectedRoute = Routes.DASHBOARD,
+                onNavigate = navController::navigateToMainTab,
+                backdrop = dashboardBackdrop,
+                backdropOrigin = dashboardBackdropOrigin,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            ) else FloatingBottomNavigation(
                 currentDestination = currentDestination,
                 onDestinationClick = navController::navigateToMainTab,
                 modifier = Modifier.align(Alignment.BottomCenter),

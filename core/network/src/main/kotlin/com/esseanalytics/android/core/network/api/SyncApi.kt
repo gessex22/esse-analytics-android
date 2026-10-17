@@ -38,6 +38,10 @@ import retrofit2.http.Part
 // Cubre lo que necesita el MVP (Calendario básico + Estadísticas + Sync de
 // Fase 2). Mismos endpoints que ya consume frontend/src/components/SyncPanel.tsx.
 interface SyncApi {
+    @GET("api/sync/dashboard-summary")
+    @retrofit2.http.Headers("Cache-Control: no-cache")
+    suspend fun getDashboardSummary(@Query("timeZone") timeZone: String): com.esseanalytics.android.core.network.dto.DashboardSummaryDto
+
     @PATCH("api/sync/catalog-name")
     suspend fun updateCatalogDisplayName(@Body body: CatalogDisplayNameRequestDto): Response<CatalogDisplayNameResponseDto>
     @Multipart

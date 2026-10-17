@@ -5,202 +5,85 @@ import androidx.lifecycle.viewModelScope
 import com.esseanalytics.android.core.datastore.RefreshActivityTracker
 import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.datastore.TokenStore
-import com.esseanalytics.android.core.model.Platform
-import com.esseanalytics.android.core.model.WorkflowMode
 import com.esseanalytics.android.core.network.CausalPlatformOutbox
 import com.esseanalytics.android.core.network.HistoryOutbox
 import com.esseanalytics.android.core.network.PlatformUpdateOutbox
 import com.esseanalytics.android.core.network.SyncRepository
-import com.esseanalytics.android.core.network.di.CentralRetrofit
-import com.esseanalytics.android.core.network.util.remoteLibraryThumbnailUrl
-import com.esseanalytics.android.core.network.dto.CalendarConfigDto
-import com.esseanalytics.android.core.network.dto.GroupStatsItemDto
-import com.esseanalytics.android.core.network.dto.UploadHistoryItemDto
+import com.esseanalytics.android.core.network.dto.DashboardSummaryDto
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.async
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import java.time.ZoneId
+import java.io.IOException
+import retrofit2.HttpException
 import javax.inject.Inject
-import retrofit2.Retrofit
 
-data class DashboardData(
-    val items: List<GroupStatsItemDto>,
-    val calendar: List<CalendarConfigDto>,
-    val latestHistory: UploadHistoryItemDto?,
-    // Plataforma real de la última subida, solo cuando el modo es AVANZADO --
-    // mirror de focusPlatform en DashboardView.tsx (escritorio) y
-    // DashboardView.swift (iOS). En modo simple queda null: ahí publicar
-    // cross-postea a las 3 juntas, así que sumar sus métricas tiene sentido.
-    val focusPlatform: Platform? = null,
-    val individualItems: List<GroupStatsItemDto> = emptyList(),
-    val podiumMode: DashboardPodiumMode = DashboardPodiumMode.COMBINED,
-)
-
-enum class DashboardPodiumMode { COMBINED, INDIVIDUAL }
-
-// Feature B (ver UIEssePanel/PLAN_SWIPE_Y_CARGA_SUAVE.md): isRefreshing/
-// refreshError viven DENTRO de Success, no como un 4to caso del sealed
-// interface -- así el compilador obliga a que solo puedan existir cuando ya
-// hay `data` para mostrar. Antes cada refresh() pisaba todo con `Loading`
-// incondicionalmente, vaciando la pantalla en cada pull-to-refresh o tras
-// publicar, no solo en la carga inicial.
 sealed interface DashboardUiState {
     data object Loading : DashboardUiState
-    data class Success(
-        val data: DashboardData,
-        val isRefreshing: Boolean = false,
-        val refreshError: String? = null,
-    ) : DashboardUiState
+    data class Success(val data: DashboardSummaryDto, val isRefreshing: Boolean = false, val refreshError: String? = null, val compatibilityMode: Boolean = false) : DashboardUiState
     data class Error(val message: String) : DashboardUiState
 }
 
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
     private val syncRepository: SyncRepository,
-    private val settingsStore: SettingsStore,
+    settingsStore: SettingsStore,
     private val tokenStore: TokenStore,
     private val refreshTracker: RefreshActivityTracker,
     private val historyOutbox: HistoryOutbox,
     private val platformUpdateOutbox: PlatformUpdateOutbox,
     private val causalPlatformOutbox: CausalPlatformOutbox,
-    @CentralRetrofit private val retrofit: Retrofit,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<DashboardUiState>(DashboardUiState.Loading)
-    val uiState: StateFlow<DashboardUiState> = _uiState.asStateFlow()
+    val uiState = _uiState.asStateFlow()
+    val dashboardStyle = settingsStore.dashboardStyle.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "current")
     private var loadJob: Job? = null
-    private var loadGeneration = 0L
+    private var generation = 0L
 
-    fun thumbnailUrl(item: GroupStatsItemDto): String? {
-        val videoId = item.remoteLibraryVideoId ?: return null
-        return remoteLibraryThumbnailUrl(retrofit.baseUrl(), videoId, item.thumbnailStoredFileName, tokenStore.token)
-    }
-
-    init {
-        // force=false: la primera carga (o un ViewModel recreado mientras la
-        // caché sigue tibia por otra pantalla) puede aprovechar
-        // SyncRepository -- el bypass real de caché es responsabilidad
-        // exclusiva del pull-to-refresh explícito (ver refresh()).
-        load(force = false)
-    }
+    init { refresh() }
 
     fun refresh() {
-        load(force = true)
-    }
-
-    private fun load(force: Boolean) {
-        val generation = ++loadGeneration
-        loadJob?.cancel()
+        val requestedGeneration = ++generation
         val requestedSession = tokenStore.token
-        // Fire-and-forget: vacía el outbox de publicaciones que no llegaron a
-        // la central (SYNC-02#4, ver HistoryOutbox) en cada apertura de
-        // Dashboard/pull-to-refresh, sin bloquear ni retrasar el resto de
-        // esta carga -- si falla, no afecta el resto de load() ni su estado.
-        viewModelScope.launch { historyOutbox.flush() }
-        // SYNC-01 #4 parte b -- mismo criterio que el flush de arriba. LEGADO:
-        // solo drena filas viejas (ningún caller nuevo encola snapshots).
-        viewModelScope.launch { platformUpdateOutbox.flush() }
-        // Outbox causal de transiciones/links (platform-transition /
-        // manual-platform-link) -- reemplaza al snapshot legado de arriba como
-        // camino de sincronización de badges/links editados a mano. Mismo
-        // criterio fire-and-forget.
+        loadJob?.cancel()
+        // Preserve existing publication recovery; refresh never waits for outboxes.
+        viewModelScope.launch { runCatching { historyOutbox.flush() } }
+        viewModelScope.launch { runCatching { platformUpdateOutbox.flush() } }
         viewModelScope.launch { runCatching { causalPlatformOutbox.flush() } }
         loadJob = viewModelScope.launch {
-            // `previous` capturado UNA vez acá -- es la señal de "ya hay
-            // datos en pantalla" para todo este intento, sin importar cómo
-            // termine. No puede desincronizarse porque es un val local, no
-            // se relee mid-flight.
             val previous = _uiState.value as? DashboardUiState.Success
-            val podiumMode = previous?.data?.podiumMode ?: DashboardPodiumMode.COMBINED
-            _uiState.value = if (previous != null) {
-                previous.copy(isRefreshing = true, refreshError = null)
-            } else {
-                DashboardUiState.Loading
-            }
-            // Señal para AppTopBar (pedido del usuario: spinner en la barra
-            // compartida, no en el contenido) -- ver RefreshActivityTracker.
+            _uiState.value = previous?.copy(isRefreshing = true, refreshError = null) ?: DashboardUiState.Loading
             refreshTracker.setRefreshing("dashboard", true)
             try {
-                val result = supervisorScope {
-                    val stats = async { runCatching { syncRepository.getGroupStats(limit = 5, force = force, mode = "recent") } }
-                    val individualStats = Platform.publishable.map { platform ->
-                        async { runCatching { syncRepository.getGroupStats(limit = 5, platform = platform.apiValue, force = force) } }
-                    }
-                    val calendar = async { runCatching { syncRepository.getCalendarConfig(force = force) } }
-                    val history = async { runCatching { syncRepository.getHistory(limit = 1, force = true) } }
-                    val workflowMode = async { runCatching { settingsStore.workflowMode.first() } }
-                    val mainStats = stats.await()
-                    currentCoroutineContext().ensureActive()
-                    // Las barras y la lista tienen su propio resultado. Se muestran
-                    // al llegar, sin esperar calendario, historial ni las tres
-                    // consultas por plataforma del podio.
-                    if (mainStats.isSuccess && tokenStore.token == requestedSession) {
-                        val currentData = (_uiState.value as? DashboardUiState.Success)?.data
-                        val ready = currentData?.copy(items = mainStats.getOrThrow().items)
-                            ?: DashboardData(mainStats.getOrThrow().items, emptyList(), null, podiumMode = podiumMode)
-                        _uiState.value = DashboardUiState.Success(ready, isRefreshing = true)
-                    }
-                    Triple(mainStats, calendar.await(), history.await()) to Pair(workflowMode.await(), individualStats.map { it.await() })
-                }
-                val (triple, supplementary) = result
-                val (workflowModeResult, individualStats) = supplementary
-                val stats = triple.first
+                val result = syncRepository.getDashboardSummary(ZoneId.systemDefault().id)
                 currentCoroutineContext().ensureActive()
-                if (tokenStore.token != requestedSession) {
-                    _uiState.value = DashboardUiState.Error("La sesión cambió. Vuelve a actualizar los datos.")
-                    return@launch
-                }
-                if (stats.isFailure) {
-                    val message = stats.exceptionOrNull()?.message ?: "No se pudo cargar el dashboard."
-                    // Con datos previos: banner no bloqueante, se mantiene lo
-                    // último bueno en pantalla. Sin datos previos: Error, que sí
-                    // gatea la pantalla completa (ver DashboardScreen.kt).
-                    _uiState.value = previous?.copy(isRefreshing = false, refreshError = message)
-                        ?: DashboardUiState.Error(message)
-                } else {
-                    val items = stats.getOrThrow().items
-                    val latestHistory = triple.third.getOrDefault(emptyList()).firstOrNull()
-                    val historyPlatform = latestHistory?.platform?.let { Platform.fromApiValue(it) }
-                    currentCoroutineContext().ensureActive()
-                    if (tokenStore.token != requestedSession) {
-                        _uiState.value = DashboardUiState.Error("La sesión cambió. Vuelve a actualizar los datos.")
-                        return@launch
+                _uiState.value = if (requestedSession != tokenStore.token) DashboardUiState.Error("La sesión cambió. Actualiza los datos.") else DashboardUiState.Success(result.data, compatibilityMode = result.compatibilityMode)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                val message = when (error) {
+                    is HttpException -> when (error.code()) {
+                        401 -> "Tu sesión venció. Vuelve a iniciar sesión."
+                        403 -> "Tu cuenta no tiene acceso a este resumen."
+                        404, 405 -> "El servidor necesita una actualización para mostrar el Dashboard."
+                        in 500..599 -> "El servidor no pudo cargar el Dashboard. Vuelve a intentarlo."
+                        else -> "No se pudo actualizar el Dashboard. Vuelve a intentarlo."
                     }
-                    val isSimpleFlow = workflowModeResult.getOrDefault(WorkflowMode.SIMPLE) == WorkflowMode.SIMPLE
-                    _uiState.value = DashboardUiState.Success(
-                        DashboardData(
-                            items = items,
-                            calendar = triple.second.getOrDefault(emptyList()),
-                            latestHistory = latestHistory,
-                            focusPlatform = if (isSimpleFlow) null else historyPlatform,
-                            individualItems = individualStats.flatMap { it.getOrNull()?.items.orEmpty() },
-                            podiumMode = (_uiState.value as? DashboardUiState.Success)?.data?.podiumMode ?: podiumMode,
-                        ),
-                    )
+                    is IOException -> "No se pudo conectar con el servidor. Comprueba tu conexión y vuelve a intentarlo."
+                    else -> "La respuesta del servidor no se pudo leer. Vuelve a intentarlo."
                 }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                val current = _uiState.value as? DashboardUiState.Success
-                val message = e.message ?: "No se pudo cargar el dashboard."
-                _uiState.value = current?.copy(isRefreshing = false, refreshError = message)
-                    ?: DashboardUiState.Error(message)
+                _uiState.value = if (requestedSession != tokenStore.token) DashboardUiState.Error("La sesión cambió. Actualiza los datos.")
+                    else previous?.copy(isRefreshing = false, refreshError = message) ?: DashboardUiState.Error(message)
             } finally {
-                if (generation == loadGeneration) refreshTracker.setRefreshing("dashboard", false)
+                if (generation == requestedGeneration) refreshTracker.setRefreshing("dashboard", false)
             }
         }
-    }
-
-    fun setPodiumMode(mode: DashboardPodiumMode) {
-        val current = _uiState.value as? DashboardUiState.Success ?: return
-        if (current.data.podiumMode == mode) return
-        _uiState.value = DashboardUiState.Success(current.data.copy(podiumMode = mode))
     }
 }
