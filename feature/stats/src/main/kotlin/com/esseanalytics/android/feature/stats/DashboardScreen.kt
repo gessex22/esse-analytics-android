@@ -254,7 +254,7 @@ private fun LatestRow(platform: String, video: DashboardVideoDto?, onVideo: (Das
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(video?.title?.ifBlank { video.fileName ?: "Video sin título" } ?: "Sin videos recientes", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-            if (video != null) Text("${formatCreatorMetric(video.views)} vistas · ${relativeTime(video.publishedAt)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (video != null) Text("${if (video.metricsAvailable == false) "Vistas pendientes" else "${formatCreatorMetric(video.views)} vistas"} · ${relativeTime(video.publishedAt)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Icon(when (platform) { "youtube" -> PlatformIcons.YoutubeLogo; "instagram" -> PlatformIcons.InstagramLogo; else -> PlatformIcons.TiktokLogo },
             contentDescription = platformName(platform), modifier = Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)

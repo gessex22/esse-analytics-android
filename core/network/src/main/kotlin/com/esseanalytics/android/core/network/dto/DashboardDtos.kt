@@ -43,4 +43,5 @@ data class DashboardVideoDto(
     val platform: String, val platformId: String, val platformUrl: String, val title: String,
     val thumbnail: String, val views: Long, val publishedAt: String?,
     val fileId: String? = null, val fileName: String? = null,
+    val metricsAvailable: Boolean? = null,
 )

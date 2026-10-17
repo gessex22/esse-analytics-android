@@ -19,6 +19,13 @@ import java.io.IOException
 import kotlinx.coroutines.CancellationException
 
 class DashboardContractTest {
+    @Test fun `unmatched confirmed publication preserves unavailable metrics flag`() {
+        val video = Json.decodeFromString<com.esseanalytics.android.core.network.dto.DashboardVideoDto>("""{
+            "platform":"youtube","platformId":"latest","platformUrl":"","title":"Latest unmatched",
+            "thumbnail":"","views":0,"publishedAt":"2026-10-17T10:00:00Z","metricsAvailable":false
+        }""")
+        assertEquals(false, video.metricsAvailable)
+    }
     private val payload = """{
       "generatedAt":"2026-10-17T17:00:00Z","timeZone":"America/Chicago",
       "followers":{"total":3000000000,"partial":true,"platforms":[
