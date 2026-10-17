@@ -373,7 +373,7 @@ class CalendarViewModel @Inject constructor(
                 session.token,
             )
         }
-        val platformUrl = platformStats.thumbnail.takeIf(String::isNotBlank)
+        val platformUrl = platformStats.thumbnail?.takeIf(String::isNotBlank)
         if (localPath == null && remoteUrl == null && platformUrl == null) return null
         return PublishedThumbnailSources(
             localFilePath = localPath,

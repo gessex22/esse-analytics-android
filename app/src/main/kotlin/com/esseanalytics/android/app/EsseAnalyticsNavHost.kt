@@ -74,12 +74,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.layer.drawLayer
-import androidx.compose.ui.graphics.rememberGraphicsLayer
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -120,6 +114,9 @@ import com.esseanalytics.android.feature.remotelibrary.RemoteLibraryScreen
 import com.esseanalytics.android.feature.settings.ServerSettingsScreen
 import com.esseanalytics.android.feature.settings.SettingsScreen
 import com.esseanalytics.android.feature.stats.StatsScreen
+import com.esseanalytics.android.feature.stats.VideoStatsSelection
+import com.esseanalytics.android.feature.stats.VideoStatsDetailScreen
+import com.esseanalytics.android.feature.stats.detailSelection
 import com.esseanalytics.android.feature.sync.SyncScreen
 import com.esseanalytics.android.feature.upload.UploadScreen
 import com.esseanalytics.android.feature.users.UsersScreen
@@ -144,6 +141,7 @@ private object Routes {
     const val SETTINGS = "settings"
     const val REMOTE_LIBRARY = "remote_library"
     const val HISTORY = "history"
+    const val VIDEO_DETAIL = "video_stats"
 }
 
 private data class BottomDestination(val route: String, val label: String, val icon: ImageVector)
@@ -322,17 +320,8 @@ private fun MainAppScaffold(
     // qué tab está parado el usuario cuando suelta el gesto.
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
-    // Inicio, Agenda y Datos tienen modo claro propio; los iconos del sistema deben seguir
-    // ese fondo. Al salir se restaura la apariencia del resto de la app.
-    val homeUsesLightColors = (
-        currentDestination?.route.matchesDestination(Routes.DASHBOARD) == true ||
-            currentDestination?.route.matchesDestination(Routes.STATS) == true ||
-            currentDestination?.route.matchesDestination(Routes.CALENDAR) == true ||
-            currentDestination?.route.matchesDestination(Routes.LIBRARY) == true ||
-            currentDestination?.route.matchesDestination(Routes.UPLOAD) == true ||
-            currentDestination?.route.matchesDestination(Routes.MORE) == true ||
-            currentDestination?.route.matchesDestination(Routes.SETTINGS) == true
-        ) && !isSystemInDarkTheme()
+    // All destinations now share Studio and follow system appearance.
+    val homeUsesLightColors = !isSystemInDarkTheme()
     val hostActivity = LocalContext.current.hostActivity()
     val view = LocalView.current
     DisposableEffect(hostActivity, view, homeUsesLightColors) {
@@ -353,10 +342,25 @@ private fun MainAppScaffold(
     // puede leer isLoading directo de cada ViewModel de tab.
     val topBarViewModel: TopBarViewModel = hiltViewModel()
     val isAnyRefreshing by topBarViewModel.isAnyRefreshing.collectAsState()
-    val dashboardStyle by topBarViewModel.dashboardStyle.collectAsState()
-    val appleDashboard = dashboardStyle == "apple" && currentDestination?.route.matchesDestination(Routes.DASHBOARD)
-    val dashboardBackdrop = rememberGraphicsLayer()
-    var dashboardBackdropOrigin by remember { mutableStateOf(Offset.Zero) }
+    val pendingActions: DashboardPendingActionViewModel = hiltViewModel()
+    val pendingState by pendingActions.state.collectAsState()
+    LaunchedEffect(pendingState) {
+        when(val result = pendingState) {
+            is PendingActionState.Local -> { pendingActions.clear(); navController.navigate("${Routes.UPLOAD}?fileId=${result.id}") }
+            is PendingActionState.Remote -> { pendingActions.clear(); navController.navigate("${Routes.REMOTE_LIBRARY}?videoId=${Uri.encode(result.id)}") }
+            else -> Unit
+        }
+    }
+    if (pendingState is PendingActionState.Loading) androidx.compose.material3.AlertDialog(
+        onDismissRequest = pendingActions::cancel,
+        title = { Text("Buscando el video…") }, text = { CircularProgressIndicator() },
+        confirmButton = {}, dismissButton = { androidx.compose.material3.TextButton(onClick = pendingActions::cancel) { Text("Cancelar") } },
+    )
+    (pendingState as? PendingActionState.Message)?.let { result ->
+        androidx.compose.material3.AlertDialog(onDismissRequest = pendingActions::clear, title = { Text("Pendiente") }, text = { Text(result.text) },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = { pendingActions.clear(); if (result.canImport) navController.navigate(Routes.INGEST) else pendingActions.retry() }) { Text(if (result.canImport) "Importar original" else "Reintentar") } },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = pendingActions::clear) { Text("Cerrar") } })
+    }
     // En las pestañas principales la barra muestra el título de navegación;
     // Inicio usa solo el logo. Los destinos de detalle usan DetailScaffold y
     // no necesitan una segunda barra compartida.
@@ -416,12 +420,7 @@ private fun MainAppScaffold(
         // Box para permitir que el bottom nav flote SOBRE el contenido (Overlay real).
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             // Contenido principal en una Column para el banner y el NavHost.
-            Column(modifier = Modifier.fillMaxSize().onGloballyPositioned { dashboardBackdropOrigin = it.positionInRoot() }.then(
-                if (appleDashboard) Modifier.drawWithContent {
-                    dashboardBackdrop.record { this@drawWithContent.drawContent() }
-                    drawLayer(dashboardBackdrop)
-                } else Modifier,
-            )) {
+            Column(modifier = Modifier.fillMaxSize()) {
                 if (isLabMode) LabModeBanner()
                 NavHost(
                     navController = navController,
@@ -461,10 +460,8 @@ private fun MainAppScaffold(
                 ) {
                     composable(Routes.DASHBOARD) {
                         DashboardScreen(
-                            onVideoClick = { video ->
-                                val key = video.fileId.ifBlank { video.fileName }
-                                navController.openStatsVideo(key)
-                            },
+                            onVideoClick = { selection -> navController.openVideoDetail(selection) },
+                            onPendingAction = { pendingActions.open(it, canUseCloudStorage) },
                         )
                     }
                     composable(Routes.LIBRARY) {
@@ -478,6 +475,7 @@ private fun MainAppScaffold(
                     }
                     composable(Routes.CALENDAR) {
                         CalendarScreen(
+                            onVideoClick = { event -> navController.openVideoDetail(event.detailSelection()) },
                             username = username,
                             onProfileClick = { navController.navigate(Routes.SETTINGS) },
                         )
@@ -535,13 +533,22 @@ private fun MainAppScaffold(
                             username = username,
                             onProfileClick = { navController.navigate(Routes.SETTINGS) },
                             onNotificationClick = { navController.navigateToMainTab(Routes.CALENDAR) },
+                            onReviewLocal = { id -> navController.navigate("${Routes.UPLOAD}?fileId=$id") },
                             initialVideoKey = videoKey,
                             initialVideoRequest = videoRequest,
                         )
                     }
+                    composable(
+                        "${Routes.VIDEO_DETAIL}?platform={platform}&platformId={platformId}&fileId={fileId}&fileName={fileName}&origin={origin}",
+                        arguments = listOf("platform", "platformId", "fileId", "fileName", "origin").map { name -> navArgument(name) { type = NavType.StringType; nullable = true; defaultValue = null } },
+                    ) { entry ->
+                        val args = entry.arguments
+                        val selection = remember(entry) { VideoStatsSelection(args?.getString("platform"), args?.getString("platformId"), args?.getString("fileId"), args?.getString("fileName"), origin = args?.getString("origin") ?: "Datos") }
+                        VideoStatsDetailScreen(selection, { navController.popBackStack() })
+                    }
                     composable(Routes.STATS_DETAIL) {
                         DetailScaffold("Estadísticas", onBack = navController::popBackStack) {
-                            StatsScreen(showFloatingHeader = false)
+                            StatsScreen(showFloatingHeader = false, onReviewLocal = { id -> navController.navigate("${Routes.UPLOAD}?fileId=$id") })
                         }
                     }
                     composable(Routes.HISTORY) {
@@ -569,14 +576,7 @@ private fun MainAppScaffold(
             }
             // Overlay real, no bottomBar de Scaffold: el contenido queda por
             // debajo y los huecos alrededor de la cápsula son transparentes.
-            if (appleDashboard) AppleDashboardNavigation(
-                items = bottomDestinations.map { CreatorNavItem(it.route, it.label, it.icon) },
-                selectedRoute = Routes.DASHBOARD,
-                onNavigate = navController::navigateToMainTab,
-                backdrop = dashboardBackdrop,
-                backdropOrigin = dashboardBackdropOrigin,
-                modifier = Modifier.align(Alignment.BottomCenter),
-            ) else FloatingBottomNavigation(
+            if (currentDestination?.route?.startsWith(Routes.VIDEO_DETAIL) != true) FloatingBottomNavigation(
                 currentDestination = currentDestination,
                 onDestinationClick = navController::navigateToMainTab,
                 modifier = Modifier.align(Alignment.BottomCenter),
@@ -737,4 +737,9 @@ private fun DetailScaffold(title: String, onBack: () -> Unit, content: @Composab
             content()
         }
     }
+}
+
+private fun NavHostController.openVideoDetail(selection: VideoStatsSelection) {
+    val values = mapOf("platform" to selection.platform, "platformId" to selection.platformId, "fileId" to selection.fileId, "fileName" to selection.fileName, "origin" to selection.origin)
+    navigate(Routes.VIDEO_DETAIL + values.filterValues { !it.isNullOrBlank() }.entries.joinToString(prefix = "?", separator = "&") { "${it.key}=${Uri.encode(it.value)}" })
 }

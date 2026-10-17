@@ -73,7 +73,7 @@ enum class CreatorMetric(val label: String, val unit: String, val icon: ImageVec
     COMMENTS("Comentarios", "comentarios", Icons.Outlined.ChatBubbleOutline),
 }
 
-val CreatorSerif: FontFamily = CreatorDisplayFont
+val CreatorSerif: FontFamily = com.esseanalytics.android.core.designsystem.theme.CreatorBodyFont
 
 private val creatorKeyShape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 11.dp, bottomEnd = 11.dp)
 
@@ -200,8 +200,7 @@ fun CreatorMetricCard(
 ) {
     val colors = MaterialTheme.colorScheme
     val dark = colors.background.luminance() < 0.5f
-    val cardGradient = if (dark) listOf(Color(0xFF24483D), Color(0xFF192F28))
-        else listOf(Color(0xFFCFE6DA), Color(0xFFE4EFE7))
+    val cardGradient = listOf(colors.surfaceVariant, colors.surface)
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 16.dp, bottomStart = 16.dp, bottomEnd = 28.dp),
@@ -399,8 +398,7 @@ fun CreatorBottomNav(
 ) {
     val colors = MaterialTheme.colorScheme
     val dark = colors.background.luminance() < 0.5f
-    val shellGradient = if (dark) listOf(Color(0xFF2A4138), Color(0xFF172923))
-        else listOf(colors.surface, Color(0xFFE1EEE6))
+    val shellGradient = listOf(colors.surface.copy(alpha = .94f), colors.surfaceVariant.copy(alpha = .90f))
     Row(
         modifier.fillMaxWidth().navigationBarsPadding().padding(start = 8.dp, end = 8.dp, bottom = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -409,7 +407,7 @@ fun CreatorBottomNav(
         Surface(
             modifier = Modifier.weight(1f),
             shape = RoundedCornerShape(26.dp),
-            color = colors.surface,
+            color = colors.surface.copy(alpha = .92f),
             shadowElevation = 6.dp,
             border = BorderStroke(1.dp, colors.primary.copy(alpha = 0.18f)),
         ) {
@@ -449,12 +447,12 @@ private fun CreatorNavigationKey(
         label = "navigationLight",
     )
     val start by animateColorAsState(
-        when { isCreate -> if (dark) Color(0xFF93E3CA) else Color(0xFF238F7C)
+        when { isCreate -> colors.primary
             selected -> colors.primaryContainer; standalone -> colors.surface; else -> Color.Transparent },
         label = "navigationGradientStart",
     )
     val end by animateColorAsState(
-        when { isCreate -> if (dark) Color(0xFF58B5A0) else Color(0xFF105C50)
+        when { isCreate -> colors.primary
             selected -> colors.primary.copy(alpha = 0.22f); standalone -> colors.surfaceVariant; else -> Color.Transparent },
         label = "navigationGradientEnd",
     )

@@ -3,7 +3,6 @@ package com.esseanalytics.android.feature.stats
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.esseanalytics.android.core.datastore.RefreshActivityTracker
-import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.network.CausalPlatformOutbox
 import com.esseanalytics.android.core.network.HistoryOutbox
@@ -16,9 +15,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.ZoneId
 import java.io.IOException
@@ -34,7 +31,6 @@ sealed interface DashboardUiState {
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
     private val syncRepository: SyncRepository,
-    settingsStore: SettingsStore,
     private val tokenStore: TokenStore,
     private val refreshTracker: RefreshActivityTracker,
     private val historyOutbox: HistoryOutbox,
@@ -43,9 +39,9 @@ class DashboardViewModel @Inject constructor(
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<DashboardUiState>(DashboardUiState.Loading)
     val uiState = _uiState.asStateFlow()
-    val dashboardStyle = settingsStore.dashboardStyle.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "current")
     private var loadJob: Job? = null
     private var generation = 0L
+    private var lastSession = tokenStore.token
 
     init { refresh() }
 
@@ -53,6 +49,7 @@ class DashboardViewModel @Inject constructor(
         val requestedGeneration = ++generation
         val requestedSession = tokenStore.token
         loadJob?.cancel()
+        if (lastSession != requestedSession) { lastSession = requestedSession; _uiState.value = DashboardUiState.Loading }
         // Preserve existing publication recovery; refresh never waits for outboxes.
         viewModelScope.launch { runCatching { historyOutbox.flush() } }
         viewModelScope.launch { runCatching { platformUpdateOutbox.flush() } }
@@ -64,6 +61,7 @@ class DashboardViewModel @Inject constructor(
             try {
                 val result = syncRepository.getDashboardSummary(ZoneId.systemDefault().id)
                 currentCoroutineContext().ensureActive()
+                if (requestedGeneration != generation) return@launch
                 _uiState.value = if (requestedSession != tokenStore.token) DashboardUiState.Error("La sesión cambió. Actualiza los datos.") else DashboardUiState.Success(result.data, compatibilityMode = result.compatibilityMode)
             } catch (error: CancellationException) {
                 throw error
@@ -79,6 +77,7 @@ class DashboardViewModel @Inject constructor(
                     is IOException -> "No se pudo conectar con el servidor. Comprueba tu conexión y vuelve a intentarlo."
                     else -> "La respuesta del servidor no se pudo leer. Vuelve a intentarlo."
                 }
+                if (requestedGeneration != generation) return@launch
                 _uiState.value = if (requestedSession != tokenStore.token) DashboardUiState.Error("La sesión cambió. Actualiza los datos.")
                     else previous?.copy(isRefreshing = false, refreshError = message) ?: DashboardUiState.Error(message)
             } finally {

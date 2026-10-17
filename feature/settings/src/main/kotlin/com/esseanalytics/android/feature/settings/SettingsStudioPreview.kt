@@ -38,7 +38,6 @@ private fun SettingsPreview(
     CreatorHomeTheme(darkTheme = dark) {
         SettingsStudioContent(
             username = "María Fernanda · Estudio creativo",
-            colorTheme = accent,
             workflowMode = mode,
             wifiOnly = wifi,
             connections = if (loading) emptyMap() else mapOf(Platform.YOUTUBE to true, Platform.INSTAGRAM to false, Platform.TIKTOK to true),
@@ -46,7 +45,6 @@ private fun SettingsPreview(
             connecting = if (opening) Platform.INSTAGRAM else null,
             connectionError = if (error) "No se pudo iniciar la conexión con Instagram. Volvé a intentarlo." else null,
             onBack = {},
-            onColorTheme = { accent = it },
             onWorkflowMode = { mode = it },
             onWifiOnly = { wifi = it },
             onConnection = {},

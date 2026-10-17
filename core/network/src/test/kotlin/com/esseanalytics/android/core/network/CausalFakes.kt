@@ -148,6 +148,9 @@ class FakeFileDao(private val files: List<FileEntity> = emptyList()) : FileDao {
 // propósito -- si un test lo alcanza, es que el código está llamando algo que
 // no debería.
 open class FakeSyncApi : SyncApi {
+    override suspend fun getWeeklyStats(timeZone: String, limit: Int): com.esseanalytics.android.core.network.dto.WeeklyStatsResponseDto = error("not used")
+    override suspend fun getVideoDetail(platform: String?, platformId: String?, fileId: String?, fileName: String?): GroupStatsItemDto = error("not used")
+
     override suspend fun getDashboardSummary(timeZone: String): com.esseanalytics.android.core.network.dto.DashboardSummaryDto = unexpected("dashboard-summary")
     val resolveIdentityRequests = mutableListOf<ResolveIdentityRequest>()
     val transitionRequests = mutableListOf<PlatformTransitionRequest>()
@@ -189,7 +192,7 @@ open class FakeSyncApi : SyncApi {
     override suspend fun skipNextCalendarVideo(platform: String, body: SkipNextRequest) = unexpected("skip-next")
     override suspend fun getGroupStats(limit: Int, platform: String?, mode: String?): GroupStatsResponse = unexpected("group-stats")
     override suspend fun getFileStats(fileId: String?, fileName: String?): GroupStatsItemDto = unexpected("file-stats")
-    override suspend fun getHistory(limit: Int, offset: Int, platform: String?): UploadHistoryResponse =
+    override suspend fun getHistory(limit: Int, offset: Int, platform: String?, includeStats: Boolean?): UploadHistoryResponse =
         unexpected("history")
     override suspend fun getSyncStats(): SyncStatsDto = unexpected("stats")
     override suspend fun getReview(page: Int, limit: Int): SyncReviewResponseDto = unexpected("review")

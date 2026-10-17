@@ -30,6 +30,7 @@ data class DashboardWeekDto(
 data class DashboardPendingDto(
     val total: Int, val toPublish: Int, val drafts: Int, val failed: Int,
     val source: String? = null, val items: List<DashboardPendingItemDto> = emptyList(),
+    val actions: List<DashboardPendingActionDto> = emptyList(),
 )
 
 @Serializable
@@ -44,4 +45,19 @@ data class DashboardVideoDto(
     val thumbnail: String, val views: Long, val publishedAt: String?,
     val fileId: String? = null, val fileName: String? = null,
     val metricsAvailable: Boolean? = null,
+    val likes: Long? = null,
+    val comments: Long? = null,
+    val contentId: String? = null,
+)
+
+@Serializable
+data class DashboardPendingActionDto(
+    val id: String,
+    val fileId: String? = null,
+    val fileName: String = "",
+    val contentId: String? = null,
+    val title: String,
+    val cause: String,
+    val missingPlatforms: List<String> = emptyList(),
+    val failedPlatforms: List<String> = emptyList(),
 )

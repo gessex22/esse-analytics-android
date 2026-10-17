@@ -5,156 +5,119 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.esseanalytics.android.core.datastore.RefreshActivityTracker
 import com.esseanalytics.android.core.datastore.TokenStore
-import com.esseanalytics.android.core.model.Platform
+import com.esseanalytics.android.core.datastore.SettingsStore
+import com.esseanalytics.android.core.database.CausalKeys
+import com.esseanalytics.android.core.database.dao.CausalPlatformDao
+import com.esseanalytics.android.core.database.FileRepository
+import com.esseanalytics.android.core.database.PublishOperationStore
+import com.esseanalytics.android.core.network.CatalogRegistrationOutbox
 import com.esseanalytics.android.core.network.SyncRepository
+import com.esseanalytics.android.core.network.api.SyncApi
 import com.esseanalytics.android.core.network.di.CentralRetrofit
-import com.esseanalytics.android.core.network.dto.GroupStatsItemDto
+import com.esseanalytics.android.core.network.dto.*
 import com.esseanalytics.android.core.network.util.remoteLibraryThumbnailUrl
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
+import retrofit2.HttpException
 import retrofit2.Retrofit
+import java.time.ZoneId
 import javax.inject.Inject
 
-// Feature B (ver UIEssePanel/PLAN_SWIPE_Y_CARGA_SUAVE.md): isRefreshing/
-// refreshError dentro de Success -- mismo criterio que DashboardUiState.
-sealed interface StatsUiState {
-    data object Loading : StatsUiState
-    data class Success(
-        val items: List<GroupStatsItemDto>,
-        val loadedFilter: StatsFilter,
-        val isRefreshing: Boolean = false,
-        val refreshError: String? = null,
-    ) : StatsUiState
-    data class Error(val message: String) : StatsUiState
+enum class StatsSegment(val label: String) { COMPARED("Comparadas"), RECENT("Recientes"), PLATFORMS("Plataformas") }
+data class StatsUiState(
+    val segment: StatsSegment = StatsSegment.COMPARED,
+    val items: List<GroupStatsItemDto> = emptyList(),
+    val history: List<UploadHistoryItemDto> = emptyList(),
+    val weeks: List<WeeklyStatsWeekDto> = emptyList(),
+    val loading: Boolean = true, val loadingMore: Boolean = false, val loaded: Boolean = false,
+    val error: String? = null, val warning: String? = null,
+    val historyTotal: Int = 0,
+    val historyFilter: HistoryFilter = HistoryFilter.ALL,
+) { val hasMore: Boolean get() = history.size < historyTotal }
+internal fun statsError(error: Exception, section: String): String = when {
+    error is HttpException && error.code() in listOf(404,405) -> "El servidor necesita actualizarse para mostrar $section."
+    error is HttpException && error.code() == 401 -> "Tu sesión venció. Vuelve a iniciar sesión."
+    else -> "No se pudo cargar $section. Comprueba la conexión y vuelve a intentarlo."
 }
 
-enum class StatsFilter(val apiValue: String?) {
-    COMPARED(null), YOUTUBE("youtube"), INSTAGRAM("instagram"), TIKTOK("tiktok");
+internal data class LocalHistoryIssue(val id: Long, val fileId: Long?, val platform: String, val title: String, val message: String)
 
-    val label: String get() = when (this) {
-        COMPARED -> "Comparadas"
-        YOUTUBE -> "YouTube"
-        INSTAGRAM -> "Instagram"
-        TIKTOK -> "TikTok"
-    }
-
-    // Comparadas trae los 3 links en el mismo item (null = sumar las 3 en el
-    // gráfico/totales). En cualquier otro filtro el item ya viene con SOLO
-    // esa plataforma poblada, así que el gráfico/totales tienen que acotarse
-    // a ella -- si no, las otras 2 quedan como una línea plana en 0.
-    val platform: Platform? get() = when (this) {
-        COMPARED -> null
-        YOUTUBE -> Platform.YOUTUBE
-        INSTAGRAM -> Platform.INSTAGRAM
-        TIKTOK -> Platform.TIKTOK
-    }
-}
-
-// GET /api/sync/group-stats(limit=10) -- mismo dato y misma vista que
-// frontend/src/components/StatsView.tsx: los últimos videos ya vinculados en
-// las 3 plataformas, comparados lado a lado. El matching es siempre por
-// archivo, no depende de workflow_mode (simple/avanzado ven lo mismo acá).
 @HiltViewModel
 class StatsViewModel @Inject constructor(
-    private val syncRepository: SyncRepository,
-    private val tokenStore: TokenStore,
-    private val refreshTracker: RefreshActivityTracker,
+    private val syncRepository: SyncRepository, private val api: SyncApi,
+    private val tokenStore: TokenStore, private val refreshTracker: RefreshActivityTracker,
+    settings: SettingsStore, operations: PublishOperationStore, files: FileRepository, identity: CausalPlatformDao,
     @CentralRetrofit private val retrofit: Retrofit,
 ) : ViewModel() {
-
-    private val _uiState = MutableStateFlow<StatsUiState>(StatsUiState.Loading)
-    val uiState: StateFlow<StatsUiState> = _uiState.asStateFlow()
-    private val _filter = MutableStateFlow(StatsFilter.COMPARED)
-    val filter: StateFlow<StatsFilter> = _filter.asStateFlow()
-    private var requestGeneration = 0L
-    private var requestJob: Job? = null
-    private data class FilterSnapshot(val items: List<GroupStatsItemDto>, val loadedAt: Long)
-    // Cuatro filtros en memoria de esta vista; las actualizaciones manuales
-    // siempre consultan la central. La sesión y el tiempo delimitan la reutilización.
-    private val filterSnapshots = mutableMapOf<StatsFilter, FilterSnapshot>()
-    private var cacheSession = tokenStore.token
-
-    // Mirror de RemoteLibraryAPI.thumbnailURL(id:thumbnailStoredFileName:) en
-    // iOS -- pide la miniatura de ESE video puntual (group-stats ya manda el
-    // id resuelto server-side), no depende de traer un batch de la cola
-    // remota. Null si el item no tiene match en Biblioteca remota o si no
-    // tiene sesión.
-    fun thumbnailUrl(item: GroupStatsItemDto): String? {
-        val videoId = item.remoteLibraryVideoId ?: return null
-        return remoteLibraryThumbnailUrl(retrofit.baseUrl(), videoId, item.thumbnailStoredFileName, tokenStore.token)
-    }
-
-    init {
-        refresh()
-    }
-
-    fun refresh() {
-        loadFilter(force = true)
-    }
-
-    private fun loadFilter(force: Boolean) {
-        val requestedFilter = _filter.value
-        val generation = ++requestGeneration
-        requestJob?.cancel()
-        requestJob = null
-        val requestedSession = tokenStore.token
-        if (cacheSession != requestedSession) {
-            filterSnapshots.clear()
-            cacheSession = requestedSession
-            _uiState.value = StatsUiState.Loading
-        }
-        val cached = filterSnapshots[requestedFilter]
-        if (!force && cached != null && SystemClock.elapsedRealtime() - cached.loadedAt < 30_000L) {
-            _uiState.value = StatsUiState.Success(cached.items, loadedFilter = requestedFilter)
-            refreshTracker.setRefreshing("stats", false)
-            return
-        }
-        val current = (_uiState.value as? StatsUiState.Success)?.takeIf { it.loadedFilter == requestedFilter }
-        val previous = current ?: cached?.let { StatsUiState.Success(it.items, loadedFilter = requestedFilter) }
-        _uiState.value = previous?.copy(isRefreshing = true, refreshError = null) ?: StatsUiState.Loading
-        requestJob = viewModelScope.launch {
-            // Señal para AppTopBar -- ver RefreshActivityTracker.
-            refreshTracker.setRefreshing("stats", true)
-            try {
-                val result = syncRepository.getGroupStats(limit = 10, platform = requestedFilter.apiValue, force = true)
-                if (generation == requestGeneration) {
-                    if (tokenStore.token == requestedSession) {
-                        filterSnapshots[requestedFilter] = FilterSnapshot(result.items, SystemClock.elapsedRealtime())
-                        _uiState.value = StatsUiState.Success(result.items, loadedFilter = requestedFilter)
-                    } else {
-                        filterSnapshots.clear()
-                        _uiState.value = StatsUiState.Error("La sesión cambió. Vuelve a actualizar los datos.")
-                    }
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // Boundary real: llamada a la central, red/rol/caída. Con
-                // datos previos: banner no bloqueante, no se pierde lo último
-                // bueno. Sin datos previos: Error, pantalla completa.
-                if (generation == requestGeneration) {
-                    val message = e.message ?: "No se pudieron cargar las estadísticas."
-                    _uiState.value = if (tokenStore.token == requestedSession) {
-                        previous?.copy(isRefreshing = false, refreshError = message) ?: StatsUiState.Error(message)
-                    } else {
-                        filterSnapshots.clear()
-                        StatsUiState.Error("La sesión cambió. Vuelve a actualizar los datos.")
-                    }
-                }
-            } finally {
-                if (generation == requestGeneration) refreshTracker.setRefreshing("stats", false)
+    private val _uiState = MutableStateFlow(StatsUiState())
+    val uiState = _uiState.asStateFlow()
+    private var generation = 0L
+    private var request: Job? = null
+    private var session = tokenStore.token
+    private val snapshots = mutableMapOf<StatsSegment, Pair<StatsUiState, Long>>()
+    @OptIn(ExperimentalCoroutinesApi::class)
+    internal val localIssues = combine(tokenStore.authState, settings.serverUrl) { _, server ->
+        tokenStore.currentSession()?.let { it.second to CatalogRegistrationOutbox.scope(it.second, server) }
+    }.distinctUntilChanged().flatMapLatest { scope ->
+        if (scope == null) flowOf(emptyList()) else combine(operations.observeBlocked(scope.first), files.observeAll()) { rows, local ->
+            rows.mapNotNull { row ->
+                val file = local.firstOrNull { it.clientFileId == row.sourceId } ?: return@mapNotNull null
+                // Legacy journals use user id; show them here only with a proven identity in this server scope.
+                if (identity.findContentId(scope.second, CausalKeys.forClientFile(file.clientFileId)) == null) return@mapNotNull null
+                LocalHistoryIssue(row.id, file.id, row.platform, file.libraryDisplayName, row.lastError ?: "Revisión de publicación pendiente")
             }
         }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    init { refresh() }
+    fun setHistoryFilter(filter: HistoryFilter) {
+        if (_uiState.value.historyFilter == filter) return
+        snapshots.remove(StatsSegment.RECENT)
+        _uiState.value = StatsUiState(segment = StatsSegment.RECENT, historyFilter = filter)
+        refresh()
     }
-
-    fun setFilter(filter: StatsFilter) {
-        if (_filter.value == filter) return
-        _filter.value = filter
-        loadFilter(force = false)
+    fun thumbnailUrl(item: GroupStatsItemDto): String? = item.remoteLibraryVideoId?.let {
+        remoteLibraryThumbnailUrl(retrofit.baseUrl(), it, item.thumbnailStoredFileName, tokenStore.token)
+    } ?: item.thumbnail
+    fun select(segment: StatsSegment) {
+        if (segment == _uiState.value.segment) return
+        ++generation; request?.cancel(); refreshTracker.setRefreshing("stats", false)
+        if (session != tokenStore.token) { session = tokenStore.token; snapshots.clear() }
+        val cached = snapshots[segment]
+        _uiState.value = cached?.first ?: StatsUiState(segment)
+        if (cached == null || SystemClock.elapsedRealtime() - cached.second >= 30_000) refresh()
+    }
+    fun refresh() = load(false)
+    fun loadMore() { if (_uiState.value.segment == StatsSegment.RECENT && _uiState.value.hasMore && !_uiState.value.loading && !_uiState.value.loadingMore) load(true) }
+    private fun load(more: Boolean) {
+        val id = ++generation; request?.cancel()
+        val token = tokenStore.token
+        if (session != token) { session = token; snapshots.clear(); _uiState.value = StatsUiState(_uiState.value.segment) }
+        val previous = _uiState.value
+        val segment = previous.segment
+        _uiState.value = previous.copy(loading = !more, loadingMore = more, error = null, warning = null)
+        request = viewModelScope.launch {
+            refreshTracker.setRefreshing("stats", true)
+            try {
+                val result = when(segment) {
+                    StatsSegment.COMPARED -> previous.copy(items = syncRepository.getGroupStats(limit = 10, force = true).items)
+                    StatsSegment.RECENT -> {
+                        val page = api.getHistory(limit = 30, offset = if (more) previous.history.size else 0, platform = previous.historyFilter.apiValue, includeStats = true)
+                        previous.copy(history = if (more) previous.history + page.items else page.items, historyTotal = page.total)
+                    }
+                    StatsSegment.PLATFORMS -> previous.copy(weeks = api.getWeeklyStats(ZoneId.systemDefault().id).weeks)
+                }.copy(loading = false, loadingMore = false, loaded = true, error = null, warning = null)
+                ensureActive()
+                if (id == generation && tokenStore.token == token) {
+                    _uiState.value = result; snapshots[segment] = result to SystemClock.elapsedRealtime()
+                } else if (id == generation) { snapshots.clear(); _uiState.value = StatsUiState(segment, loading = false, error = "La sesión cambió. Actualiza los datos.") }
+            } catch (e: CancellationException) { throw e }
+            catch(e: Exception) {
+                if (id == generation) {
+                    _uiState.value = if (tokenStore.token != token) StatsUiState(segment, loading = false, error = "La sesión cambió. Actualiza los datos.")
+                    else previous.copy(loading = false, loadingMore = false, error = statsError(e, segment.label.lowercase()))
+                }
+            } finally { if (id == generation) refreshTracker.setRefreshing("stats", false) }
+        }
     }
 }

@@ -52,8 +52,8 @@ class SyncRepository @Inject constructor(
                     val item = api.getGroupStats(limit = 1, platform = platform, mode = "recent").items.firstOrNull()
                     val slot = item?.platforms?.get(platform)
                     DashboardLatestDto(platform, slot?.takeIf { it.platformId.isNotBlank() }?.let {
-                        DashboardVideoDto(platform, it.platformId, it.platformUrl, it.title.ifBlank { item.fileName.substringBeforeLast('.') },
-                            it.thumbnail, it.views.toLong(), item.fecha_creacion, item.fileId, item.fileName)
+                        DashboardVideoDto(platform, it.platformId, it.platformUrl.orEmpty(), it.title.orEmpty().ifBlank { item.fileName.substringBeforeLast('.') },
+                            it.thumbnail.orEmpty(), it.views.toLong(), item.fecha_creacion, item.fileId, item.fileName)
                     })
                 }
             }.awaitAll()

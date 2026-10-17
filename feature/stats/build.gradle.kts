@@ -7,6 +7,8 @@ android {
 }
 
 dependencies {
+    implementation(project(":core:database"))
+    testImplementation(libs.junit)
     implementation(project(":core:network"))
     // TokenStore (para armar la URL de miniatura con ?token=, ver
     // remoteLibraryThumbnailUrl) -- core:network también lo usa pero como

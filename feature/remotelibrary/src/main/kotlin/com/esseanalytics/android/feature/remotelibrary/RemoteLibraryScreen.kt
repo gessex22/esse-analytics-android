@@ -490,12 +490,8 @@ private fun RemotePlatformStatusLabel(alreadyDone: Boolean, workInfo: WorkInfo?)
     }
 }
 
-private fun platformColor(platform: Platform): Color = when (platform) {
-    Platform.YOUTUBE -> YoutubeRed
-    Platform.INSTAGRAM -> InstagramPurple
-    Platform.TIKTOK -> TiktokPink
-    Platform.FACEBOOK -> Color.Gray
-}
+@Composable
+private fun platformColor(platform: Platform): Color = com.esseanalytics.android.core.designsystem.theme.studioPlatformColor(platform.apiValue)
 
 private fun platformFullLabel(platform: Platform): String = when (platform) {
     Platform.YOUTUBE -> "YouTube"

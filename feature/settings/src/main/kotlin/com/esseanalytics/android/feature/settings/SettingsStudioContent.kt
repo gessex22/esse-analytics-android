@@ -85,7 +85,6 @@ import com.esseanalytics.android.core.model.WorkflowMode
 @OptIn(ExperimentalLayoutApi::class)
 internal fun SettingsStudioContent(
     username: String,
-    colorTheme: String,
     workflowMode: WorkflowMode,
     wifiOnly: Boolean,
     connections: Map<Platform, Boolean>,
@@ -93,7 +92,6 @@ internal fun SettingsStudioContent(
     connecting: Platform?,
     connectionError: String?,
     onBack: () -> Unit,
-    onColorTheme: (String) -> Unit,
     onWorkflowMode: (WorkflowMode) -> Unit,
     onWifiOnly: (Boolean) -> Unit,
     onConnection: (Platform) -> Unit,
@@ -101,8 +99,6 @@ internal fun SettingsStudioContent(
     serverContent: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     initiallyExpandedSections: Set<String> = emptySet(),
-    dashboardStyle: String = "current",
-    onDashboardStyle: (String) -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -173,32 +169,6 @@ internal fun SettingsStudioContent(
             item(key = "preferences") {
                 SettingsSection("Preferencias") {
                     SettingsSurface {
-                        SettingsDisclosure(
-                            title = "Diseño del Dashboard",
-                            summary = if (dashboardStyle == "apple") "Apple" else "Actual",
-                        ) {
-                            Column(Modifier.selectableGroup()) {
-                                WorkflowOption("Actual", "El estilo de la app con la nueva estructura.", dashboardStyle != "apple") { onDashboardStyle("current") }
-                                WorkflowOption("Apple", "Tarjetas agrupadas, azul y tipografía del sistema.", dashboardStyle == "apple") { onDashboardStyle("apple") }
-                            }
-                        }
-                        SettingsDivider()
-                        SettingsDisclosure(
-                            title = "Color de acento",
-                            summary = when (colorTheme) { "ambar" -> "Ámbar"; "morado" -> "Morado"; else -> "Rojo" },
-                            initiallyExpanded = "accent" in initiallyExpandedSections,
-                        ) {
-                            FlowRow(
-                                Modifier.fillMaxWidth().padding(12.dp).selectableGroup(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                AccentOption("Rojo", Color(0xFFE63946), colorTheme == "rojo") { onColorTheme("rojo") }
-                                AccentOption("Ámbar", Color(0xFFF59E0B), colorTheme == "ambar") { onColorTheme("ambar") }
-                                AccentOption("Morado", Color(0xFFA855F7), colorTheme == "morado") { onColorTheme("morado") }
-                            }
-                        }
-                        SettingsDivider()
                         SettingsDisclosure(
                             title = "Servidor",
                             summary = if (serverIsCustom) "Conexión personalizada" else "Central de EsseAnalytics",

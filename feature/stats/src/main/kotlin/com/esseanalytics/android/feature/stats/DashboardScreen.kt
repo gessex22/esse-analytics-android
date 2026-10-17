@@ -23,7 +23,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -40,15 +39,13 @@ import coil.compose.AsyncImage
 import com.esseanalytics.android.core.designsystem.component.CreatorStudioBackdrop
 import com.esseanalytics.android.core.designsystem.component.RefreshErrorBanner
 import com.esseanalytics.android.core.designsystem.component.formatCreatorMetric
-import com.esseanalytics.android.core.designsystem.theme.DashboardTheme
+import com.esseanalytics.android.core.designsystem.theme.StudioTheme
 import com.esseanalytics.android.core.designsystem.icon.PlatformIcons
 import com.esseanalytics.android.core.designsystem.icon.YoutubeLogo
 import com.esseanalytics.android.core.designsystem.icon.InstagramLogo
 import com.esseanalytics.android.core.designsystem.icon.TiktokLogo
 import com.esseanalytics.android.core.network.dto.*
 import java.text.NumberFormat
-import java.time.Duration
-import java.time.Instant
 import java.util.Locale
 import kotlin.math.roundToLong
 
@@ -57,51 +54,40 @@ import kotlin.math.roundToLong
 fun DashboardScreen(
     modifier: Modifier = Modifier,
     viewModel: DashboardViewModel = hiltViewModel(),
-    onVideoClick: (GroupStatsItemDto) -> Unit = {},
+    onVideoClick: (VideoStatsSelection) -> Unit = {},
+    onPendingAction: (DashboardPendingActionDto) -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val style by viewModel.dashboardStyle.collectAsStateWithLifecycle()
-    val apple = style == "apple"
-    val uriHandler = LocalUriHandler.current
     var hasResumed by remember { mutableStateOf(false) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         if (hasResumed) viewModel.refresh() else hasResumed = true
     }
-    DashboardTheme(apple) {
-        DashboardContent(state, apple, viewModel::refresh, onVideo = { video ->
-            if (!video.fileId.isNullOrBlank() || !video.fileName.isNullOrBlank()) {
-                onVideoClick(GroupStatsItemDto(
-                    fileId = video.fileId.orEmpty(), fileName = video.fileName.orEmpty(), fecha_creacion = video.publishedAt,
-                    platforms = mapOf(video.platform to GroupStatsSlotDto(video.platformId, video.platformUrl, video.title, video.thumbnail, video.views.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), 0, 0)),
-                ))
-            } else if (video.platformUrl.startsWith("https://")) {
-                runCatching { uriHandler.openUri(video.platformUrl) }
-            }
-        }, modifier = modifier)
+    StudioTheme {
+        DashboardContent(state, viewModel::refresh, onVideo = { onVideoClick(it.detailSelection()) }, onPendingAction = onPendingAction, modifier = modifier)
     }
 }
 
-/** Both variants share the exact same layout and interactions. */
+/** Studio summary: no charts, no duplicated statistics list. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun DashboardContent(
     state: DashboardUiState,
-    apple: Boolean,
     onRefresh: () -> Unit,
     onVideo: (DashboardVideoDto) -> Unit = {},
     modifier: Modifier = Modifier,
+    onPendingAction: (DashboardPendingActionDto) -> Unit = {},
 ) {
     val success = state as? DashboardUiState.Success
     var expanded by rememberSaveable { mutableStateOf(false) }
     var showPending by rememberSaveable { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
     Box(modifier.fillMaxSize().background(colors.background)) {
-        if (!apple) CreatorStudioBackdrop()
+        CreatorStudioBackdrop()
         PullToRefreshBox(isRefreshing = state == DashboardUiState.Loading || success?.isRefreshing == true, onRefresh = onRefresh) {
             LazyColumn(
                 Modifier.fillMaxSize().statusBarsPadding(),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 132.dp),
-                verticalArrangement = Arrangement.spacedBy(if (apple) 24.dp else 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 item("title") { Text("Dashboard", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, fontSize = 34.sp) }
                 when (state) {
@@ -129,7 +115,7 @@ internal fun DashboardContent(
                                                 ?: if (state.data.week.views == null) viewsUnavailableDetail(state.data.week.viewsStatus) else "Sin comparativa", Modifier.weight(1f))
                                         val pending = state.data.pending
                                         WeekCell("Pendientes para hoy", pending?.let { if (it.total == 0) "Al día" else formatCreatorMetric(it.total.toLong()) } ?: "—",
-                                            when (pending?.total) { null -> "No disponible"; 0 -> "Sin pendientes"; else -> "Ver detalle" }, Modifier.weight(1f).clickable(enabled = pending != null, role = Role.Button) { showPending = true }, (pending?.total ?: 0) > 0)
+                                            "", Modifier.weight(1f).clickable(enabled = pending != null, role = Role.Button) { showPending = true }, (pending?.total ?: 0) > 0)
                                     }
                                     if (state.data.week.views != null && state.data.week.viewsEstimated) Text("Vistas estimadas · observación diaria", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp))
                                     else if (state.data.week.viewsStatus == "collecting_history") Text("Estamos guardando el historial para calcular las vistas recibidas desde el inicio de la semana.", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp))
@@ -153,34 +139,29 @@ internal fun DashboardContent(
         }
         val pendingDetail = success?.data?.pending
         if (showPending && pendingDetail != null) {
-            AlertDialog(onDismissRequest = { showPending = false }, title = { Text("Pendientes para hoy") },
-                text = {
-                    val pending = pendingDetail
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        if (pending.total == 0) Text("Estás al día.") else if (pending.source == "calendar") {
-                            pending.items.forEach { item ->
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(platformName(item.platform), style = MaterialTheme.typography.labelMedium)
-                                    Text(item.title, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                    Text(if (item.overdue) "Atrasada · ${item.dueDate}" else "Para hoy", style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                            Text("Publicaciones del calendario para hoy, incluidas las atrasadas. Cada plataforma cuenta por separado.", style = MaterialTheme.typography.bodySmall)
-                        } else {
-                            if (pending.toPublish > 0) Text("${pending.toPublish} por publicar en alguna plataforma")
-                            if (pending.drafts > 0) Text("${pending.drafts} ${if (pending.drafts == 1) "borrador sin publicar" else "borradores sin publicar"}")
-                            if (pending.failed > 0) Text("${pending.failed} ${if (pending.failed == 1) "video con subida fallida" else "videos con subidas fallidas"}")
-                            Text("Cada video se cuenta una sola vez.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+            ModalBottomSheet(onDismissRequest = { showPending = false }, containerColor = colors.background) {
+                LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    item { Text("Pendientes para hoy", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
+                    if (pendingDetail.total == 0) item { Text("Estás al día.") }
+                    else if (pendingDetail.actions.isEmpty()) item { Text("El servidor necesita actualizarse para mostrar el detalle de pendientes.", color = colors.onSurfaceVariant) }
+                    pendingDetail.actions.forEach { action -> item(action.id) {
+                        StatsCard {
+                            Text(action.title.ifBlank { action.fileName }, fontWeight = FontWeight.SemiBold)
+                            Text(action.causeText(), style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                            TextButton(onClick = { showPending = false; onPendingAction(action) }, modifier = Modifier.align(Alignment.End)) { Text(if (action.cause == "failed") "Revisar" else "Subir") }
                         }
-                    }
-                }, confirmButton = { TextButton(onClick = { showPending = false }) { Text("Listo") } })
+                    } }
+                }
+            }
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SubscribersTile(data: DashboardFollowersDto, expanded: Boolean, onToggle: () -> Unit) {
-    val fraction by animateFloatAsState(if (expanded) 1f else 1f / 3f, tween(350), label = "subscriberWidth")
+    val accessible = androidx.compose.ui.platform.LocalDensity.current.fontScale >= 1.4f
+    val fraction by animateFloatAsState(if (expanded || accessible) 1f else 1f / 3f, tween(350), label = "subscriberWidth")
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val fullWidth = maxWidth
         Surface(
@@ -189,15 +170,15 @@ private fun SubscribersTile(data: DashboardFollowersDto, expanded: Boolean, onTo
             shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         ) {
-            Row(Modifier.animateContentSize(tween(350)).padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.width(fullWidth / 3).padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            FlowRow(Modifier.requiredWidth(fullWidth).animateContentSize(tween(350)).padding(vertical = 16.dp)) {
+                Column(Modifier.width(if (accessible) fullWidth else fullWidth / 3).padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Suscriptores", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(data.total?.let { if (it >= 1_000_000) formatCreatorMetric(it) else NumberFormat.getIntegerInstance(Locale("es")).format(it) } ?: "—", fontWeight = FontWeight.Bold, fontSize = 22.sp, maxLines = 1, softWrap = false,
                         modifier = Modifier.semantics { contentDescription = data.total?.toString() ?: "Sin datos" })
                     if (data.partial) Text(if (data.total == null) "Sin datos" else "Total parcial", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 AnimatedVisibility(expanded, enter = fadeIn(tween(350)) + slideInHorizontally(tween(350)) { it / 2 }, exit = fadeOut(tween(180)) + slideOutHorizontally(tween(250)) { it / 2 }) {
-                    Column(Modifier.width(fullWidth * 2 / 3).padding(start = 4.dp, end = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Column(Modifier.width(if (accessible) fullWidth else fullWidth * 2 / 3).padding(start = 12.dp, end = 12.dp, top = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         data.platforms.forEach { item ->
                             Column {
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -242,14 +223,14 @@ private fun WeekCell(label: String, value: String, detail: String, modifier: Mod
     Column(modifier.heightIn(min = 92.dp).padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, fontSize = 23.sp, fontWeight = FontWeight.Bold, color = if (pending) orange else MaterialTheme.colorScheme.onSurface)
-        Text(detail, style = MaterialTheme.typography.labelSmall, color = if (pending) orange else MaterialTheme.colorScheme.onSurfaceVariant)
+        if (detail.isNotBlank()) Text(detail, style = MaterialTheme.typography.labelSmall, color = if (pending) orange else MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
 private fun LatestRow(platform: String, video: DashboardVideoDto?, onVideo: (DashboardVideoDto) -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(enabled = video != null, role = Role.Button) { video?.let(onVideo) }.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Box(Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(64.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
             if (!video?.thumbnail.isNullOrBlank()) AsyncImage(video?.thumbnail, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -257,11 +238,11 @@ private fun LatestRow(platform: String, video: DashboardVideoDto?, onVideo: (Das
             if (video != null) Text("${if (video.metricsAvailable == false) "Vistas pendientes" else "${formatCreatorMetric(video.views)} vistas"} · ${relativeTime(video.publishedAt)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Icon(when (platform) { "youtube" -> PlatformIcons.YoutubeLogo; "instagram" -> PlatformIcons.InstagramLogo; else -> PlatformIcons.TiktokLogo },
-            contentDescription = platformName(platform), modifier = Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+            contentDescription = platformName(platform), modifier = Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (video != null) Text("›", fontSize = 24.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
-private fun platformName(value: String) = when (value) { "youtube" -> "YouTube"; "instagram" -> "Instagram"; "tiktok" -> "TikTok"; else -> value }
 private fun viewsUnavailableDetail(status: String?) = when (status) {
     "collecting_history" -> "Creando historial"
     "reconnect" -> "Revisa las conexiones"
@@ -269,7 +250,3 @@ private fun viewsUnavailableDetail(status: String?) = when (status) {
     "unavailable" -> "Datos no disponibles"
     else -> "Sin historial semanal"
 }
-private fun relativeTime(value: String?): String = runCatching {
-    val seconds = Duration.between(Instant.parse(value), Instant.now()).seconds.coerceAtLeast(0)
-    when { seconds < 60 -> "ahora"; seconds < 3600 -> "hace ${seconds / 60} min"; seconds < 86400 -> "hace ${seconds / 3600} h"; else -> "hace ${seconds / 86400} d" }
-}.getOrDefault("fecha no disponible")

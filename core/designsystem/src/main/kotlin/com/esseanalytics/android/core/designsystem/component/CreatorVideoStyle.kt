@@ -32,9 +32,11 @@ object CreatorVideoStyle {
 
 fun formatCreatorMetric(value: Long): String {
     val decimal = DecimalFormat("0.#", DecimalFormatSymbols(Locale("es")))
+    val magnitude = kotlin.math.abs(value.toDouble())
+    val prefix = if (value < 0) "-" else ""
     return when {
-        value >= 1_000_000 -> "${decimal.format(value / 1_000_000.0)}M"
-        value >= 1_000 -> "${decimal.format(value / 1_000.0)}k"
+        magnitude >= 1_000_000 -> "$prefix${decimal.format(magnitude / 1_000_000.0)}M"
+        magnitude >= 1_000 -> "$prefix${decimal.format(magnitude / 1_000.0)}k"
         else -> NumberFormat.getIntegerInstance(Locale("es")).format(value)
     }
 }

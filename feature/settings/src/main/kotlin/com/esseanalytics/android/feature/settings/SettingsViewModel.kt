@@ -46,16 +46,6 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { _isLabMode.value = labModeStatus.isActive() }
     }
 
-    val colorTheme: StateFlow<String> = settingsStore.colorTheme
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "rojo")
-
-    val dashboardStyle = settingsStore.dashboardStyle
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "current")
-
-    fun setDashboardStyle(value: String) {
-        viewModelScope.launch { settingsStore.setDashboardStyle(value) }
-    }
-
     val workflowMode: StateFlow<WorkflowMode> = settingsStore.workflowMode
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkflowMode.SIMPLE)
 
@@ -81,9 +71,6 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun setColorTheme(value: String) {
-        viewModelScope.launch { settingsStore.setColorTheme(value) }
-    }
 
     fun setWorkflowMode(mode: WorkflowMode) {
         viewModelScope.launch { settingsStore.setWorkflowMode(mode) }

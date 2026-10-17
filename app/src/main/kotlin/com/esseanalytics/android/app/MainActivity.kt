@@ -20,7 +20,6 @@ import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.network.CatalogRegistrationOutbox
 import com.esseanalytics.android.core.network.HistoryOutbox
-import com.esseanalytics.android.core.designsystem.theme.EsseAnalyticsColorTheme
 import com.esseanalytics.android.core.designsystem.theme.EsseAnalyticsTheme
 import com.esseanalytics.android.feature.auth.AuthRepository
 import dagger.hilt.android.AndroidEntryPoint
@@ -104,14 +103,7 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            val colorThemeRaw by settingsStore.colorTheme.collectAsState(initial = "rojo")
-            val colorTheme = when (colorThemeRaw) {
-                "ambar" -> EsseAnalyticsColorTheme.AMBAR
-                "morado" -> EsseAnalyticsColorTheme.MORADO
-                else -> EsseAnalyticsColorTheme.ROJO
-            }
-
-            EsseAnalyticsTheme(colorTheme = colorTheme) {
+            EsseAnalyticsTheme {
                 EsseAnalyticsNavHost(
                     pendingImportUris = pendingImportUris,
                     onPendingImportUrisConsumed = { pendingImportUris = emptyList() },

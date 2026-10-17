@@ -259,13 +259,6 @@ private fun HistoryRow(item: UploadHistoryItemDto) {
     }
 }
 
-private fun platformColor(platform: String): Color = when (platform) {
-    "youtube" -> YoutubeRed
-    "instagram" -> InstagramPurple
-    "tiktok" -> TiktokPink
-    "facebook" -> FacebookBlue
-    else -> Color.Gray
-}
 
 private fun platformIcon(platform: String): ImageVector? = when (platform) {
     "youtube" -> PlatformIcons.YoutubeLogo

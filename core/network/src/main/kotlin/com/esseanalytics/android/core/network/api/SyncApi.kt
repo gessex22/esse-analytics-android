@@ -38,6 +38,22 @@ import retrofit2.http.Part
 // Cubre lo que necesita el MVP (Calendario básico + Estadísticas + Sync de
 // Fase 2). Mismos endpoints que ya consume frontend/src/components/SyncPanel.tsx.
 interface SyncApi {
+    @GET("api/sync/weekly-stats")
+    @retrofit2.http.Headers("Cache-Control: no-cache")
+    suspend fun getWeeklyStats(
+        @Query("timeZone") timeZone: String,
+        @Query("limit") limit: Int = 12,
+    ): com.esseanalytics.android.core.network.dto.WeeklyStatsResponseDto
+
+    @GET("api/sync/video-detail")
+    @retrofit2.http.Headers("Cache-Control: no-cache")
+    suspend fun getVideoDetail(
+        @Query("platform") platform: String? = null,
+        @Query("platformId") platformId: String? = null,
+        @Query("fileId") fileId: String? = null,
+        @Query("fileName") fileName: String? = null,
+    ): GroupStatsItemDto
+
     @GET("api/sync/dashboard-summary")
     @retrofit2.http.Headers("Cache-Control: no-cache")
     suspend fun getDashboardSummary(@Query("timeZone") timeZone: String): com.esseanalytics.android.core.network.dto.DashboardSummaryDto
@@ -89,6 +105,7 @@ interface SyncApi {
         @Query("limit") limit: Int = 30,
         @Query("offset") offset: Int = 0,
         @Query("platform") platform: String? = null,
+        @Query("includeStats") includeStats: Boolean? = null,
     ): UploadHistoryResponse
 
     @GET("api/sync/stats")

@@ -16,12 +16,12 @@ data class CatalogDisplayNameResponseDto(val displayName: String, val revision: 
 @Serializable
 data class GroupStatsSlotDto(
     val platformId: String,
-    val platformUrl: String,
-    val title: String,
-    val thumbnail: String,
-    val views: Int,
-    val likes: Int,
-    val comments: Int,
+    val platformUrl: String? = null,
+    val title: String? = null,
+    val thumbnail: String? = null,
+    val views: Long,
+    val likes: Long,
+    val comments: Long,
 )
 
 @Serializable
@@ -37,6 +37,11 @@ data class GroupStatsItemDto(
     // commit "Corrige congelamiento... optimiza rendimiento de red").
     val remoteLibraryVideoId: String? = null,
     val thumbnailStoredFileName: String? = null,
+    val title: String? = null,
+    val contentId: String? = null,
+    val metricsAvailable: Boolean? = null,
+    val metricsPartial: Boolean? = null,
+    val last24Hours: VideoDailyGainDto? = null,
 )
 
 @Serializable
@@ -60,6 +65,7 @@ data class UploadHistoryItemDto(
     val operationId: String? = null,
     // Identidad canónica de contenido devuelta por la Central; eventos antiguos y Lab pueden omitirla.
     val contentId: String? = null,
+    val stats: GroupStatsItemDto? = null,
 )
 
 @Serializable

@@ -827,7 +827,7 @@ internal fun LibraryStudioPlatformBadge(platform: Platform, state: PlatformBadge
     val tint = if (state == PlatformBadgeState.PUBLISHED) {
         libraryStudioPlatformColor(platform)
     } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
+        com.esseanalytics.android.core.designsystem.theme.studioPendingColor()
     }
     val surfaceColor = MaterialTheme.colorScheme.surface
     Box(
@@ -867,8 +867,8 @@ private fun libraryStudioPlatformIcon(platform: Platform): ImageVector? = when (
     else -> platformIcon(platform)
 }
 
-private fun libraryStudioPlatformColor(platform: Platform): Color =
-    if (platform == Platform.FACEBOOK) Color(0xFF1877F2) else platformColor(platform)
+@Composable
+private fun libraryStudioPlatformColor(platform: Platform): Color = platformColor(platform)
 
 @Composable
 private fun DeleteItemDialog(item: LibraryListItem, onConfirm: () -> Unit, onDismiss: () -> Unit) {
@@ -902,12 +902,8 @@ internal enum class PlatformBadgeState { PUBLISHED, DISCARDED, PENDING }
 
 // internal, no private -- VideoDetailSheet.kt (editor manual de plataformas/
 // links) las reusa para no duplicar la paleta de marca.
-internal fun platformColor(platform: Platform): Color = when (platform) {
-    Platform.YOUTUBE -> YoutubeRed
-    Platform.INSTAGRAM -> InstagramPurple
-    Platform.TIKTOK -> TiktokPink
-    Platform.FACEBOOK -> Color.Gray
-}
+@Composable
+internal fun platformColor(platform: Platform): Color = com.esseanalytics.android.core.designsystem.theme.studioPlatformColor(platform.apiValue)
 
 internal fun platformShortLabel(platform: Platform): String = when (platform) {
     Platform.YOUTUBE -> "YT"

@@ -1,5 +1,6 @@
 package com.esseanalytics.android.feature.calendar
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.ScrollState
@@ -120,6 +121,7 @@ fun CalendarScreen(
     viewModel: CalendarViewModel = hiltViewModel(),
     username: String = "",
     onProfileClick: () -> Unit = {},
+    onVideoClick: (UploadHistoryItemDto) -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsState()
     val publishedThumbnails by viewModel.publishedThumbnails.collectAsState()
@@ -141,6 +143,7 @@ fun CalendarScreen(
         state = state,
         username = username,
         onProfileClick = onProfileClick,
+        onVideoClick = onVideoClick,
         onRefresh = refresh,
         onDiscard = viewModel::discardNext,
         publishedThumbnails = publishedThumbnails,
@@ -205,6 +208,7 @@ internal fun CalendarStudioContent(
     state: CalendarUiState,
     username: String = "",
     onProfileClick: () -> Unit = {},
+    onVideoClick: (UploadHistoryItemDto) -> Unit = {},
     onRefresh: () -> Unit = {},
     onDiscard: (CalendarSlot) -> Unit = {},
     today: LocalDate = LocalDate.now(),
@@ -385,6 +389,7 @@ internal fun CalendarStudioContent(
                                             key(group.identity) {
                                                 PublishedEventRow(
                                                     group = group,
+                                                    onClick = { onVideoClick(group.thumbnailEvent) },
                                                     sources = publishedThumbnails[publishedThumbnailKey(group.thumbnailEvent)],
                                                     onBoundsChanged = { rowBounds ->
                                                         group.events.forEach { event ->
@@ -625,6 +630,7 @@ private fun PendingVideoRow(group: PendingVideoGroup, today: LocalDate, onDiscar
 @OptIn(ExperimentalLayoutApi::class)
 private fun PublishedEventRow(
     group: PublishedHistoryGroup,
+    onClick: () -> Unit,
     sources: PublishedThumbnailSources?,
     onBoundsChanged: (Rect?) -> Unit,
 ) {
@@ -635,7 +641,7 @@ private fun PublishedEventRow(
         ?: group.thumbnailEvent.fileName
         ?: "Título no disponible"
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).onGloballyPositioned { coordinates ->
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 8.dp).onGloballyPositioned { coordinates ->
             val rowBounds = coordinates.boundsInWindow()
             onBoundsChanged(rowBounds)
         },
@@ -986,13 +992,8 @@ private fun platformIcon(key: String): ImageVector? = when (key) {
     "facebook" -> PlatformIcons.FacebookLogo
     else -> null
 }
-private fun platformColor(key: String): Color = when (key) {
-    "youtube" -> YoutubeRed
-    "instagram" -> InstagramPurple
-    "tiktok" -> TiktokPink
-    "facebook" -> FacebookBlue
-    else -> Color.Gray
-}
+@Composable
+private fun platformColor(key: String): Color = com.esseanalytics.android.core.designsystem.theme.studioPlatformColor(key)
 private fun safeErrorMessage(message: String): String = message
     .replace(Regex("(?i)bearer\\s+[a-z0-9._~+/-]+=*"), "Bearer [oculto]")
     .replace(Regex("(?i)(token|authorization|secret)(\\s*[:=]\\s*)[^\\s,;]+")) { match ->

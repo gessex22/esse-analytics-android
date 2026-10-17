@@ -3,7 +3,6 @@ package com.esseanalytics.android.app
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.esseanalytics.android.core.datastore.RefreshActivityTracker
-import com.esseanalytics.android.core.datastore.SettingsStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -19,10 +18,7 @@ import javax.inject.Inject
 @HiltViewModel
 class TopBarViewModel @Inject constructor(
     tracker: RefreshActivityTracker,
-    settingsStore: SettingsStore,
 ) : ViewModel() {
-    val dashboardStyle = settingsStore.dashboardStyle
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "current")
     val isAnyRefreshing: StateFlow<Boolean> = tracker.activeKeys
         .map { it.isNotEmpty() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
