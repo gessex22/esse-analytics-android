@@ -1,14 +1,9 @@
 package com.esseanalytics.android.feature.stats
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -114,8 +109,10 @@ internal fun DashboardContent(
                                             state.data.week.viewsDeltaPercent?.let { "${if (it >= 0) "+" else ""}${NumberFormat.getNumberInstance(Locale("es")).format(it)}% vs anterior" }
                                                 ?: if (state.data.week.views == null) viewsUnavailableDetail(state.data.week.viewsStatus) else "Sin comparativa", Modifier.weight(1f))
                                         val pending = state.data.pending
-                                        WeekCell("Pendientes para hoy", pending?.let { if (it.total == 0) "Al día" else formatCreatorMetric(it.total.toLong()) } ?: "—",
-                                            "", Modifier.weight(1f).clickable(enabled = pending != null, role = Role.Button) { showPending = true }, (pending?.total ?: 0) > 0)
+                                        val calendarCount = pending?.items?.size
+                                        WeekCell("Calendario · hoy", calendarCount?.let { if (it == 0) "Al día" else formatCreatorMetric(it.toLong()) } ?: "—",
+                                            "", Modifier.weight(1f).clickable(enabled = pending != null, role = Role.Button) { showPending = true }, (calendarCount ?: 0) > 0,
+                                            success = calendarCount == 0)
                                     }
                                     if (state.data.week.views != null && state.data.week.viewsEstimated) Text("Vistas estimadas · observación diaria", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp))
                                     else if (state.data.week.viewsStatus == "collecting_history") Text("Estamos guardando el historial para calcular las vistas recibidas desde el inicio de la semana.", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp))
@@ -141,14 +138,12 @@ internal fun DashboardContent(
         if (showPending && pendingDetail != null) {
             ModalBottomSheet(onDismissRequest = { showPending = false }, containerColor = colors.background) {
                 LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    item { Text("Pendientes para hoy", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
-                    if (pendingDetail.total == 0) item { Text("Estás al día.") }
-                    else if (pendingDetail.actions.isEmpty()) item { Text("El servidor necesita actualizarse para mostrar el detalle de pendientes.", color = colors.onSurfaceVariant) }
-                    pendingDetail.actions.forEach { action -> item(action.id) {
+                    item { Text("Publicaciones de hoy", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
+                    if (pendingDetail.items.isEmpty()) item { Text("No hay publicaciones pendientes para hoy.") }
+                    pendingDetail.items.forEach { calendarItem -> item("${calendarItem.platform}:${calendarItem.fileId}") {
                         StatsCard {
-                            Text(action.title.ifBlank { action.fileName }, fontWeight = FontWeight.SemiBold)
-                            Text(action.causeText(), style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
-                            TextButton(onClick = { showPending = false; onPendingAction(action) }, modifier = Modifier.align(Alignment.End)) { Text(if (action.cause == "failed") "Revisar" else "Subir") }
+                            Text(calendarItem.title, fontWeight = FontWeight.SemiBold)
+                            Text("${platformName(calendarItem.platform)} · ${if (calendarItem.overdue) "Atrasada desde" else "Programada para"} ${calendarItem.dueDate}", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                         }
                     } }
                 }
@@ -157,47 +152,61 @@ internal fun DashboardContent(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SubscribersTile(data: DashboardFollowersDto, expanded: Boolean, onToggle: () -> Unit) {
     val accessible = androidx.compose.ui.platform.LocalDensity.current.fontScale >= 1.4f
-    val fraction by animateFloatAsState(if (expanded || accessible) 1f else 1f / 3f, tween(350), label = "subscriberWidth")
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val fullWidth = maxWidth
-        Surface(
-            onClick = onToggle,
-            modifier = Modifier.fillMaxWidth(fraction).semantics { stateDescription = if (expanded) "Expandido. Toca para contraer" else "Contraído. Toca para ver plataformas" },
-            shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        ) {
-            FlowRow(Modifier.requiredWidth(fullWidth).animateContentSize(tween(350)).padding(vertical = 16.dp)) {
-                Column(Modifier.width(if (accessible) fullWidth else fullWidth / 3).padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Suscriptores", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(data.total?.let { if (it >= 1_000_000) formatCreatorMetric(it) else NumberFormat.getIntegerInstance(Locale("es")).format(it) } ?: "—", fontWeight = FontWeight.Bold, fontSize = 22.sp, maxLines = 1, softWrap = false,
-                        modifier = Modifier.semantics { contentDescription = data.total?.toString() ?: "Sin datos" })
-                    if (data.partial) Text(if (data.total == null) "Sin datos" else "Total parcial", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                AnimatedVisibility(expanded, enter = fadeIn(tween(350)) + slideInHorizontally(tween(350)) { it / 2 }, exit = fadeOut(tween(180)) + slideOutHorizontally(tween(250)) { it / 2 }) {
-                    Column(Modifier.width(if (accessible) fullWidth else fullWidth * 2 / 3).padding(start = 12.dp, end = 12.dp, top = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        data.platforms.forEach { item ->
-                            Column {
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text(platformName(item.platform), style = MaterialTheme.typography.labelMedium)
-                                    CountUp(item.count)
-                                }
-                                Text(item.weeklyGain?.let { "${if (it >= 0) "+" else ""}${formatCreatorMetric(it)} esta semana" } ?: when (item.status) {
-                                    "reconnect" -> if (item.platform == "tiktok") "Autoriza estadísticas en Ajustes" else "Reconectar en Ajustes"
-                                    "disconnected" -> "Sin conectar"
-                                    "syncing" -> "Sincronizando…"
-                                    "unavailable" -> "No disponible"
-                                    else -> "Sin historial semanal"
-                                }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
+    val expandedForLayout = expanded
+    val fraction = if (expandedForLayout || accessible) 1f else 1f / 3f
+    Surface(
+        onClick = onToggle,
+        modifier = Modifier.fillMaxWidth(fraction).semantics { stateDescription = if (expandedForLayout) "Expandido. Toca para contraer" else "Contraído. Toca para ver plataformas" },
+        shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        if (accessible) {
+            Column(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
+                SubscriberSummary(data, Modifier.fillMaxWidth().padding(horizontal = 10.dp))
+                if (expandedForLayout) {
+                    Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        data.platforms.forEach { item -> SubscriberPlatform(item) }
                     }
                 }
             }
+        } else if (expandedForLayout) Row(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
+            SubscriberSummary(data, Modifier.weight(1f).padding(horizontal = 10.dp))
+            Column(Modifier.weight(2f).padding(start = 12.dp, end = 12.dp, top = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                data.platforms.forEach { item -> SubscriberPlatform(item) }
+            }
+        } else {
+            SubscriberSummary(data, Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 16.dp))
         }
+    }
+}
+
+@Composable
+private fun SubscriberSummary(data: DashboardFollowersDto, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Suscriptores", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(data.total?.let { if (it >= 1_000_000) formatCreatorMetric(it) else NumberFormat.getIntegerInstance(Locale("es")).format(it) } ?: "—", fontWeight = FontWeight.Bold, fontSize = 22.sp, maxLines = 1, softWrap = false,
+            modifier = Modifier.semantics { contentDescription = data.total?.toString() ?: "Sin datos" })
+        if (data.partial) Text(if (data.total == null) "Sin datos" else "Total parcial", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun SubscriberPlatform(item: DashboardFollowerDto) {
+    Column {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(platformName(item.platform), style = MaterialTheme.typography.labelMedium)
+            CountUp(item.count)
+        }
+        Text(item.weeklyGain?.let { "${if (it >= 0) "+" else ""}${formatCreatorMetric(it)} esta semana" } ?: when (item.status) {
+            "reconnect" -> if (item.platform == "tiktok") "Autoriza estadísticas en Ajustes" else "Reconectar en Ajustes"
+            "disconnected" -> "Sin conectar"
+            "syncing" -> "Sincronizando…"
+            "unavailable" -> "No disponible"
+            else -> "Sin historial semanal"
+        }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -218,11 +227,14 @@ private fun DashboardCard(content: @Composable ColumnScope.() -> Unit) {
 private fun SectionTitle(title: String) { Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
 
 @Composable
-private fun WeekCell(label: String, value: String, detail: String, modifier: Modifier, pending: Boolean = false) {
+private fun WeekCell(label: String, value: String, detail: String, modifier: Modifier, pending: Boolean = false, success: Boolean = false) {
     val orange = if (androidx.compose.foundation.isSystemInDarkTheme()) androidx.compose.ui.graphics.Color(0xFFFF9F0A) else androidx.compose.ui.graphics.Color(0xFFAD4E00)
     Column(modifier.heightIn(min = 92.dp).padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, fontSize = 23.sp, fontWeight = FontWeight.Bold, color = if (pending) orange else MaterialTheme.colorScheme.onSurface)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            if (success) Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            Text(value, fontSize = 23.sp, fontWeight = FontWeight.Bold, color = if (pending) orange else MaterialTheme.colorScheme.onSurface)
+        }
         if (detail.isNotBlank()) Text(detail, style = MaterialTheme.typography.labelSmall, color = if (pending) orange else MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

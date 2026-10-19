@@ -73,6 +73,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -83,6 +85,10 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.core.view.WindowCompat
 import androidx.navigation.NavDestination
@@ -95,7 +101,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.esseanalytics.android.core.designsystem.component.CreatorBottomNav
 import com.esseanalytics.android.core.designsystem.component.CreatorNavItem
 import com.esseanalytics.android.core.designsystem.theme.CreatorHomeTheme
 import com.esseanalytics.android.core.datastore.AuthState
@@ -155,8 +160,6 @@ private val bottomDestinations = listOf(
     BottomDestination(Routes.MORE, "Más", Icons.Outlined.MoreHoriz),
 )
 
-private val floatingMainDestinations = bottomDestinations.filter { it.route != Routes.MORE }
-
 // Diagnóstico real en dispositivo (OPPO CPH2565, ver
 // UIEssePanel/PLAN_SWIPE_Y_CARGA_SUAVE.md): 220ms de fade+slide en TODA
 // navegación compositaba dos pantallas completas a la vez en cada cambio de
@@ -197,37 +200,6 @@ private fun NavHostController.openStatsVideo(videoKey: String) {
     currentBackStackEntry?.savedStateHandle?.let { state ->
         state["statsVideoKey"] = videoKey
         state["statsVideoRequest"] = (state.get<Long>("statsVideoRequest") ?: 0L) + 1L
-    }
-}
-
-@Composable
-private fun FloatingBottomNavigation(
-    currentDestination: NavDestination?,
-    onDestinationClick: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val selectedRoute = bottomDestinations.firstOrNull { destination ->
-        currentDestination?.hierarchy?.any { it.route.matchesDestination(destination.route) } == true
-    }?.route
-    CreatorHomeTheme {
-        CreatorBottomNav(
-            items = floatingMainDestinations.map { destination ->
-                CreatorNavItem(
-                    route = destination.route,
-                    label = when (destination.route) {
-                        Routes.CALENDAR -> "Agenda"
-                        Routes.STATS -> "Datos"
-                        else -> destination.label
-                    },
-                    icon = destination.icon,
-                )
-            },
-            selectedRoute = selectedRoute,
-            createRoute = Routes.UPLOAD,
-            moreRoute = Routes.MORE,
-            onNavigate = onDestinationClick,
-            modifier = modifier,
-        )
     }
 }
 
@@ -320,6 +292,8 @@ private fun MainAppScaffold(
     // qué tab está parado el usuario cuando suelta el gesto.
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
+    val navigationBackdrop = rememberGraphicsLayer()
+    var navigationBackdropOrigin by remember { mutableStateOf(Offset.Zero) }
     // All destinations now share Studio and follow system appearance.
     val homeUsesLightColors = !isSystemInDarkTheme()
     val hostActivity = LocalContext.current.hostActivity()
@@ -392,7 +366,7 @@ private fun MainAppScaffold(
         },
         // Bug real reportado 2026-09-01: la cápsula flotante quedaba mucho
         // más separada del borde inferior de lo que su propio
-        // .navigationBarsPadding() (en FloatingBottomNavigation, más abajo)
+        // .navigationBarsPadding() (en AppleStyleBottomNavigation, más abajo)
         // pedía. Causa: el default de Scaffold (contentWindowInsets =
         // WindowInsets.safeDrawing) YA reserva el alto de la barra de
         // navegación del sistema en `padding` -- que acá se aplica al Box
@@ -420,7 +394,14 @@ private fun MainAppScaffold(
         // Box para permitir que el bottom nav flote SOBRE el contenido (Overlay real).
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             // Contenido principal en una Column para el banner y el NavHost.
-            Column(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier.fillMaxSize()
+                    .onGloballyPositioned { navigationBackdropOrigin = it.positionInRoot() }
+                    .drawWithContent {
+                        navigationBackdrop.record { this@drawWithContent.drawContent() }
+                        drawContent()
+                    },
+            ) {
                 if (isLabMode) LabModeBanner()
                 NavHost(
                     navController = navController,
@@ -574,13 +555,21 @@ private fun MainAppScaffold(
                     }
                 }
             }
-            // Overlay real, no bottomBar de Scaffold: el contenido queda por
-            // debajo y los huecos alrededor de la cápsula son transparentes.
-            if (currentDestination?.route?.startsWith(Routes.VIDEO_DETAIL) != true) FloatingBottomNavigation(
-                currentDestination = currentDestination,
-                onDestinationClick = navController::navigateToMainTab,
-                modifier = Modifier.align(Alignment.BottomCenter),
-            )
+            // Barra translúcida con el aspecto Apple usado en la primera
+            // variante, ahora compartida por todas las pestañas principales.
+            if (currentDestination?.route?.startsWith(Routes.VIDEO_DETAIL) != true) {
+                val selectedRoute = bottomDestinations.firstOrNull { destination ->
+                    currentDestination?.hierarchy?.any { it.route.matchesDestination(destination.route) } == true
+                }?.route
+                AppleStyleBottomNavigation(
+                    items = bottomDestinations.map { CreatorNavItem(it.route, it.label, it.icon) },
+                    selectedRoute = selectedRoute,
+                    onNavigate = navController::navigateToMainTab,
+                    backdrop = navigationBackdrop,
+                    backdropOrigin = navigationBackdropOrigin,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
+            }
         }
     }
 }
