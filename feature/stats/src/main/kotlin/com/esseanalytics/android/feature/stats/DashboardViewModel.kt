@@ -3,6 +3,7 @@ package com.esseanalytics.android.feature.stats
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.esseanalytics.android.core.datastore.RefreshActivityTracker
+import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.network.CausalPlatformOutbox
 import com.esseanalytics.android.core.network.HistoryOutbox
@@ -17,6 +18,8 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
+import java.security.MessageDigest
 import java.time.ZoneId
 import java.io.IOException
 import retrofit2.HttpException
@@ -24,7 +27,7 @@ import javax.inject.Inject
 
 sealed interface DashboardUiState {
     data object Loading : DashboardUiState
-    data class Success(val data: DashboardSummaryDto, val isRefreshing: Boolean = false, val refreshError: String? = null, val compatibilityMode: Boolean = false) : DashboardUiState
+    data class Success(val data: DashboardSummaryDto, val isRefreshing: Boolean = false, val refreshError: String? = null, val compatibilityMode: Boolean = false, val viewsIncrease: Long? = null) : DashboardUiState
     data class Error(val message: String) : DashboardUiState
 }
 
@@ -32,6 +35,7 @@ sealed interface DashboardUiState {
 class DashboardViewModel @Inject constructor(
     private val syncRepository: SyncRepository,
     private val tokenStore: TokenStore,
+    private val settingsStore: SettingsStore,
     private val refreshTracker: RefreshActivityTracker,
     private val historyOutbox: HistoryOutbox,
     private val platformUpdateOutbox: PlatformUpdateOutbox,
@@ -62,7 +66,24 @@ class DashboardViewModel @Inject constructor(
                 val result = syncRepository.getDashboardSummary(ZoneId.systemDefault().id)
                 currentCoroutineContext().ensureActive()
                 if (requestedGeneration != generation) return@launch
-                _uiState.value = if (requestedSession != tokenStore.token) DashboardUiState.Error("La sesión cambió. Actualiza los datos.") else DashboardUiState.Success(result.data, compatibilityMode = result.compatibilityMode)
+                if (requestedSession != tokenStore.token) {
+                    _uiState.value = DashboardUiState.Error("La sesión cambió. Actualiza los datos.")
+                } else {
+                    val sessionUserId = tokenStore.currentSession()?.second
+                    val server = settingsStore.serverUrl.first().ifBlank { "https://api.esse-analytics.com" }
+                    val platforms = result.data.week.viewsPlatforms?.distinct()?.sorted()
+                    val views = result.data.week.views
+                    val canCompare = sessionUserId != null && platforms != null && platforms.isNotEmpty() && views != null && views >= 0 && result.data.week.viewsStatus == "ready"
+                    val baselineKey = if (canCompare) dashboardViewsKey(server, sessionUserId!!, result.data.week.start, platforms!!) else null
+                    val previousViews = baselineKey?.let { settingsStore.dashboardViewsBaseline(it) }
+                    if (requestedGeneration != generation || requestedSession != tokenStore.token) return@launch
+                    if (baselineKey != null && views != null) settingsStore.setDashboardViewsBaseline(baselineKey, views)
+                    _uiState.value = DashboardUiState.Success(
+                        result.data,
+                        compatibilityMode = result.compatibilityMode,
+                        viewsIncrease = previousViews?.let { views!! - it }?.takeIf { it > 0 },
+                    )
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -79,10 +100,15 @@ class DashboardViewModel @Inject constructor(
                 }
                 if (requestedGeneration != generation) return@launch
                 _uiState.value = if (requestedSession != tokenStore.token) DashboardUiState.Error("La sesión cambió. Actualiza los datos.")
-                    else previous?.copy(isRefreshing = false, refreshError = message) ?: DashboardUiState.Error(message)
+                    else previous?.copy(isRefreshing = false, refreshError = message, viewsIncrease = null) ?: DashboardUiState.Error(message)
             } finally {
                 if (generation == requestedGeneration) refreshTracker.setRefreshing("dashboard", false)
             }
         }
     }
+}
+
+private fun dashboardViewsKey(server: String, userId: String, weekStart: String, platforms: List<String>): String {
+    val source = listOf(server.trim().trimEnd('/'), userId, weekStart, platforms.joinToString(",")).joinToString("|")
+    return MessageDigest.getInstance("SHA-256").digest(source.toByteArray()).joinToString("") { "%02x".format(it) }
 }

@@ -5,6 +5,13 @@ plugins {
     alias(libs.plugins.androidx.baselineprofile)
 }
 
+// La app puede compilarse y usarse para inbox sin configuración Firebase.
+// Cuando el proyecto incluya google-services.json, activa la inicialización
+// estándar para FCM; no se guarda una configuración de cuenta en el código.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 android {
     namespace = "com.esseanalytics.android.app"
 
@@ -29,11 +36,14 @@ android {
 }
 
 dependencies {
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
     implementation(project(":core:model"))
     implementation(project(":core:common"))
     implementation(project(":core:database"))
     implementation(project(":core:network"))
     implementation(libs.retrofit.core)
+    implementation(libs.kotlinx.serialization.json)
     implementation(project(":core:datastore"))
     implementation(project(":core:designsystem"))
 

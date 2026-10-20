@@ -130,6 +130,11 @@ object NetworkModule {
 
     @Provides
     @Singleton
+    fun provideNotificationsApi(@CentralRetrofit retrofit: Retrofit): com.esseanalytics.android.core.network.api.NotificationsApi =
+        retrofit.create(com.esseanalytics.android.core.network.api.NotificationsApi::class.java)
+
+    @Provides
+    @Singleton
     fun provideRemoteLibraryApi(@CentralRetrofit retrofit: Retrofit): RemoteLibraryApi =
         retrofit.create(RemoteLibraryApi::class.java)
 

@@ -38,6 +38,12 @@ class SettingsStore @Inject constructor(
         context.dataStore.edit { it[KEY_WIFI_ONLY] = enabled }
     }
 
+    val notificationPushEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_NOTIFICATION_PUSH] ?: false }
+
+    suspend fun setNotificationPushEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_NOTIFICATION_PUSH] = enabled }
+    }
+
     val serverUrl: Flow<String> = context.dataStore.data.map { it[KEY_SERVER_URL] ?: "" }
 
     suspend fun setServerUrl(value: String) {
@@ -68,6 +74,14 @@ class SettingsStore @Inject constructor(
 
     suspend fun setColorTheme(value: String) {
         context.dataStore.edit { it[KEY_COLOR_THEME] = value }
+    }
+
+    suspend fun dashboardViewsBaseline(key: String): Long? = context.dataStore.data
+        .map { it[stringPreferencesKey("dashboard_views_$key")]?.toLongOrNull() }
+        .first()
+
+    suspend fun setDashboardViewsBaseline(key: String, value: Long) {
+        context.dataStore.edit { it[stringPreferencesKey("dashboard_views_$key")] = value.toString() }
     }
 
     // UUID persistido una sola vez — ≥16 chars, como pide POST /api/auth/link-install.
@@ -101,6 +115,7 @@ class SettingsStore @Inject constructor(
     private companion object {
         val KEY_WORKFLOW_MODE = stringPreferencesKey("workflow_mode")
         val KEY_WIFI_ONLY = booleanPreferencesKey("wifi_only_uploads")
+        val KEY_NOTIFICATION_PUSH = booleanPreferencesKey("notification_push_enabled")
         val KEY_SERVER_URL = stringPreferencesKey("server_url")
         val KEY_INSTALL_ID = stringPreferencesKey("install_id")
         val KEY_DELETE_ORIGINAL = booleanPreferencesKey("delete_original_after_import")

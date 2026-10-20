@@ -69,7 +69,7 @@ class UploadViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val fileRepository: FileRepository,
     private val platformTransitionRepository: PlatformTransitionRepository,
-    private val causalPlatformOutbox: CausalPlatformOutbox,
+    private val causalPlatformOutbox: CausalPlatforwmOutbox,
     private val settingsStore: SettingsStore,
     private val pendingBatchStore: PendingBatchStore,
     private val thumbnailGenerator: AndroidFrameThumbnailGenerator,

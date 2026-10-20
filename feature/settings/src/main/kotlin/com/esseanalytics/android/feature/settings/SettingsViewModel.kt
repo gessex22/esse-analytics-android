@@ -2,21 +2,26 @@ package com.esseanalytics.android.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.content.Context
+import androidx.core.app.NotificationManagerCompat
 import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.model.WorkflowMode
 import com.esseanalytics.android.core.model.Platform
 import com.esseanalytics.android.core.network.api.PlatformAuthApi
+import com.esseanalytics.android.core.network.api.NotificationsApi
 import com.esseanalytics.android.core.network.AuthEvent
 import com.esseanalytics.android.core.network.AuthEventBus
 import com.esseanalytics.android.core.network.LabModeStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 
 // Junta acá los settings que ya existían sueltos (workflowMode y
@@ -34,6 +39,8 @@ class SettingsViewModel @Inject constructor(
     private val authEventBus: AuthEventBus,
     private val labModeStatus: LabModeStatus,
     private val serverHealthChecker: ServerHealthChecker,
+    private val notificationsApi: NotificationsApi,
+    @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
     // Ver Core/Network/LabModeStatus.swift (iOS) -- mismo criterio, chequeo en
@@ -160,7 +167,15 @@ class SettingsViewModel @Inject constructor(
     // AuthState.LoggedOut dispara solo (TokenStore.authState) -- EsseAnalyticsNavHost
     // ya reacciona mostrando LoginScreen, no hace falta navegar a mano.
     fun logout() {
-        tokenStore.clear()
+        viewModelScope.launch {
+            // Bloquea inmediatamente cualquier FCM que llegue mientras se cierra la sesión.
+            settingsStore.setNotificationPushEnabled(false)
+            NotificationManagerCompat.from(appContext).cancelAll()
+            // DELETE usa la credencial actual; se espera un máximo corto para
+            // desvincular APNs/FCM antes de borrar la sesión local.
+            withTimeoutOrNull(2_500) { runCatching { notificationsApi.removeDevice(settingsStore.getOrCreateInstallId()) } }
+            tokenStore.clear()
+        }
     }
 }
 

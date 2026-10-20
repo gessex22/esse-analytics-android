@@ -114,6 +114,7 @@ internal fun DashboardContent(
                                             "", Modifier.weight(1f).clickable(enabled = pending != null, role = Role.Button) { showPending = true }, (calendarCount ?: 0) > 0,
                                             success = calendarCount == 0)
                                     }
+                                    if (state.viewsIncrease != null) Text("+${formatCreatorMetric(state.viewsIncrease)} vistas desde la última lectura válida", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp))
                                     if (state.data.week.views != null && state.data.week.viewsEstimated) Text("Vistas estimadas · observación diaria", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp))
                                     else if (state.data.week.viewsStatus == "collecting_history") Text("Estamos guardando el historial para calcular las vistas recibidas desde el inicio de la semana.", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp))
                                 }

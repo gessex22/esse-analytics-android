@@ -1,6 +1,7 @@
 package com.esseanalytics.android.app
 
 import android.app.Application
+import com.esseanalytics.android.app.notifications.NotificationChannels
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import coil.ImageLoader
@@ -24,6 +25,11 @@ import com.esseanalytics.android.core.network.ApiUsageReporter
 // startup) para que use ESTA config en vez de la que trae por defecto.
 @HiltAndroidApp
 class EsseAnalyticsApp : Application(), Configuration.Provider, ImageLoaderFactory {
+
+    override fun onCreate() {
+        super.onCreate()
+        NotificationChannels.ensure(this)
+    }
 
     @Inject
     lateinit var workerFactory: HiltWorkerFactory

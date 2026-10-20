@@ -60,6 +60,7 @@ class MainActivity : ComponentActivity() {
     )
 
     private var pendingImportUris by mutableStateOf<List<Uri>>(emptyList())
+    private var pendingNotificationTarget by mutableStateOf<String?>(null)
 
     // Último userId logueado visto por ESTA instancia de Activity -- se
     // reinicia solo en null en cada recreate()/proceso nuevo, nunca en un
@@ -107,6 +108,8 @@ class MainActivity : ComponentActivity() {
                 EsseAnalyticsNavHost(
                     pendingImportUris = pendingImportUris,
                     onPendingImportUrisConsumed = { pendingImportUris = emptyList() },
+                    pendingNotificationTarget = pendingNotificationTarget,
+                    onNotificationTargetConsumed = { pendingNotificationTarget = null },
                 )
             }
         }
@@ -133,6 +136,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIncomingIntent(intent: Intent) {
+        pendingNotificationTarget = (intent.getStringExtra(EXTRA_NOTIFICATION_TARGET)
+            ?: intent.getStringExtra("target")?.let { runCatching { org.json.JSONObject(it).optString("route") }.getOrNull() })
+            ?.takeIf { it in setOf("calendar", "history", "connections", "notifications") }
         val uris = when (intent.action) {
             Intent.ACTION_SEND -> listOfNotNull(intent.getStreamUri())
             Intent.ACTION_SEND_MULTIPLE -> intent.getStreamUriList()
@@ -163,4 +169,8 @@ class MainActivity : ComponentActivity() {
                 getParcelableArrayListExtra(Intent.EXTRA_STREAM)
             }
             ) ?: emptyList()
+
+    companion object {
+        const val EXTRA_NOTIFICATION_TARGET = "essenalytics.notificationTarget"
+    }
 }

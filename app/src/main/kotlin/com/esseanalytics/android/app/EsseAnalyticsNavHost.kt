@@ -146,6 +146,7 @@ private object Routes {
     const val SETTINGS = "settings"
     const val REMOTE_LIBRARY = "remote_library"
     const val HISTORY = "history"
+    const val NOTIFICATIONS = "notifications"
     const val VIDEO_DETAIL = "video_stats"
 }
 
@@ -207,6 +208,8 @@ private fun NavHostController.openStatsVideo(videoKey: String) {
 fun EsseAnalyticsNavHost(
     pendingImportUris: List<Uri> = emptyList(),
     onPendingImportUrisConsumed: () -> Unit = {},
+    pendingNotificationTarget: String? = null,
+    onNotificationTargetConsumed: () -> Unit = {},
     sessionViewModel: SessionViewModel = hiltViewModel(),
 ) {
     val authState by sessionViewModel.authState.collectAsState()
@@ -245,6 +248,8 @@ fun EsseAnalyticsNavHost(
                 navController,
                 pendingImportUris,
                 onPendingImportUrisConsumed,
+                    pendingNotificationTarget,
+                    onNotificationTargetConsumed,
                 isOwner = current.user.isOwner,
                 canUseCloudStorage = current.user.canUseCloudStorage,
                 username = current.user.username,
@@ -260,6 +265,8 @@ private fun MainAppScaffold(
     navController: NavHostController,
     pendingImportUris: List<Uri>,
     onPendingImportUrisConsumed: () -> Unit,
+    pendingNotificationTarget: String?,
+    onNotificationTargetConsumed: () -> Unit,
     isOwner: Boolean,
     canUseCloudStorage: Boolean,
     username: String,
@@ -272,6 +279,16 @@ private fun MainAppScaffold(
         if (pendingImportUris.isNotEmpty()) {
             navController.navigate(Routes.INGEST)
         }
+    }
+    LaunchedEffect(pendingNotificationTarget) {
+        when (pendingNotificationTarget) {
+            "calendar" -> navController.navigateToMainTab(Routes.CALENDAR)
+            "history" -> navController.navigate(Routes.HISTORY)
+            "connections" -> navController.navigate(Routes.SETTINGS)
+            "notifications" -> navController.navigate(Routes.NOTIFICATIONS)
+            null -> return@LaunchedEffect
+        }
+        onNotificationTargetConsumed()
     }
 
     // enterAlwaysScrollBehavior: la barra entera se oculta apenas empezás a
@@ -535,6 +552,18 @@ private fun MainAppScaffold(
                     composable(Routes.HISTORY) {
                         DetailScaffold("Historial", onBack = navController::popBackStack) { HistoryScreen() }
                     }
+                    composable(Routes.NOTIFICATIONS) {
+                        DetailScaffold("Notificaciones", onBack = navController::popBackStack) {
+                            NotificationsScreen(onOpenDestination = { destination ->
+                                when (destination) {
+                                    "calendar" -> navController.navigateToMainTab(Routes.CALENDAR)
+                                    "history" -> navController.navigate(Routes.HISTORY)
+                                    "connections" -> navController.navigate(Routes.SETTINGS)
+                                    "notifications" -> Unit
+                                }
+                            })
+                        }
+                    }
                     composable(Routes.USERS) {
                         DetailScaffold("Usuarios", onBack = navController::popBackStack) { UsersScreen() }
                     }
@@ -693,6 +722,7 @@ private fun MoreScreen(navController: NavHostController, isOwner: Boolean, canUs
         add(MoreStudioItem("Sincronización", Icons.Outlined.Sync) { navController.navigate(Routes.SYNC) })
         add(MoreStudioItem("Estadísticas", Icons.Outlined.QueryStats) { navController.navigate(Routes.STATS_DETAIL) })
         add(MoreStudioItem("Historial", Icons.Outlined.History) { navController.navigate(Routes.HISTORY) })
+        add(MoreStudioItem("Notificaciones", Icons.Outlined.Notifications) { navController.navigate(Routes.NOTIFICATIONS) })
         if (isOwner) add(MoreStudioItem("Usuarios", Icons.Outlined.PeopleOutline) { navController.navigate(Routes.USERS) })
         if (canUseCloudStorage) add(MoreStudioItem("Biblioteca remota", Icons.Outlined.CloudQueue) { navController.navigate(Routes.REMOTE_LIBRARY) })
         add(MoreStudioItem("Gemas", Icons.Outlined.Diamond) { navController.navigate(Routes.GEMS) })

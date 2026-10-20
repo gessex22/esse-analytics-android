@@ -24,6 +24,7 @@ data class DashboardFollowerDto(
 data class DashboardWeekDto(
     val start: String, val publications: Int?, val views: Long?, val viewsDeltaPercent: Double?, val viewsEstimated: Boolean = true,
     val viewsStatus: String? = null,
+    val viewsPlatforms: List<String>? = null,
 )
 
 @Serializable
