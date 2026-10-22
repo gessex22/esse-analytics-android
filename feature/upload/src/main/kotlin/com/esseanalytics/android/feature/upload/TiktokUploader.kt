@@ -19,7 +19,6 @@ import java.io.IOException
 import java.io.RandomAccessFile
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.math.ceil
 
 // TikTok Content Posting API v2, FILE_UPLOAD directo por chunks (NO
 // PULL_FROM_URL, que necesitaría un link público) -- mismo flujo que ya
@@ -37,15 +36,16 @@ class TiktokUploader @Inject constructor(
 
     override suspend fun upload(file: File, metadata: UploadMetadata, onProgress: (Float) -> Unit): UploadResult {
         return try {
+            val plan = TiktokUploadPlan(file.length())
             val tokenInfo = platformAuthApi.tiktokToken()
             val token = tokenInfo.access_token
 
             val init = withContext(Dispatchers.IO) {
-                initUpload(token, file, metadata)
+                initUpload(token, plan, metadata)
             } ?: return UploadResult.Failure("TikTok no devolvió una sesión de subida.", retryable = true)
 
             val uploaded = withContext(Dispatchers.IO) {
-                uploadChunks(init.uploadUrl, file, onProgress)
+                uploadChunks(init.uploadUrl, file, plan, onProgress)
             }
             if (!uploaded) {
                 return UploadResult.Failure("TikTok rechazó la subida de uno de los chunks.", retryable = true)
@@ -92,11 +92,7 @@ class TiktokUploader @Inject constructor(
         }
     }
 
-    private fun initUpload(token: String, file: File, metadata: UploadMetadata): TiktokInitResponseData? {
-        val videoSize = file.length()
-        val chunkSize = minOf(CHUNK_SIZE_BYTES, videoSize)
-        val totalChunks = ceil(videoSize.toDouble() / chunkSize).toInt().coerceAtLeast(1)
-
+    private fun initUpload(token: String, plan: TiktokUploadPlan, metadata: UploadMetadata): TiktokInitResponseData? {
         val body = json.encodeToString(
             TiktokInitRequest(
                 postInfo = TiktokInitRequest.PostInfo(
@@ -113,9 +109,9 @@ class TiktokUploader @Inject constructor(
                     videoCoverTimestampMs = metadata.thumbnailOffsetMs ?: 1000L,
                 ),
                 sourceInfo = TiktokInitRequest.SourceInfo(
-                    videoSize = videoSize,
-                    chunkSize = chunkSize,
-                    totalChunkCount = totalChunks,
+                    videoSize = plan.videoSize,
+                    chunkSize = plan.chunkSize,
+                    totalChunkCount = plan.totalChunks,
                 ),
             ),
         )
@@ -133,15 +129,10 @@ class TiktokUploader @Inject constructor(
         }
     }
 
-    private fun uploadChunks(uploadUrl: String, file: File, onProgress: (Float) -> Unit): Boolean {
-        val videoSize = file.length()
-        val chunkSize = minOf(CHUNK_SIZE_BYTES, videoSize)
-        val totalChunks = ceil(videoSize.toDouble() / chunkSize).toInt().coerceAtLeast(1)
-
+    private fun uploadChunks(uploadUrl: String, file: File, plan: TiktokUploadPlan, onProgress: (Float) -> Unit): Boolean {
         RandomAccessFile(file, "r").use { raf ->
-            for (chunkIndex in 0 until totalChunks) {
-                val start = chunkIndex * chunkSize
-                val end = minOf(start + chunkSize, videoSize) - 1
+            for (chunkIndex in 0 until plan.totalChunks) {
+                val (start, end) = plan.range(chunkIndex).let { it.first to it.last }
                 val length = (end - start + 1L).toInt()
                 val buffer = ByteArray(length)
                 raf.seek(start)
@@ -149,14 +140,14 @@ class TiktokUploader @Inject constructor(
 
                 val request = Request.Builder()
                     .url(uploadUrl)
-                    .addHeader("Content-Range", "bytes $start-$end/$videoSize")
+                    .addHeader("Content-Range", "bytes $start-$end/${plan.videoSize}")
                     .addHeader("Content-Type", "video/mp4")
                     .put(buffer.toRequestBody("video/mp4".toMediaType()))
                     .build()
 
                 val chunkSuccess = httpClient.newCall(request).execute().use { response -> response.isSuccessful }
                 if (!chunkSuccess) return false
-                onProgress((chunkIndex + 1).toFloat() / totalChunks)
+                onProgress((chunkIndex + 1).toFloat() / plan.totalChunks)
             }
         }
         return true
@@ -188,7 +179,6 @@ class TiktokUploader @Inject constructor(
         if (privacyStatus == "public") "PUBLIC_TO_EVERYONE" else "SELF_ONLY"
 
     private companion object {
-        const val CHUNK_SIZE_BYTES = 10L * 1024 * 1024 // 10MB, igual que desktop
         const val POLL_INTERVAL_MS = 5_000L
         const val MAX_POLL_ATTEMPTS = 60 // ~5 minutos
     }
