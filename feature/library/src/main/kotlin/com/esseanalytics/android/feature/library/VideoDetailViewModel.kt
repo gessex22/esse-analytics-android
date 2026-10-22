@@ -126,11 +126,15 @@ class VideoDetailViewModel @Inject constructor(
     // Biblioteca remota directo: el registro de historial lo produce la
     // confirmación causal del manual-platform-link del lado central.
     override fun saveLink(platform: Platform, rawUrl: String) {
+        val trimmed = rawUrl.trim()
+        if (trimmed.isNotEmpty() && !PlatformLinkResolver.isValid(platform, trimmed)) {
+            _errorMessage.value = PlatformLinkResolver.validationMessage(platform)
+            return
+        }
         val file = currentFile ?: return
         viewModelScope.launch {
             _isSaving.value = true
             _errorMessage.value = null
-            val trimmed = rawUrl.trim()
             val userKey = tokenStore.currentUser?.id
 
             if (trimmed.isEmpty()) {

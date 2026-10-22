@@ -134,12 +134,16 @@ class RemoteVideoEditViewModel @Inject constructor(
     }
 
     override fun saveLink(platform: Platform, rawUrl: String) {
+        val trimmed = rawUrl.trim()
+        if (trimmed.isNotEmpty() && !PlatformLinkResolver.isValid(platform, trimmed)) {
+            _errorMessage.value = PlatformLinkResolver.validationMessage(platform)
+            return
+        }
         val current = _video.value ?: return
         val session = requireCausalIdentity(current) ?: return
         viewModelScope.launch {
             _isSaving.value = true
             _errorMessage.value = null
-            val trimmed = rawUrl.trim()
 
             val enqueued = if (trimmed.isEmpty()) {
                 // Clear -> transición unlink; el badge vuelve a pendiente.
@@ -171,6 +175,7 @@ class RemoteVideoEditViewModel @Inject constructor(
                 )
                 _video.value = current.copy(
                     platforms = (current.platforms + platform.apiValue).distinct(),
+                    platformsDiscarded = current.platformsDiscarded.filter { it != platform.apiValue },
                     platformLinks = current.platformLinks.filter { it.platform != platform.apiValue } + link,
                 )
                 runCatching {

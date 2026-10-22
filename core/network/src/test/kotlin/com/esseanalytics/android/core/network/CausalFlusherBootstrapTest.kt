@@ -15,6 +15,31 @@ class CausalFlusherBootstrapTest {
     private val userKey = "user-1"
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
+    @Test
+    fun `enlace manual desde Nube conserva origen hasta el request causal`() = runTest {
+        val dao = FakeCausalPlatformDao()
+        val api = FakeSyncApi().apply {
+            resolveIdentityResponse = com.esseanalytics.android.core.network.dto.ResolveIdentityResponse(contentId = "existing-cloud-content")
+        }
+        dao.outbox += outboxRow(id = 1, platform = "instagram",
+            kind = com.esseanalytics.android.core.database.entity.PlatformTransitionOutboxEntity.KIND_LINK,
+            clientFileId = "download-id", remoteLibraryVideoId = "cloud-id", fileName = "old.mp4")
+            .copy(platformId = "IG123", platformUrl = "https://www.instagram.com/reel/IG123/")
+        val core = CausalIdentityResolution(api, dao, FakeFileDao(), FakeDeviceIdProvider())
+        val resolver = object : CausalIdentityResolver {
+            override suspend fun resolveContentId(userKey: String, remoteLibraryVideoId: String?, clientFileId: String?, fileName: String?) =
+                core.resolve(userKey, remoteLibraryVideoId, clientFileId, fileName)
+        }
+
+        CausalFlusher(dao, api, resolver, json).flush(userKey)
+
+        assertEquals("cloud-id", api.resolveIdentityRequests.single().remoteLibraryVideoId)
+        assertEquals("existing-cloud-content", api.linkRequests.single().contentId)
+        assertEquals("instagram", api.linkRequests.single().platform)
+        assertTrue(api.transitionRequests.isEmpty())
+        assertTrue(dao.outbox.isEmpty())
+    }
+
     // Resolver espía: registra con qué se lo llamó y no toca la red.
     private class RecordingResolver(private val contentIdByClientFileId: Map<String, String> = emptyMap()) :
         CausalIdentityResolver {

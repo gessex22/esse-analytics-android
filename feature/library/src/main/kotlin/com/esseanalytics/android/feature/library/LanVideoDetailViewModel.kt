@@ -69,12 +69,16 @@ class LanVideoDetailViewModel @Inject constructor(
     }
 
     override fun saveLink(platform: Platform, rawUrl: String) {
+        val trimmed = rawUrl.trim()
+        if (trimmed.isNotEmpty() && !PlatformLinkResolver.isValid(platform, trimmed)) {
+            _errorMessage.value = PlatformLinkResolver.validationMessage(platform)
+            return
+        }
         val item = currentItem ?: return
         val current = _video.value ?: return
         viewModelScope.launch {
             _isSaving.value = true
             _errorMessage.value = null
-            val trimmed = rawUrl.trim()
             runCatching {
                 val api = localBackendApiFactory.create(item.baseUrl)
                 val response = api.setPlatformLink(
@@ -83,6 +87,11 @@ class LanVideoDetailViewModel @Inject constructor(
                     LocalPcSetPlatformLinkRequest(trimmed.ifEmpty { null }),
                 )
                 if (!response.isSuccessful) error("Error ${response.code()}")
+                _video.value = current.copy(
+                    platforms = if (trimmed.isEmpty()) current.platforms.filter { it != platform.apiValue }
+                        else (current.platforms + platform.apiValue).distinct(),
+                    platformsDiscarded = current.platformsDiscarded.filter { it != platform.apiValue },
+                )
                 _links.value = api.getPlatformLinks(current._id)
             }.onFailure {
                 _errorMessage.value = it.message ?: "No se pudo guardar el link."

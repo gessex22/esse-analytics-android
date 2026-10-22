@@ -58,6 +58,35 @@ class CausalIdentityResolutionTest {
     }
 
     @Test
+    fun `resolver copia de Nube envia el origen y reutiliza identidad aunque cambie el nombre`() = runTest {
+        val api = FakeSyncApi().apply { resolveIdentityResponse = ResolveIdentityResponse(contentId = "canonical-cloud") }
+        val dao = FakeCausalPlatformDao()
+        val store = resolution(api = api, dao = dao)
+
+        assertEquals("canonical-cloud", store.resolve(userKey, "cloud-id", "download-id", "old.mp4"))
+        val request = api.resolveIdentityRequests.single()
+        assertEquals("cloud-id", request.remoteLibraryVideoId)
+        assertEquals("download-id", request.clientFileId)
+        assertEquals("canonical-cloud", dao.identities[userKey to CausalKeys.forRemote("cloud-id")])
+        assertEquals("canonical-cloud", dao.identities[userKey to CausalKeys.forClientFile("download-id")])
+        assertEquals("canonical-cloud", store.resolve(userKey, "cloud-id", "download-id", "renamed.mp4"))
+        assertEquals(1, api.resolveIdentityRequests.size)
+    }
+
+    @Test
+    fun `origen de Nube no reutiliza el cache de otro alcance`() = runTest {
+        val api = FakeSyncApi().apply { resolveIdentityResponse = ResolveIdentityResponse(contentId = "other-content") }
+        val dao = FakeCausalPlatformDao()
+        val store = resolution(api = api, dao = dao)
+        store.hydrateFromRemote(userKey, listOf(remoteVideo("cloud-id", "same.mp4", "first-content")))
+
+        assertEquals("other-content", store.resolve("other-user-and-server", "cloud-id", "download-id", "same.mp4"))
+        assertEquals("cloud-id", api.resolveIdentityRequests.single().remoteLibraryVideoId)
+        assertEquals("first-content", dao.identities[userKey to CausalKeys.forRemote("cloud-id")])
+        assertEquals("other-content", dao.identities["other-user-and-server" to CausalKeys.forRemote("cloud-id")])
+    }
+
+    @Test
     fun `dos archivos con el mismo nombre resuelven identidades distintas`() = runTest {
         val dao = FakeCausalPlatformDao()
         val api = FakeSyncApi()

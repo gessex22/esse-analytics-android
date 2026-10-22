@@ -8,6 +8,34 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 
 internal object PlatformLinkResolver {
+    fun isValid(platform: Platform, value: String): Boolean {
+        val text = value.trim()
+        if (text.isEmpty() || text.any { it.isWhitespace() } || !text.startsWith("http://", true) && !text.startsWith("https://", true)) return false
+        val url = text.toHttpUrlOrNull() ?: return false
+        if (url.username.isNotEmpty() || url.password.isNotEmpty() || url.port != if (url.isHttps) 443 else 80) return false
+        val path = url.encodedPath
+        return when (platform) {
+            Platform.YOUTUBE -> when (url.host) {
+                "youtu.be", "www.youtu.be" -> Regex("""/[a-zA-Z0-9_-]{6,}/?""").matches(path)
+                "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com" ->
+                    path == "/watch" && Regex("""[a-zA-Z0-9_-]{6,}""").matches(url.queryParameter("v") ?: "") ||
+                        Regex("""/(?:shorts|live|embed)/[a-zA-Z0-9_-]{6,}/?""").matches(path)
+                else -> false
+            }
+            Platform.INSTAGRAM -> url.host in setOf("instagram.com", "www.instagram.com", "m.instagram.com") &&
+                Regex("""/(?:reel|p|tv)/[a-zA-Z0-9_-]+/?""").matches(path)
+            Platform.TIKTOK -> when (url.host) {
+                "vm.tiktok.com", "vt.tiktok.com" -> Regex("""/[a-zA-Z0-9_-]+/?""").matches(path)
+                "tiktok.com", "www.tiktok.com", "m.tiktok.com" ->
+                    Regex("""/@[^/\s]+/video/\d+/?""").matches(path) || Regex("""/t/[a-zA-Z0-9_-]+/?""").matches(path)
+                else -> false
+            }
+            Platform.FACEBOOK -> false // Facebook solo se publica como destino de crosspost.
+        }
+    }
+
+    fun validationMessage(platform: Platform): String = "Pegá un enlace válido de una publicación de ${platform.displayName}."
+
     fun nextCycle(
         platform: Platform,
         platforms: List<String>,
@@ -41,10 +69,10 @@ internal object PlatformLinkResolver {
         url: String,
         client: OkHttpClient,
     ): String? {
-        if (platform != Platform.TIKTOK) return null
+        if (platform != Platform.TIKTOK || !isValid(platform, url)) return null
         val parsed = url.toHttpUrlOrNull() ?: return null
-        val isShortLink = parsed.host.contains("vm.tiktok.com") ||
-            parsed.host.contains("vt.tiktok.com") ||
+        val isShortLink = parsed.host == "vm.tiktok.com" ||
+            parsed.host == "vt.tiktok.com" ||
             parsed.encodedPath.startsWith("/t/")
         if (!isShortLink) return null
         return withContext(Dispatchers.IO) {
@@ -57,12 +85,11 @@ internal object PlatformLinkResolver {
     }
 
     fun extractPlatformId(platform: Platform, url: String): String {
-        val pattern = when (platform) {
-            Platform.YOUTUBE -> Regex("""(?:v=|youtu\.be/|shorts/)([\w-]{6,})""")
-            Platform.INSTAGRAM -> Regex("""(?:reel|p)/([\w-]+)""")
-            Platform.TIKTOK -> Regex("""video/(\d+)""")
-            Platform.FACEBOOK -> return url
-        }
-        return pattern.find(url)?.groupValues?.getOrNull(1) ?: url
+        if (!isValid(platform, url)) return url
+        val parsed = url.toHttpUrlOrNull()
+        if (platform == Platform.YOUTUBE && parsed?.encodedPath == "/watch") return parsed.queryParameter("v") ?: url
+        val segments = parsed?.encodedPath?.split('/')?.filter { it.isNotEmpty() } ?: return url
+        if (platform == Platform.TIKTOK && (segments.size != 3 || segments[1] != "video")) return url
+        return segments.lastOrNull() ?: url
     }
 }
