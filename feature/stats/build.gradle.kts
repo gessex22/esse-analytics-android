@@ -4,6 +4,9 @@ plugins {
 
 android {
     namespace = "com.esseanalytics.android.feature.stats"
+    defaultConfig {
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
 }
 
 dependencies {
@@ -21,4 +24,11 @@ dependencies {
     // Miniatura puntual de Biblioteca remota en la tarjeta de Estadísticas
     // (StatsThumbnail) -- antes la tarjeta no mostraba ninguna imagen.
     implementation(libs.coil.compose)
+    androidTestImplementation(project(":core:database"))
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.room.testing)
+    androidTestImplementation(libs.androidx.room.runtime)
+    androidTestImplementation(libs.kotlinx.coroutines.test)
 }

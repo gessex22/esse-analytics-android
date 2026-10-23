@@ -5,6 +5,14 @@ plugins {
 
 android {
     namespace = "com.esseanalytics.android.feature.upload"
+    defaultConfig {
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+    testOptions {
+        // InstagramUploaderFlowTest supplies a ContextWrapper that overrides
+        // cacheDir/applicationContext; it does not validate Android runtime APIs.
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -29,4 +37,9 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.room.testing)
+    androidTestImplementation(libs.androidx.room.runtime)
 }

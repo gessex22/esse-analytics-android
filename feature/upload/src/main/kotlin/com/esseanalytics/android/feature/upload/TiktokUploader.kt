@@ -3,6 +3,7 @@ package com.esseanalytics.android.feature.upload
 import com.esseanalytics.android.core.network.api.PlatformAuthApi
 import com.esseanalytics.android.core.network.di.PlatformOkHttp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.milliseconds
@@ -32,6 +33,17 @@ class TiktokUploader @Inject constructor(
     @field:PlatformOkHttp private val httpClient: OkHttpClient,
 ) : PlatformUploader {
 
+    internal var pollDelay: suspend (Long) -> Unit = { delay(it.milliseconds) }
+        private set
+
+    internal constructor(
+        platformAuthApi: PlatformAuthApi,
+        httpClient: OkHttpClient,
+        pollDelay: suspend (Long) -> Unit,
+    ) : this(platformAuthApi, httpClient) {
+        this.pollDelay = pollDelay
+    }
+
     private val json = Json { ignoreUnknownKeys = true }
 
     override suspend fun upload(file: File, metadata: UploadMetadata, onProgress: (Float) -> Unit): UploadResult {
@@ -58,7 +70,19 @@ class TiktokUploader @Inject constructor(
             // veces si el original termina de procesar segundos más tarde.
             // Mejor dejar que el usuario reintente a mano y así vea si
             // realmente hace falta.
-            val finalStatus = pollUntilComplete(token, init.publishId)
+            val finalStatus = try {
+                pollUntilComplete(token, init.publishId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: IOException) {
+                // TikTok ya aceptó todos los bytes. Una caída durante el poll
+                // no demuestra que la publicación haya fallado; reintentar
+                // automáticamente podría publicar el mismo video dos veces.
+                return UploadResult.Failure(
+                    "TikTok no confirmó el resultado. Revisá la app antes de reintentar.",
+                    retryable = false,
+                )
+            }
                 ?: return UploadResult.Failure(
                     "TikTok sigue procesando el video después de varios minutos. Revisá en la app de TikTok antes de reintentar.",
                     retryable = false,
@@ -85,6 +109,8 @@ class TiktokUploader @Inject constructor(
             // publishId como antes.
             val realVideoId = finalStatus.publiclyAvailablePostId?.firstOrNull()?.toString()
             UploadResult.Success(platformId = realVideoId ?: init.publishId, platformUrl = "")
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: IOException) {
             UploadResult.Failure(e.message ?: "Error de red al subir a TikTok.", retryable = true)
         } catch (e: Exception) {
@@ -155,7 +181,7 @@ class TiktokUploader @Inject constructor(
 
     private suspend fun pollUntilComplete(token: String, publishId: String): TiktokStatusData? {
         repeat(MAX_POLL_ATTEMPTS) {
-            delay(POLL_INTERVAL_MS.milliseconds)
+            pollDelay(POLL_INTERVAL_MS)
             val body = json.encodeToString(TiktokStatusRequest(publishId))
             val request = Request.Builder()
                 .url("https://open.tiktokapis.com/v2/post/publish/status/fetch/")

@@ -6,12 +6,10 @@ import androidx.work.CoroutineWorker
 import androidx.work.ListenableWorker.Result
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.model.Platform
-import com.esseanalytics.android.core.network.HistoryOutbox
 import com.esseanalytics.android.core.network.api.RemoteLibraryApi
-import com.esseanalytics.android.core.network.dto.RecordPublishRequest
 import com.esseanalytics.android.feature.upload.InstagramUploader
+import com.esseanalytics.android.feature.upload.PublicationSuccessEffects
 import com.esseanalytics.android.feature.upload.TiktokUploader
 import com.esseanalytics.android.feature.upload.UploadMetadata
 import com.esseanalytics.android.feature.upload.UploadResult
@@ -22,7 +20,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
-import java.time.Instant
 
 // Publica un video de la cola remota (central) directo a una plataforma --
 // SIN tocar UploadWorker/FileRepository/PlatformVideoRepository (ver Parte
@@ -35,8 +32,7 @@ class RemoteUploadWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
     private val remoteLibraryApi: RemoteLibraryApi,
-    private val historyOutbox: HistoryOutbox,
-    private val settingsStore: SettingsStore,
+    private val publicationSuccessEffects: PublicationSuccessEffects,
     private val youtubeUploader: YoutubeUploader,
     private val instagramUploader: InstagramUploader,
     private val tiktokUploader: TiktokUploader,
@@ -83,18 +79,13 @@ class RemoteUploadWorker @AssistedInject constructor(
                     // record-publish (que ya trae remoteLibraryVideoId), sin un
                     // segundo camino que pueda quedar desincronizado. HistoryOutbox
                     // (hallazgo SYNC-02#4) encola de forma durable si falla.
-                    historyOutbox.sendOrEnqueue(
-                        RecordPublishRequest(
-                            platform = platform.apiValue,
-                            platformId = result.platformId,
-                            platformUrl = result.platformUrl.ifBlank { null },
-                            fileName = fileName,
-                            remoteLibraryVideoId = videoId,
-                            title = title,
-                            publishedAt = Instant.now().toString(),
-                            deviceId = settingsStore.getOrCreateInstallId(),
-                            deviceName = settingsStore.getOrCreateDeviceName(),
-                        ),
+                    publicationSuccessEffects.recordRemoteSuccess(
+                        platform = platform,
+                        platformId = result.platformId,
+                        platformUrl = result.platformUrl,
+                        fileName = fileName,
+                        title = title,
+                        remoteLibraryVideoId = videoId,
                     )
                     Result.success(workDataOf(KEY_RESULT_URL to result.platformUrl))
                 }

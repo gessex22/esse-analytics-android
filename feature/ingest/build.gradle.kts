@@ -4,6 +4,9 @@ plugins {
 
 android {
     namespace = "com.esseanalytics.android.feature.ingest"
+    defaultConfig {
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
 }
 
 dependencies {
@@ -15,4 +18,9 @@ dependencies {
     implementation(project(":core:network"))
     implementation(libs.okhttp.core)
     testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.room.testing)
+    androidTestImplementation(libs.androidx.room.runtime)
 }

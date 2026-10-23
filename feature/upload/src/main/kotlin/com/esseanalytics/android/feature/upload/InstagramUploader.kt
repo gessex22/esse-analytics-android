@@ -7,6 +7,7 @@ import com.esseanalytics.android.core.network.api.PlatformAuthApi
 import com.esseanalytics.android.core.network.di.PlatformOkHttp
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.milliseconds
@@ -43,6 +44,20 @@ class InstagramUploader @Inject constructor(
     private val normalizeProcessor: NormalizeProcessor,
     @field:PlatformOkHttp private val httpClient: OkHttpClient,
 ) : PlatformUploader {
+
+    internal var pollDelay: suspend (Long) -> Unit = { delay(it.milliseconds) }
+        private set
+
+    internal constructor(
+        context: Context,
+        platformAuthApi: PlatformAuthApi,
+        trimProcessor: TrimProcessor,
+        normalizeProcessor: NormalizeProcessor,
+        httpClient: OkHttpClient,
+        pollDelay: suspend (Long) -> Unit,
+    ) : this(context, platformAuthApi, trimProcessor, normalizeProcessor, httpClient) {
+        this.pollDelay = pollDelay
+    }
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -103,15 +118,32 @@ class InstagramUploader @Inject constructor(
             // corte de red pero Meta sí llegó a publicarlo, reintentar desde
             // cero sube un contenedor nuevo y puede terminar en un segundo
             // Reel real y público del mismo video.
-            val mediaId = withContext(Dispatchers.IO) {
-                publish(igUserId, container.id, token)
+            val mediaId = try {
+                withContext(Dispatchers.IO) { publish(igUserId, container.id, token) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: IOException) {
+                // La petición pudo llegar a Meta aunque se haya perdido su
+                // respuesta. Repetir desde cero puede publicar un Reel duplicado.
+                return UploadResult.Failure(
+                    "Instagram no confirmó la publicación. Revisá tu perfil antes de reintentar.",
+                    retryable = false,
+                )
             } ?: return UploadResult.Failure(
                 "Instagram no confirmó la publicación. Revisá tu perfil antes de reintentar.",
                 retryable = false,
             )
 
-            val permalink = withContext(Dispatchers.IO) {
-                fetchPermalink(mediaId, token) ?: ""
+            val permalink = try {
+                withContext(Dispatchers.IO) {
+                    fetchPermalink(mediaId, token) ?: ""
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: IOException) {
+                // Instagram ya confirmó media_publish; un permalink opcional
+                // no debe convertir un éxito real en un reintento/publicación duplicada.
+                ""
             }
 
             // Crosspost NO-FATAL: si falla, Instagram ya está publicado --
@@ -132,6 +164,10 @@ class InstagramUploader @Inject constructor(
             }
 
             UploadResult.Success(platformId = mediaId, platformUrl = permalink, facebookCrossPost = facebookResult)
+        } catch (ambiguous: InstagramOutcomeUnknown) {
+            UploadResult.Failure(ambiguous.message ?: "Instagram no confirmó el resultado. Revisá tu perfil antes de reintentar.", retryable = false)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: IOException) {
             UploadResult.Failure(e.message ?: "Error de red al subir a Instagram.", retryable = true)
         } catch (e: Exception) {
@@ -165,7 +201,13 @@ class InstagramUploader @Inject constructor(
         }
         if (!uploaded) return null
 
-        val pollResult = pollUntilFinished(container.id, token)
+        val pollResult = try {
+            pollUntilFinished(container.id, token)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: IOException) {
+            throw InstagramOutcomeUnknown("Instagram no confirmó el procesamiento. Revisá tu perfil antes de reintentar.", error)
+        }
         return if (pollResult is PollResult.Finished) container else null
     }
 
@@ -212,7 +254,7 @@ class InstagramUploader @Inject constructor(
 
     private suspend fun pollUntilFinished(containerId: String, token: String): PollResult {
         repeat(MAX_POLL_ATTEMPTS) {
-            delay(POLL_INTERVAL_MS.milliseconds)
+            pollDelay(POLL_INTERVAL_MS)
             val request = Request.Builder()
                 .url("https://graph.facebook.com/v22.0/$containerId?fields=status_code,status&access_token=$token")
                 .get()
@@ -303,7 +345,7 @@ class InstagramUploader @Inject constructor(
             // Espera acotada -- si no llega a tiempo igual es éxito, el video
             // ya quedó encolado del lado de Meta (mismo criterio que desktop).
             repeat(FB_STATUS_POLL_ATTEMPTS) {
-                delay(FB_STATUS_POLL_INTERVAL_MS.milliseconds)
+                pollDelay(FB_STATUS_POLL_INTERVAL_MS)
                 val status = fetchFacebookStatus(videoId, pageToken)?.status
                 if (status?.videoStatus == "error") {
                     return@withContext FacebookCrossPostResult.Failed("Facebook rechazó el video.")
@@ -313,6 +355,8 @@ class InstagramUploader @Inject constructor(
                 }
             }
             FacebookCrossPostResult.Published(videoId, "https://www.facebook.com/reel/$videoId")
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             FacebookCrossPostResult.Failed(e.message ?: "Error al publicar en Facebook.")
         }
@@ -392,6 +436,8 @@ class InstagramUploader @Inject constructor(
         const val FB_STATUS_POLL_ATTEMPTS = 12 // ~1 minuto, igual que desktop
     }
 }
+
+private class InstagramOutcomeUnknown(message: String, cause: Throwable) : RuntimeException(message, cause)
 
 @Serializable
 private data class IgContainerResponse(val id: String, val uri: String)

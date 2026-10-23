@@ -1,8 +1,9 @@
 package com.esseanalytics.android.core.network.tus
 
-import android.util.Base64
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -11,6 +12,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.io.RandomAccessFile
 import java.io.File
+import java.util.Base64
 
 sealed class TUSException(message: String) : Exception(message) {
     // `detail` es el body de la respuesta de creación -- la central (ver
@@ -46,7 +48,9 @@ object TUSUploadClient {
         okHttpClient: OkHttpClient,
         metadata: Map<String, String>,
         onProgress: (Long, Long) -> Unit = { _, _ -> },
+        retryDelay: suspend (Long) -> Unit = { delay(it) },
     ): String = withContext(Dispatchers.IO) {
+        currentCoroutineContext().ensureActive()
         val totalSize = file.length()
 
         val createRequest = Request.Builder()
@@ -76,6 +80,7 @@ object TUSUploadClient {
 
                 for (attempt in 1..MAX_RETRIES_PER_CHUNK) {
                     try {
+                        currentCoroutineContext().ensureActive()
                         val patchRequest = Request.Builder()
                             .url(uploadUrl)
                             .patch(buffer.toRequestBody(offsetOctetStream))
@@ -86,7 +91,14 @@ object TUSUploadClient {
                             when (response.code) {
                                 // onUploadFinish (último fragmento, offset llega a size) responde
                                 // 200 con el documento creado en el body en vez del 204 default.
-                                200 -> { finishedBody = response.body?.string(); succeeded = true }
+                                200 -> {
+                                    if (offset + chunkLength == totalSize) {
+                                        finishedBody = response.body?.string()
+                                        succeeded = true
+                                    } else {
+                                        lastError = TUSException.IncompleteUpload
+                                    }
+                                }
                                 204 -> succeeded = true
                                 else -> lastError = TUSException.ChunkFailed(response.code)
                             }
@@ -95,7 +107,7 @@ object TUSUploadClient {
                         lastError = TUSException.ChunkNetworkError(e.message ?: "error de red")
                     }
                     if (succeeded) break
-                    delay(700)
+                    retryDelay(700)
                 }
                 if (!succeeded) throw lastError
 
@@ -114,6 +126,6 @@ object TUSUploadClient {
 
     private fun encodeMetadata(metadata: Map<String, String>): String =
         metadata.entries.joinToString(",") { (key, value) ->
-            "$key ${Base64.encodeToString(value.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)}"
+            "$key ${Base64.getEncoder().encodeToString(value.toByteArray(Charsets.UTF_8))}"
         }
 }

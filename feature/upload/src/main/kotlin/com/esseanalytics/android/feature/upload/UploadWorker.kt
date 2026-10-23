@@ -9,27 +9,21 @@ import androidx.work.ListenableWorker.Result
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.esseanalytics.android.core.database.FileRepository
-import com.esseanalytics.android.core.database.PlatformVideoRepository
-import com.esseanalytics.android.core.datastore.SettingsStore
 import com.esseanalytics.android.core.datastore.TokenStore
 import com.esseanalytics.android.core.model.Platform
-import com.esseanalytics.android.core.network.HistoryOutbox
 import com.esseanalytics.android.core.network.LabModeStatus
 import com.esseanalytics.android.core.network.upload.UploadConcurrencyGate
 import com.esseanalytics.android.core.network.api.SyncApi
-import com.esseanalytics.android.core.network.dto.RecordPublishRequest
 import com.esseanalytics.android.core.network.dto.UploadJobReportRequest
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.io.File
-import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -45,9 +39,7 @@ class UploadWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
     private val fileRepository: FileRepository,
-    private val platformVideoRepository: PlatformVideoRepository,
-    private val settingsStore: SettingsStore,
-    private val historyOutbox: HistoryOutbox,
+    private val publicationSuccessEffects: PublicationSuccessEffects,
     private val syncApi: SyncApi,
     private val youtubeUploader: YoutubeUploader,
     private val instagramUploader: InstagramUploader,
@@ -183,14 +175,13 @@ class UploadWorker @AssistedInject constructor(
             return when (result) {
                 is UploadResult.Success -> {
                     report("processing", 95)
-                    platformVideoRepository.upsertPublished(
+                    publicationSuccessEffects.recordLocalSuccess(
+                        file = videoFile,
                         platform = platform,
-                        platformId = result.platformId,
-                        platformUrl = result.platformUrl.ifBlank { null },
-                        linkedFileId = fileId,
+                        result = result,
                         title = title,
+                        operationId = operationId,
                     )
-                    fileRepository.onPlatformPublished(fileId, platform, settingsStore.workflowMode.first())
                     // record-publish (vía HistoryOutbox) es el ÚNICO canal a la
                     // central/Nube tras una publicación real -- ya no se PATCHea
                     // Biblioteca remota directo (platforms/platformLinks): la
@@ -202,7 +193,6 @@ class UploadWorker @AssistedInject constructor(
                     // null ahí, así que conservan exactamente el operationId del
                     // input. El crosspost de Facebook (rama de Instagram de abajo)
                     // sigue usando siempre el del input.
-                    reportPublish(platform, result.platformId, result.platformUrl, videoFile.fileName, title, videoFile.remoteLibraryVideoId, videoFile.clientFileId, result.durableOperationId ?: operationId)
                     report("succeeded", 100)
 
                     // Facebook NO pasa por onPlatformPublished (no está en
@@ -214,15 +204,13 @@ class UploadWorker @AssistedInject constructor(
                     // (fileId, 'facebook') aparte de resolveOthersAsDiscarded).
                     val fbOutputData = when (val fb = result.facebookCrossPost) {
                         is FacebookCrossPostResult.Published -> {
-                            platformVideoRepository.upsertPublished(
-                                platform = Platform.FACEBOOK,
-                                platformId = fb.videoId,
-                                platformUrl = fb.url,
-                                linkedFileId = fileId,
+                            publicationSuccessEffects.recordFacebookCrossPost(
+                                file = videoFile,
+                                videoId = fb.videoId,
+                                url = fb.url,
                                 title = title,
+                                operationId = operationId,
                             )
-                            fileRepository.addPlatform(fileId, Platform.FACEBOOK)
-                            reportPublish(Platform.FACEBOOK, fb.videoId, fb.url, videoFile.fileName, title, videoFile.remoteLibraryVideoId, videoFile.clientFileId, operationId)
                             workDataOf(KEY_FACEBOOK_URL to fb.url)
                         }
                         is FacebookCrossPostResult.Failed -> workDataOf(KEY_FACEBOOK_ERROR to fb.message)
@@ -262,24 +250,6 @@ class UploadWorker @AssistedInject constructor(
     // HistoryOutbox (hallazgo SYNC-02#4): si el envío falla, ya NO se pierde
     // en silencio -- queda encolado de forma durable (Room) para reintentar
     // más tarde (ver DashboardViewModel.refresh(), que vacía el outbox).
-    private suspend fun reportPublish(platform: Platform, platformId: String, platformUrl: String, fileName: String, title: String, remoteId: String?, clientFileId: String, operationId: String?) {
-        historyOutbox.sendOrEnqueue(
-            RecordPublishRequest(
-                clientFileId = clientFileId,
-                platform = platform.apiValue,
-                platformId = platformId,
-                platformUrl = platformUrl.ifBlank { null },
-                fileName = fileName,
-                remoteLibraryVideoId = remoteId,
-                title = title,
-                publishedAt = Instant.now().toString(),
-                operationId = operationId,
-                deviceId = settingsStore.getOrCreateInstallId(),
-                deviceName = settingsStore.getOrCreateDeviceName(),
-            ),
-        )
-    }
-
     // videoFile.filePath puede ser un path local (Share Sheet, o SAF sin
     // permiso persistente, ver ImportUseCase) o un Uri content:// guardado
     // tal cual (SAF con permiso persistente -- nunca se copió nada al

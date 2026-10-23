@@ -162,6 +162,9 @@ class ImportUseCase @Inject constructor(
     // de descargarlo de nuevo (evita duplicados en Videos → Todos apenas se
     // toca "Publicar" más de una vez desde Nube).
     suspend fun importFromRemoteLibrary(video: RemoteLibraryVideoDto): ImportResult = withContext(Dispatchers.IO) {
+        var downloadedFile: File? = null
+        var thumbnailFile: File? = null
+        var committed = false
         try {
             val existing = fileRepository.findByRemoteLibraryVideoId(video._id)
             if (existing != null) {
@@ -175,6 +178,7 @@ class ImportUseCase @Inject constructor(
             val videosDir = File(context.filesDir, "videos").apply { mkdirs() }
             val extension = video.fileName.substringAfterLast('.', "mp4")
             val destination = File(videosDir, "${UUID.randomUUID()}.$extension")
+            downloadedFile = destination
 
             remoteLibraryApi.streamVideo(video._id).byteStream().use { input ->
                 destination.outputStream().use { output -> input.copyTo(output) }
@@ -183,8 +187,9 @@ class ImportUseCase @Inject constructor(
 
             val mediaSource = MediaSource.LocalFile(destination)
             val thumbnailsDir = File(context.filesDir, "thumbnails").apply { mkdirs() }
-            val thumbnailFile = File(thumbnailsDir, "${UUID.randomUUID()}.jpg")
-            val hasThumbnail = thumbnailGenerator.generate(mediaSource, thumbnailFile)
+            val generatedThumbnail = File(thumbnailsDir, "${UUID.randomUUID()}.jpg")
+            thumbnailFile = generatedThumbnail
+            val hasThumbnail = thumbnailGenerator.generate(mediaSource, generatedThumbnail)
 
             // Igual que en importVideo: el clientFileId se genera acá una sola
             // vez. NO se deriva de video._id a propósito -- el mismo video de
@@ -200,16 +205,27 @@ class ImportUseCase @Inject constructor(
                 duracionSegundos = video.durationSeconds?.toInt(),
                 resolucion = video.resolution,
                 formato = video.formato ?: extension,
-                thumbnailPath = if (hasThumbnail) thumbnailFile.absolutePath else null,
+                thumbnailPath = if (hasThumbnail) generatedThumbnail.absolutePath else null,
                 fechaCreacion = video.createdAt?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: Instant.now(),
                 remoteLibraryVideoId = video._id,
                 contentSha256 = contentSha256,
             )
             val id = fileRepository.insert(videoFile)
+            committed = true
             val imported = videoFile.copy(id = id)
             enqueueCatalogBestEffort(imported, contentSha256)
             ImportResult.Success(imported)
+        } catch (cancelled: CancellationException) {
+            if (!committed) {
+                downloadedFile?.delete()
+                thumbnailFile?.delete()
+            }
+            throw cancelled
         } catch (e: Exception) {
+            if (!committed) {
+                downloadedFile?.delete()
+                thumbnailFile?.delete()
+            }
             ImportResult.Error(e.message ?: "No se pudo bajar el video de la nube.")
         }
     }
