@@ -2,6 +2,7 @@ package com.esseanalytics.android.app
 
 import android.content.Context
 import android.os.Build
+import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.FirebaseApp
@@ -126,16 +127,37 @@ class NotificationsViewModel @Inject constructor(
         mutable.value = mutable.value.copy(pushMessage = "El permiso de notificaciones está denegado en Android.")
     }
 
-    fun markRead(id: String) { viewModelScope.launch { runCatching { api.markRead(id) }.onSuccess { result -> if (result.isSuccessful) { mutable.value = mutable.value.copy(items = mutable.value.items.map { if (it.id == id) it.copy(readAt = it.readAt ?: "leído") else it }, unread = (mutable.value.unread - 1).coerceAtLeast(0)) } } } }
-    fun markAllRead() { viewModelScope.launch {
-        val cutoff = mutable.value.items.maxOfOrNull { it.createdAt } ?: return@launch
-        runCatching { api.markAllRead(mapOf("before" to cutoff)) }.onSuccess { result ->
-            if (result.isSuccessful) mutable.value = mutable.value.copy(
-                items = mutable.value.items.map { if (it.createdAt <= cutoff) it.copy(readAt = it.readAt ?: "leído") else it },
-                unread = (mutable.value.unread - (result.body()?.updated ?: 0)).coerceAtLeast(0),
-            )
+    fun markRead(id: String) { viewModelScope.launch {
+        val item = mutable.value.items.firstOrNull { it.id == id && it.readAt == null } ?: return@launch
+        runCatching { api.markRead(id) }.onSuccess { result ->
+            if (result.isSuccessful) {
+                mutable.value = mutable.value.copy(
+                    items = mutable.value.items.map { if (it.id == id) it.copy(readAt = it.readAt ?: "leído") else it },
+                    unread = (mutable.value.unread - 1).coerceAtLeast(0),
+                )
+                dismissSystemNotification(item.id)
+            }
         }
     } }
+    fun markAllRead() { viewModelScope.launch {
+        val current = mutable.value
+        val cutoff = current.items.maxOfOrNull { it.createdAt } ?: return@launch
+        val newlyReadIds = current.items.filter { it.readAt == null && it.createdAt <= cutoff }.map { it.id }
+        runCatching { api.markAllRead(mapOf("before" to cutoff)) }.onSuccess { result ->
+            if (result.isSuccessful) {
+                mutable.value = mutable.value.copy(
+                    items = mutable.value.items.map { if (it.createdAt <= cutoff) it.copy(readAt = it.readAt ?: "leído") else it },
+                    unread = (mutable.value.unread - (result.body()?.updated ?: 0)).coerceAtLeast(0),
+                )
+                (result.body()?.notificationIds ?: newlyReadIds).forEach(::dismissSystemNotification)
+            }
+        }
+    } }
+
+    private fun dismissSystemNotification(serverId: String) {
+        // Keep this identifier in sync with EssenFirebaseMessagingService.onMessageReceived.
+        NotificationManagerCompat.from(context).cancel(serverId.hashCode().and(0x7fffffff))
+    }
 }
 
 private suspend fun com.google.android.gms.tasks.Task<String>.awaitValue(): String = suspendCancellableCoroutine { continuation ->

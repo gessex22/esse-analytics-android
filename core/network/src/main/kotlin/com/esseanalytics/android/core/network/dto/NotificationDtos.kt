@@ -10,7 +10,7 @@ import kotlinx.serialization.json.JsonElement
 @Serializable data class NotificationsResponseDto(
     val notifications: List<NotificationItemDto>, val unreadCount: Int, val nextBefore: String? = null,
 )
-@Serializable data class NotificationReadResponseDto(val ok: Boolean, val updated: Int? = null)
+@Serializable data class NotificationReadResponseDto(val ok: Boolean, val updated: Int? = null, val notificationIds: List<String>? = null)
 @Serializable data class NotificationPushCapabilitiesDto(val fcm: Boolean = false, val apns: Boolean = false, val webpush: Boolean = false)
 @Serializable data class NotificationPreferencesDto(
     val timeZone: String? = null, val dailyCalendarEnabled: Boolean = true, val dailyTime: String? = null,

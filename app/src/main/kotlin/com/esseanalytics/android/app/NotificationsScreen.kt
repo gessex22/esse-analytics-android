@@ -23,6 +23,8 @@ import androidx.core.content.ContextCompat
     val state by viewModel.state.collectAsState()
     var quietStart by remember { mutableStateOf("22:00") }
     var quietEnd by remember { mutableStateOf("08:00") }
+    var showAll by remember { mutableStateOf(false) }
+    val visibleItems = remember(state.items, showAll) { if (showAll) state.items else state.items.filter { it.readAt == null } }
     val context = LocalContext.current
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) viewModel.enablePush() else viewModel.pushPermissionDenied()
@@ -37,6 +39,10 @@ import androidx.core.content.ContextCompat
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Bandeja", style = MaterialTheme.typography.titleMedium)
             if (state.unread > 0) TextButton(onClick = viewModel::markAllRead) { Text("Marcar todas leídas") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = !showAll, onClick = { showAll = false }, label = { Text("Sin leer") })
+            FilterChip(selected = showAll, onClick = { showAll = true }, label = { Text("Todas") })
         }
         if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -78,10 +84,13 @@ import androidx.core.content.ContextCompat
             )
         }
         if (state.pushMessage != null) Text(state.pushMessage!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-        if (!state.loading && state.items.isEmpty()) Text("Sin notificaciones por ahora.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (!state.loading && visibleItems.isEmpty()) Text(
+            if (showAll) "Sin notificaciones por ahora." else "Todo al día. No tienes avisos sin leer.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         }
         }
-        items(state.items, key = { it.id }) { item ->
+        items(visibleItems, key = { it.id }) { item ->
                 val route = item.destination?.takeIf { it in setOf("calendar", "history", "connections", "notifications") }
                 Surface(
                     modifier = Modifier.fillMaxWidth().then(if (route != null) Modifier.clickable {
