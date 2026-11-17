@@ -105,8 +105,8 @@ internal fun DashboardContent(
                                 DashboardCard {
                                     Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.Top) {
                                         WeekCell("Publicaciones", state.data.week.publications?.let { formatCreatorMetric(it.toLong()) } ?: "—", when (state.data.week.publications) { null -> "No disponible"; 0 -> "Sin videos"; else -> "Esta semana" }, Modifier.weight(1f))
-                                        WeekCell("Vistas", state.data.week.views?.let(::formatCreatorMetric) ?: "Pendiente",
-                                            state.data.week.viewsDeltaPercent?.let { "${if (it >= 0) "+" else ""}${NumberFormat.getNumberInstance(Locale("es")).format(it)}% vs anterior" }
+                                        WeekCell("Vistas", (state.data.week.views ?: state.data.week.partialViews)?.let(::formatCreatorMetric) ?: "Pendiente",
+                                            if (state.data.week.views == null && state.data.week.partialViews != null) "Datos parciales" else state.data.week.viewsDeltaPercent?.let { "${if (it >= 0) "+" else ""}${NumberFormat.getNumberInstance(Locale("es")).format(it)}% vs anterior" }
                                                 ?: if (state.data.week.views == null) viewsUnavailableDetail(state.data.week.viewsStatus) else "Sin comparativa", Modifier.weight(1f))
                                         val pending = state.data.pending
                                         val calendarCount = pending?.items?.size
@@ -115,7 +115,8 @@ internal fun DashboardContent(
                                             success = calendarCount == 0)
                                     }
                                     if (state.viewsIncrease != null) Text("+${formatCreatorMetric(state.viewsIncrease)} vistas desde la última lectura válida", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp))
-                                    if (state.data.week.views != null && state.data.week.viewsEstimated) Text("Vistas estimadas · observación diaria", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp))
+                                    if (state.data.week.views == null && state.data.week.partialViews != null) Text("Vistas parciales · faltan publicaciones o lecturas históricas.", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp))
+                                    else if (state.data.week.views != null && state.data.week.viewsEstimated) Text("Vistas estimadas · observación diaria", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp))
                                     else if (state.data.week.viewsStatus == "collecting_history") Text("Estamos guardando el historial para calcular las vistas recibidas desde el inicio de la semana.", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp))
                                 }
                             }
