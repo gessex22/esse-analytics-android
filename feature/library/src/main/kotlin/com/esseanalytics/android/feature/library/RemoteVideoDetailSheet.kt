@@ -63,6 +63,7 @@ fun RemoteVideoDetailSheet(
             shown.platformLinks.any { it.platform == platform.apiValue && it.platformUrl != null }
         },
         onToggle = viewModel::togglePlatform,
+        onDiscardPending = viewModel::discardPending,
         onEditLink = { platform ->
             linkEditorText = viewModel.existingLink(platform) ?: ""
             linkEditorPlatform = platform

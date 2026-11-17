@@ -101,6 +101,7 @@ fun VideoDetailSheet(
         },
         hasLink = { it in linkedPlatforms },
         onToggle = viewModel::togglePlatform,
+        onDiscardPending = viewModel::discardPending,
         onEditLink = { platform ->
             scope.launch {
                 linkEditorText = viewModel.existingLink(file.id, platform) ?: ""
@@ -196,6 +197,7 @@ internal fun VideoDetailPlatformRow(
     status: PlatformBadgeState,
     hasLink: Boolean,
     onToggleStatus: () -> Unit,
+    onDiscardPending: () -> Unit,
     onEditLink: () -> Unit,
 ) {
     val color = platformColor(platform)
@@ -221,6 +223,9 @@ internal fun VideoDetailPlatformRow(
                 Text(platformShortLabel(platform), style = MaterialTheme.typography.bodyMedium)
                 Text(label, style = MaterialTheme.typography.labelMedium, color = stateColor)
             }
+        }
+        if (status == PlatformBadgeState.PENDING) {
+            TextButton(onClick = onDiscardPending) { Text("Descartar") }
         }
         if (status == PlatformBadgeState.PUBLISHED) {
             IconButton(onClick = onEditLink, modifier = Modifier.size(48.dp)) {

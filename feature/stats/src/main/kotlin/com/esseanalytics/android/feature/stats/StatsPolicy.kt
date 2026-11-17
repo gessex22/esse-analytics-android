@@ -4,17 +4,21 @@ import com.esseanalytics.android.core.network.dto.*
 
 internal val statsPlatforms = listOf("youtube", "instagram", "tiktok")
 enum class StatsMetric(val label: String) { VIEWS("Vistas"), LIKES("Me gusta"), COMMENTS("Comentarios") }
-internal fun GroupStatsSlotDto.value(metric: StatsMetric): Long = when(metric) {
-    StatsMetric.VIEWS -> views.toLong(); StatsMetric.LIKES -> likes.toLong(); StatsMetric.COMMENTS -> comments.toLong()
+// null = desconocido (nunca cero). Solo likes y comentarios pueden ser desconocidos.
+internal fun GroupStatsSlotDto.value(metric: StatsMetric): Long? = when(metric) {
+    StatsMetric.VIEWS -> views; StatsMetric.LIKES -> likes; StatsMetric.COMMENTS -> comments
 }
+// Un total con algún dato desconocido tampoco es un número: se muestra «-».
 internal fun GroupStatsItemDto.total(metric: StatsMetric): Long? =
     if (metricsAvailable == false || platforms.keys.none { it in statsPlatforms }) null
-    else platforms.filterKeys { it in statsPlatforms }.values.sumOf { it.value(metric) }
+    else platforms.filterKeys { it in statsPlatforms }.values.map { it.value(metric) }
+        .takeIf { values -> values.none { it == null } }?.sumOf { it!! }
 internal fun GroupStatsItemDto.winners(metric: StatsMetric): Set<String> {
     if (metricsAvailable == false) return emptySet()
     val slots = platforms.filterKeys { it in statsPlatforms }
-    val maximum = slots.values.maxOfOrNull { it.value(metric) } ?: 0
-    return if (maximum <= 0) emptySet() else slots.filterValues { it.value(metric) == maximum }.keys
+    // Un dato desconocido no puede ganar ni empatar con un valor real.
+    val maximum = slots.values.mapNotNull { it.value(metric) }.maxOrNull() ?: 0L
+    return if (maximum <= 0L) emptySet() else slots.filterValues { it.value(metric) == maximum }.keys
 }
 internal val GroupStatsItemDto.displayTitle: String get() = title?.takeIf(String::isNotBlank)
     ?: statsPlatforms.firstNotNullOfOrNull { platforms[it]?.title?.takeIf(String::isNotBlank) }

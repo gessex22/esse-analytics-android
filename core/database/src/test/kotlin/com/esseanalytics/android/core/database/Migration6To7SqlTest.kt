@@ -66,6 +66,7 @@ class Migration6To7SqlTest {
             "ytSessionURL", "ytBytesConfirmed", "ytTotalBytes", "ytFinalChunkSent",
             "igStage", "igContainerId", "igUploadURI", "igPublishRequested",
             "resultPlatformId", "resultURL", "lastError",
+            "lastConfirmationAction", "lastConfirmationAtEpochMs",
             "createdAtEpochMs", "updatedAtEpochMs",
         )
 

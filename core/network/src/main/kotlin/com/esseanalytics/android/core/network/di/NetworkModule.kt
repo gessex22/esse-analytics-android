@@ -68,6 +68,7 @@ object NetworkModule {
         authAuthenticator: AuthAuthenticator,
     ): OkHttpClient = OkHttpClient.Builder()
         .addInterceptor(authInterceptor)
+        .addInterceptor(com.esseanalytics.android.core.network.interceptor.CapabilityInterceptor())
         .authenticator(authAuthenticator)
         // Timeouts default de OkHttp (10s) alcanzaban mientras esto era solo
         // JSON chico -- la Biblioteca remota (Parte C del plan) sube videos

@@ -120,6 +120,19 @@ class VideoDetailViewModel @Inject constructor(
         }
     }
 
+    override fun discardPending(platform: Platform) {
+        val file = currentFile ?: return
+        viewModelScope.launch {
+            _errorMessage.value = null
+            val updated = runCatching { platformTransitionRepository.discardPending(file.id, platform, tokenStore.currentUser?.id) }
+                .getOrElse { _errorMessage.value = it.message ?: "No se pudo descartar."; return@launch }
+            if (updated == null) { _errorMessage.value = "No se pudo descartar."; return@launch }
+            currentFile = updated
+            _file.value = updated
+            triggerFlush()
+        }
+    }
+
     // Guardar un link viaja como manual-platform-link (con contentId +
     // operationId, resuelto por el outbox); borrar el link (campo vacío) viaja
     // como transición unlink. Ya NO se llama a recordPublish ni se PATCHea

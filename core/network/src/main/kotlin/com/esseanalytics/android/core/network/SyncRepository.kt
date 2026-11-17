@@ -77,7 +77,8 @@ class SyncRepository @Inject constructor(
     // Cada filtro devuelve un conjunto distinto; un único slot podía mostrar
     // el resultado combinado al cambiar a una plataforma (o viceversa).
     private val statsCache = mutableMapOf<StatsCacheKey, Timed<GroupStatsResponse>>()
-    private var historyCache: Timed<List<UploadHistoryItemDto>>? = null
+    // Cada límite pide una respuesta distinta; compartir un slot devolvía la de otro límite.
+    private val historyCache = mutableMapOf<Int, Timed<List<UploadHistoryItemDto>>>()
 
     suspend fun getCalendarConfig(force: Boolean = false): List<CalendarConfigDto> = calendarMutex.withLock {
         val cached = calendarCache
@@ -103,9 +104,9 @@ class SyncRepository @Inject constructor(
     private data class StatsCacheKey(val mode: String?, val platform: String?, val limit: Int)
 
     suspend fun getHistory(limit: Int = 1, force: Boolean = false): List<UploadHistoryItemDto> = historyMutex.withLock {
-        val cached = historyCache
+        val cached = historyCache[limit]
         if (!force && cached != null && !cached.expired()) return@withLock cached.value
-        api.getHistory(limit = limit).items.also { historyCache = Timed(it) }
+        api.getHistory(limit = limit).items.also { historyCache[limit] = Timed(it) }
     }
 
     // Estadísticas puntuales de un archivo, también usadas por Calendario.

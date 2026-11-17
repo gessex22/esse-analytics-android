@@ -20,8 +20,11 @@ data class GroupStatsSlotDto(
     val title: String? = null,
     val thumbnail: String? = null,
     val views: Long,
-    val likes: Long,
-    val comments: Long,
+    // null = dato no disponible (solo con la capacidad metrics-nullable-v1); 0 = cero observado.
+    val likes: Long? = null,
+    val comments: Long? = null,
+    val likesAvailable: Boolean? = null,
+    val commentsAvailable: Boolean? = null,
 )
 
 @Serializable

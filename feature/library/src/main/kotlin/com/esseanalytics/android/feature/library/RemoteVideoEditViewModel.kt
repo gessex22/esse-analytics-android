@@ -133,6 +133,24 @@ class RemoteVideoEditViewModel @Inject constructor(
         }
     }
 
+    override fun discardPending(platform: Platform) {
+        val current = _video.value ?: return
+        if (platform.apiValue in current.platforms || platform.apiValue in current.platformsDiscarded) return
+        val session = requireCausalIdentity(current) ?: return
+        viewModelScope.launch {
+            _errorMessage.value = null
+            _video.value = current.copy(platformsDiscarded = current.platformsDiscarded + platform.apiValue)
+            runCatching {
+                platformTransitionRepository.enqueueKnownTransition(
+                    userKey = session.userKey, contentId = session.contentId, remoteLibraryVideoId = current._id,
+                    clientFileId = null, fileName = current.fileName, platform = platform,
+                    action = ACTION_DISCARD, baseVersion = current.platformRev?.get(platform.apiValue),
+                )
+            }.onFailure { _video.value = current; _errorMessage.value = it.message ?: "No se pudo descartar." }
+                .onSuccess { triggerFlush() }
+        }
+    }
+
     override fun saveLink(platform: Platform, rawUrl: String) {
         val trimmed = rawUrl.trim()
         if (trimmed.isNotEmpty() && !PlatformLinkResolver.isValid(platform, trimmed)) {

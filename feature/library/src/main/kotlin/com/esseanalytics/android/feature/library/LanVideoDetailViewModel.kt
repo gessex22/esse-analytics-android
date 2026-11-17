@@ -68,6 +68,20 @@ class LanVideoDetailViewModel @Inject constructor(
         }
     }
 
+    override fun discardPending(platform: Platform) {
+        val item = currentItem ?: return
+        val current = _video.value ?: return
+        if (platform.apiValue in current.platforms || platform.apiValue in current.platforms_discarded) return
+        viewModelScope.launch {
+            _errorMessage.value = null
+            val discarded = current.platforms_discarded + platform.apiValue
+            _video.value = current.copy(platforms_discarded = discarded)
+            runCatching { localBackendApiFactory.create(item.baseUrl).updatePlatforms(current._id, LocalPcUpdatePlatformsRequest(current.platforms, discarded)) }
+                .onSuccess { if (!it.isSuccessful) { _video.value = current; _errorMessage.value = "No se pudo descartar (${it.code()})." } }
+                .onFailure { _video.value = current; _errorMessage.value = it.message ?: "No se pudo descartar." }
+        }
+    }
+
     override fun saveLink(platform: Platform, rawUrl: String) {
         val trimmed = rawUrl.trim()
         if (trimmed.isNotEmpty() && !PlatformLinkResolver.isValid(platform, trimmed)) {
@@ -90,7 +104,7 @@ class LanVideoDetailViewModel @Inject constructor(
                 _video.value = current.copy(
                     platforms = if (trimmed.isEmpty()) current.platforms.filter { it != platform.apiValue }
                         else (current.platforms + platform.apiValue).distinct(),
-                    platformsDiscarded = current.platformsDiscarded.filter { it != platform.apiValue },
+                    platforms_discarded = current.platforms_discarded.filter { it != platform.apiValue },
                 )
                 _links.value = api.getPlatformLinks(current._id)
             }.onFailure {

@@ -131,6 +131,23 @@ class PlatformTransitionRepository @Inject constructor(
             updated
         }
 
+    suspend fun discardPending(fileId: Long, platform: Platform, userKey: String?): VideoFile? = db.withTransaction {
+        val file = fileDao.findById(fileId)?.toDomain() ?: return@withTransaction null
+        if (platform in file.platforms || platform in file.platformsDiscarded) return@withTransaction file
+        if (userKey != null) enqueueTransitionInternal(
+            userKey = userKey,
+            contentId = resolveCachedContentId(userKey, file.remoteLibraryVideoId, file.clientFileId),
+            remoteLibraryVideoId = file.remoteLibraryVideoId,
+            clientFileId = file.clientFileId,
+            fileName = file.fileName,
+            platform = platform,
+            action = ACTION_DISCARD,
+        )
+        val updated = file.copy(platformsDiscarded = file.platformsDiscarded + platform, updatedAt = Instant.now())
+        fileDao.update(updated.toEntity())
+        updated
+    }
+
     // Link manual de un archivo local -- identidad desde cache, base N/A (los
     // links no llevan baseVersion). El registro de historial (record-publish)
     // ya no se dispara acá: el manual-platform-link ES el registro causal (ver

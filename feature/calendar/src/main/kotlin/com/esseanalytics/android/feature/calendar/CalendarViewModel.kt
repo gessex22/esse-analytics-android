@@ -21,6 +21,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -141,6 +142,8 @@ class CalendarViewModel @Inject constructor(
     private var calendarDataSession: ThumbnailSession? = null
     private var thumbnailCacheNamespace: String = UUID.randomUUID().toString()
     private var thumbnailGeneration = 0L
+    private var calendarLoadGeneration = 0L
+    private var calendarLoadJob: Job? = null
     private var selectedPublishedDay: LocalDate? = null
     private var visiblePublishedEvents: List<UploadHistoryItemDto> = emptyList()
     private val fileStatsCache = mutableMapOf<FileStatsCacheKey, GroupStatsItemDto?>()
@@ -172,7 +175,9 @@ class CalendarViewModel @Inject constructor(
     }
 
     private fun load(force: Boolean) {
-        viewModelScope.launch {
+        val generation = ++calendarLoadGeneration
+        calendarLoadJob?.cancel()
+        calendarLoadJob = viewModelScope.launch {
             val requestingSession = tokenStore.currentSession()?.toThumbnailSession()
             // Ver comentario igual en DashboardViewModel.refresh().
             val previous = _uiState.value as? CalendarUiState.Success
@@ -188,12 +193,14 @@ class CalendarViewModel @Inject constructor(
                 // historial real.
                 val history = runCatching { syncApi.getHistory(limit = 60, offset = 0) }
                     .getOrNull()?.items ?: previous?.data?.history ?: emptyList()
-                if (tokenStore.currentSession()?.toThumbnailSession() != requestingSession) return@launch
+                currentCoroutineContext().ensureActive()
+                if (generation != calendarLoadGeneration || tokenStore.currentSession()?.toThumbnailSession() != requestingSession) return@launch
                 calendarDataSession = requestingSession
                 _publishedThumbnailRevision.value += 1
                 CalendarUiState.Success(CalendarUiData(slots, history))
             } catch (e: Exception) {
-                if (tokenStore.currentSession()?.toThumbnailSession() != requestingSession) return@launch
+                if (e is CancellationException) throw e
+                if (generation != calendarLoadGeneration || tokenStore.currentSession()?.toThumbnailSession() != requestingSession) return@launch
                 // Boundary real: llamada a la central, puede fallar por red,
                 // rol sin permiso (varios endpoints de /api/sync/* son
                 // todopoderoso-only), o estar caída. Con datos previos:
@@ -202,7 +209,7 @@ class CalendarViewModel @Inject constructor(
                 val message = e.message ?: "No se pudo cargar el calendario."
                 previous?.copy(isRefreshing = false, refreshError = message) ?: CalendarUiState.Error(message)
             } finally {
-                refreshTracker.setRefreshing("calendar", false)
+                if (generation == calendarLoadGeneration) refreshTracker.setRefreshing("calendar", false)
             }
         }
     }
@@ -228,6 +235,9 @@ class CalendarViewModel @Inject constructor(
     }
 
     private fun onThumbnailSessionChanged(session: ThumbnailSession?) {
+        calendarLoadGeneration += 1
+        calendarLoadJob?.cancel()
+        refreshTracker.setRefreshing("calendar", false)
         val oldJobs: List<Job>
         val oldStats: List<Deferred<GroupStatsItemDto>>
         synchronized(thumbnailLock) {

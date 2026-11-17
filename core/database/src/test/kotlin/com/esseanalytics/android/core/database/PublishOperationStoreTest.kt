@@ -110,7 +110,7 @@ class PublishOperationStoreTest {
                 // esperado
             }
             try {
-                store.startNewAttempt(u, s, p, "op-nuevo")
+                store.startNewAttempt(u, s, p, op)
                 fail("startNewAttempt con partes vacías no debe aplicar")
             } catch (e: IllegalArgumentException) {
                 // esperado
@@ -229,7 +229,7 @@ class PublishOperationStoreTest {
             userKey, "cfid-A", youtube,
         )
         assertEquals(PublishOperationEntity.PHASE_SESSION_CREATED, s1.phase)
-        assertEquals(100, s1.ytTotalBytes)
+        assertEquals(100L, s1.ytTotalBytes)
 
         val s2 = store.checkpointYouTube(YouTubeUploadCheckpoint.Progress(40), userKey, "cfid-A", youtube)
         assertEquals(40, s2.ytBytesConfirmed)
@@ -564,7 +564,7 @@ class PublishOperationStoreTest {
         assertFalse(reanudada.ytFinalChunkSent)
         // Sesión, total y operationId se conservan intactos.
         assertEquals("https://upload.googleapis.com/s1", reanudada.ytSessionURL)
-        assertEquals(100, reanudada.ytTotalBytes)
+        assertEquals(100L, reanudada.ytTotalBytes)
         assertEquals("op-1", reanudada.operationId)
         assertEquals(reanudada, dao.rows.single())
 

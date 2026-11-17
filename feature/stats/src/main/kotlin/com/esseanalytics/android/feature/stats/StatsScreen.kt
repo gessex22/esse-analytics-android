@@ -158,7 +158,7 @@ private fun MetricCards(items: List<GroupStatsItemDto>, active: StatsMetric, onS
 }
 @Composable
 private fun PlatformDonut(items: List<GroupStatsItemDto>, metric: StatsMetric) {
-    val sums = statsPlatforms.associateWith { p -> items.filter { it.metricsAvailable != false }.mapNotNull { it.platforms[p] }.takeIf { it.isNotEmpty() }?.sumOf { it.value(metric) } }
+    val sums = statsPlatforms.associateWith { p -> items.filter { it.metricsAvailable != false }.mapNotNull { it.platforms[p] }.takeIf { it.isNotEmpty() }?.map { it.value(metric) }?.takeIf { values -> values.none { it == null } }?.sumOf { it!! } }
     val total = sums.values.filterNotNull().takeIf { it.isNotEmpty() }?.sum()
     val colors = statsPlatforms.map { platformColor(it) }
     val track = MaterialTheme.colorScheme.surfaceVariant

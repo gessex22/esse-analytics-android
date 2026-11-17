@@ -7,5 +7,6 @@ internal interface VideoDetailEditor {
     val isSaving: StateFlow<Boolean>
     val errorMessage: StateFlow<String?>
     fun togglePlatform(platform: Platform)
+    fun discardPending(platform: Platform)
     fun saveLink(platform: Platform, rawUrl: String)
 }

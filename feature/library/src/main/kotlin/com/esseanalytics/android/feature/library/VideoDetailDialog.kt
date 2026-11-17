@@ -60,6 +60,7 @@ internal fun VideoDetailDialog(
     stateFor: (Platform) -> PlatformBadgeState,
     hasLink: (Platform) -> Boolean,
     onToggle: (Platform) -> Unit,
+    onDiscardPending: (Platform) -> Unit,
     onEditLink: (Platform) -> Unit,
     errorMessage: String?,
     actions: @Composable () -> Unit,
@@ -88,6 +89,7 @@ internal fun VideoDetailDialog(
                     stateFor = stateFor,
                     hasLink = hasLink,
                     onToggle = onToggle,
+                    onDiscardPending = onDiscardPending,
                     onEditLink = onEditLink,
                     errorMessage = errorMessage,
                     actions = actions,
@@ -112,6 +114,7 @@ internal fun VideoDetailStudioContent(
     stateFor: (Platform) -> PlatformBadgeState,
     hasLink: (Platform) -> Boolean,
     onToggle: (Platform) -> Unit,
+    onDiscardPending: (Platform) -> Unit = {},
     onEditLink: (Platform) -> Unit,
     errorMessage: String?,
     actions: @Composable () -> Unit,
@@ -195,7 +198,7 @@ internal fun VideoDetailStudioContent(
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)), shape = RoundedCornerShape(18.dp)) {
                         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("Estado por plataforma", style = MaterialTheme.typography.titleMedium.copy(fontFamily = CreatorSerif, fontWeight = FontWeight.Bold))
-                            itemsPlatformRows(stateFor, hasLink, onToggle, onEditLink)
+                            itemsPlatformRows(stateFor, hasLink, onToggle, onDiscardPending, onEditLink)
                         }
                     }
                 }
@@ -220,9 +223,10 @@ private fun itemsPlatformRows(
     stateFor: (Platform) -> PlatformBadgeState,
     hasLink: (Platform) -> Boolean,
     onToggle: (Platform) -> Unit,
+    onDiscardPending: (Platform) -> Unit,
     onEditLink: (Platform) -> Unit,
 ) {
     Platform.publishable.forEach { platform ->
-        VideoDetailPlatformRow(platform, stateFor(platform), hasLink(platform), { onToggle(platform) }, { onEditLink(platform) })
+        VideoDetailPlatformRow(platform, stateFor(platform), hasLink(platform), { onToggle(platform) }, { onDiscardPending(platform) }, { onEditLink(platform) })
     }
 }

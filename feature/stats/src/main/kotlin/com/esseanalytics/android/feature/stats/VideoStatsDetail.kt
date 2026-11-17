@@ -2,6 +2,7 @@ package com.esseanalytics.android.feature.stats
 
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -38,7 +39,9 @@ fun VideoStatsDetailScreen(selection: VideoStatsSelection, onBack: () -> Unit, m
                     state.item?.let { item ->
                         StatsCard {
                             VideoThumbnail(item, viewModel.thumbnail(item), Modifier.fillMaxWidth().height((LocalConfiguration.current.screenHeightDp * .26f).coerceIn(88f,220f).dp))
-                            Text(item.displayTitle, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                            SelectionContainer {
+                                Text(item.displayTitle, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                            }
                             Text(dateLabel(item.fecha_creacion), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             MetricTotals(item, delta = true)
                         }

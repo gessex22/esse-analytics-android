@@ -51,6 +51,7 @@ fun LanVideoDetailSheet(
         },
         hasLink = { links.urlFor(it.apiValue) != null },
         onToggle = viewModel::togglePlatform,
+        onDiscardPending = viewModel::discardPending,
         onEditLink = { platform ->
             linkEditorText = viewModel.existingLink(platform) ?: ""
             linkEditorPlatform = platform
